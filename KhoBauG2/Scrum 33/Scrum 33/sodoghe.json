@@ -1,0 +1,41 @@
+{
+  "status": "success",
+  "message": "Lấy sơ đồ ghế thành công",
+  "data": {
+    "showtimeId": "ST-20260526-001",
+    "movieName": "Làng Trùng Tang",
+    "room": {
+      "roomId": "ROOM_01",
+      "roomName": "Phòng 1 (IMAX)",
+      "totalRows": 10,
+      "totalColumns": 12
+    },
+    "seats": [
+      {
+        "seatId": "SEAT_A1",
+        "row": "A",
+        "column": 1,
+        "type": "NORMAL", 
+        "price": 80000,
+        "status": "AVAILABLE" 
+      },
+      {
+        "seatId": "SEAT_A2",
+        "row": "A",
+        "column": 2,
+        "type": "VIP",
+        "price": 100000,
+        "status": "BOOKED" 
+      },
+      {
+        "seatId": "SEAT_A3",
+        "row": "A",
+        "column": 3,
+        "type": "SWEETBOX",
+        "price": 180000,
+        "status": "HOLDING" 
+      }
+      // ... Frontend sẽ lặp qua mảng này để vẽ UI
+    ]
+  }
+}

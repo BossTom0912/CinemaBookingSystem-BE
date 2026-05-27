@@ -1,0 +1,36 @@
+namespace CinemaSystem.Application.Common;
+
+public static class AuthConstants
+{
+    public static class Roles
+    {
+        public const string Customer = "Customer";
+        public const string Staff = "Staff";
+        public const string Manager = "Manager";
+        public const string Admin = "Admin";
+    }
+
+    public static class RoleIds
+    {
+        public const string Customer = "ROLE_CUSTOMER";
+        public const string Staff = "ROLE_STAFF";
+        public const string Manager = "ROLE_MANAGER";
+        public const string Admin = "ROLE_ADMIN";
+    }
+
+    public static class Policies
+    {
+        public const string CanBookTicket = "CanBookTicket";
+        public const string CanScanTicket = "CanScanTicket";
+        public const string CanManageShowtime = "CanManageShowtime";
+        public const string CanManageSystem = "CanManageSystem";
+    }
+
+    public static class UserStatus
+    {
+        public const string PendingVerification = "PENDING_VERIFICATION";
+        public const string Active = "ACTIVE";
+        public const string Inactive = "INACTIVE";
+        public const string Banned = "BANNED";
+    }
+}
