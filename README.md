@@ -1,82 +1,147 @@
-# CinemaBookingSystem-BE
+﻿# CinemaBookingSystem-BE
 
 ASP.NET Core Web API backend for the Online Movie Ticket Booking and Management System.
 
-## Architecture
+## Project Structure
 
-This backend follows a Clean Architecture-style structure in ASP.NET Core.
+- `CinemaSystem`: API layer, controllers, middleware, Swagger, auth configuration, DI entry point
+- `CinemaSystem.Application`: use case contracts, service interfaces, application constants
+- `CinemaSystem.Contracts`: request/response DTOs and shared API response models
+- `CinemaSystem.Domain`: domain entities, enums, business rules, constants, exceptions
+- `CinemaSystem.Infrastructure`: EF Core, SQL Server, JWT, SMTP email, password/OTP hashing, external services
+- `CinemaSystem.Tests`: focused backend tests
+- `KhoBauG2`: project documents and database scripts
 
-## Projects
+## After Cloning
 
-- CinemaSystem: API layer
-- CinemaSystem.Application: use cases, service contracts, application constants
-- CinemaSystem.Domain: entities, enums, business rules, exceptions
-- CinemaSystem.Infrastructure: EF Core, SQL Server, JWT, SMTP email, security services
-- CinemaSystem.Contracts: request/response models and shared API response
+Clone the repository:
 
-## Prerequisites
+```powershell
+git clone https://github.com/BossTom0912/CinemaBookingSystem-BE.git
+cd CinemaBookingSystem-BE
+```
 
-- .NET SDK compatible with the project target framework
-- SQL Server
-- Gmail app password for SMTP OTP email, stored locally only
-
-## Configuration
-
-Do not commit real secrets.
-
-Local developers can copy:
+Create a local development settings file:
 
 ```powershell
 Copy-Item CinemaSystem/appsettings.Development.example.json CinemaSystem/appsettings.Development.json
 ```
 
-Then update `CinemaSystem/appsettings.Development.json` locally:
+Open this file:
 
-- `ConnectionStrings:DefaultConnection`
-- `JwtSettings:Secret`
-- `EmailSettings:SenderEmail`
-- `EmailSettings:Password`
+```text
+CinemaSystem/appsettings.Development.json
+```
 
-Production and shared environments should use user secrets, environment variables, or deployment secrets.
+Update the local SQL Server connection string:
 
-## How to run
+```json
+"ConnectionStrings": {
+  "DefaultConnection": "Server=localhost;Database=CinemaBookingDB;User Id=sa;Password=12345;TrustServerCertificate=True;"
+}
+```
+
+Update Gmail SMTP settings if you need to test OTP email:
+
+```json
+"EmailSettings": {
+  "SmtpHost": "smtp.gmail.com",
+  "SmtpPort": 587,
+  "SenderEmail": "your-email@gmail.com",
+  "SenderName": "Cinema Booking System",
+  "Password": "your-gmail-app-password"
+}
+```
+
+Do not commit real passwords, Gmail app passwords, JWT secrets, or production connection strings.
+
+## Database Setup
+
+1. Open SQL Server.
+2. Run this script to create the database:
+
+```text
+KhoBauG2/DB_CinemaBookingDB.txt
+```
+
+3. Confirm your local connection string points to `CinemaBookingDB`.
+
+## Build And Test
+
+Run from the repository root:
 
 ```powershell
 dotnet restore
 dotnet build CinemaSystem.slnx
+dotnet test CinemaSystem.slnx
+```
+
+## Run API
+
+```powershell
 dotnet run --project CinemaSystem
 ```
 
-Swagger:
+Swagger will be available at:
 
 ```text
 https://localhost:<port>/swagger
 ```
 
-## Health Check
+Health check:
 
-GET `/api/health`
+```text
+GET /api/health
+```
 
-## Database Test
+Database connection test:
 
-GET `/api/db-test/movies-count`
+```text
+GET /api/db-test/movies-count
+```
 
-If this endpoint returns a movie count, the API is connected to SQL Server successfully.
+## Team Git Workflow
 
-## Database Setup
+Use `main` for stable code only. Do not push directly to `main` unless the team agrees.
 
-This project uses SQL Server and EF Core Database First.
+Before starting work:
 
-1. Run `DB_CinemaBookingDB.txt` in SQL Server to create `CinemaBookingDB`.
-2. Update the local connection string in `CinemaSystem/appsettings.Development.json`.
-3. Run the API project.
-4. Open Swagger and test `/api/db-test/movies-count`.
+```powershell
+git checkout main
+git pull origin main
+```
 
-## Git Workflow
+Create a feature branch:
 
-- GitHub repository name: `CinemaBookingSystem-BE`
-- Keep the repository private for the team.
-- Use `main` for stable code.
-- Create feature branches such as `feature/auth-register`.
-- Merge through pull requests.
-- Protect `main` with pull request review before merging.
+```powershell
+git checkout -b feature/your-feature-name
+```
+
+After making changes:
+
+```powershell
+dotnet build CinemaSystem.slnx
+dotnet test CinemaSystem.slnx
+git status
+git add .
+git commit -m "Describe your change"
+git push -u origin feature/your-feature-name
+```
+
+Then create a Pull Request on GitHub to merge into `main`.
+
+## Files That Must Not Be Committed
+
+These should stay local only:
+
+- `CinemaSystem/appsettings.Development.json`
+- `.env`
+- `.env.*`
+- `bin/`
+- `obj/`
+- `.vs/`
+- real SMTP passwords
+- real JWT secrets
+- real production connection strings
+
+Use `appsettings.Development.example.json` as the template for local setup.
