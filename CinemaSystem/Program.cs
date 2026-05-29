@@ -11,6 +11,17 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReactFE", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173") // Cổng chạy Vite React của bạn
+              .AllowAnyMethod()                     // Cho phép GET, POST, OPTIONS, PUT, DELETE
+              .AllowAnyHeader()                     // Cho phép mọi Header truyền lên
+              .AllowCredentials();                  // Cho phép truyền cookie/token nếu cần
+    });
+});
+
 builder.Services.AddControllers();
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
@@ -109,6 +120,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseHttpsRedirection();
+
+app.UseCors("AllowReactFE");
 
 app.UseAuthentication();
 app.UseAuthorization();
