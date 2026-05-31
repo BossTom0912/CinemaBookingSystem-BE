@@ -1,11 +1,15 @@
 using System.Text;
 using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
-using CinemaSystem.Middlewares;
+using CinemaSystem.Data;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Extensions;
+using CinemaSystem.Middlewares;
+using CinemaSystem.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
@@ -60,6 +64,31 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
+var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
+if (useMockEmail)
+{
+    builder.Services.RemoveAll<IEmailSender>();
+    builder.Services.AddScoped<IEmailSender, MockEmailService>();
+    builder.Services.AddScoped<IEmailService, MockEmailService>();
+}
+else
+{
+    builder.Services.AddScoped<IEmailService, SmtpEmailServiceAdapter>();
+}
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("DevCors", policy =>
+        {
+            policy.AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        });
+    });
+}
+
 var jwtSettings = new JwtSettings
 {
     Issuer = builder.Configuration["JwtSettings:Issuer"] ?? "CinemaSystem",
@@ -105,6 +134,19 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseCors("DevCors");
+
+    try
+    {
+        await DbInitializer.SeedAsync(app.Services, app.Environment);
+    }
+    catch (Exception ex)
+    {
+        var seedLogger = app.Services
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Program");
+        seedLogger.LogWarning(ex, "Database seeding skipped because the database is unavailable.");
+    }
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
