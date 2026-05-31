@@ -5,6 +5,7 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
@@ -24,6 +25,7 @@ public sealed class AuthService : IAuthService
     private readonly IJwtTokenService _jwtTokenService;
     private readonly IClock _clock;
     private readonly JwtSettings _jwtSettings;
+    private readonly bool _autoConfirmEmail;
 
     public AuthService(
         CinemaDbContext dbContext,
@@ -32,7 +34,8 @@ public sealed class AuthService : IAuthService
         IEmailSender emailSender,
         IJwtTokenService jwtTokenService,
         IClock clock,
-        IOptions<JwtSettings> jwtOptions)
+        IOptions<JwtSettings> jwtOptions,
+        IConfiguration? configuration = null)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
@@ -41,6 +44,9 @@ public sealed class AuthService : IAuthService
         _jwtTokenService = jwtTokenService;
         _clock = clock;
         _jwtSettings = jwtOptions.Value;
+        _autoConfirmEmail = bool.TryParse(
+            configuration?["EmailSettings:AutoConfirmEmail"],
+            out var autoConfirmEmail) && autoConfirmEmail;
     }
 
     public async Task<ServiceResult<object>> RegisterCustomerAsync(RegisterRequest request, CancellationToken cancellationToken)
@@ -88,6 +94,22 @@ public sealed class AuthService : IAuthService
             RewardPoints = 0
         };
 
+        _dbContext.Users.Add(user);
+        _dbContext.CustomerProfiles.Add(customerProfile);
+
+        if (_autoConfirmEmail)
+        {
+            user.EmailVerified = true;
+            user.Status = AuthConstants.UserStatus.Active;
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<object>.Ok(
+                new { email = normalizedEmail },
+                "Registration successful. Email auto-confirmed for development.",
+                201);
+        }
+
         var otp = _otpGenerator.GenerateSixDigitOtp();
         var verificationToken = new EmailVerificationToken
         {
@@ -100,8 +122,6 @@ public sealed class AuthService : IAuthService
             Purpose = EmailVerificationPurpose
         };
 
-        _dbContext.Users.Add(user);
-        _dbContext.CustomerProfiles.Add(customerProfile);
         _dbContext.EmailVerificationTokens.Add(verificationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -181,7 +201,7 @@ public sealed class AuthService : IAuthService
             return ServiceResult<AuthResponse>.Fail(401, "Invalid email or password.", "INVALID_CREDENTIALS");
         }
 
-        if (!user.EmailVerified)
+        if (!_autoConfirmEmail && !user.EmailVerified)
         {
             return ServiceResult<AuthResponse>.Fail(403, "Email has not been verified.", "EMAIL_NOT_VERIFIED");
         }
@@ -418,11 +438,6 @@ public sealed class AuthService : IAuthService
             return ServiceResult<object>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
-        if (!user.EmailVerified)
-        {
-            return ServiceResult<object>.Fail(403, "Email has not been verified.", "EMAIL_NOT_VERIFIED");
-        }
-
         if (user.Status != AuthConstants.UserStatus.Active)
         {
             return ServiceResult<object>.Fail(403, "Account is not active.", "ACCOUNT_NOT_ACTIVE");
@@ -452,6 +467,15 @@ public sealed class AuthService : IAuthService
         token.VerifiedAt = _clock.UtcNow;
         user.PasswordHash = _passwordHasher.HashSecret(request.NewPassword);
         user.UpdatedAt = _clock.UtcNow;
+
+        if (!user.EmailVerified)
+        {
+            user.EmailVerified = true;
+            if (user.Status == AuthConstants.UserStatus.PendingVerification)
+            {
+                user.Status = AuthConstants.UserStatus.Active;
+            }
+        }
 
         var activeRefreshTokens = await _dbContext.RefreshTokens
             .Where(item => item.UserId == user.UserId && !item.IsRevoked)
