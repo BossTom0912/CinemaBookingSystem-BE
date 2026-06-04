@@ -575,8 +575,8 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("transactionCode");
             entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
 
-            entity.HasOne(d => d.Booking).WithOne(p => p.Payment)
-                .HasForeignKey<Payment>(d => d.BookingId)
+            entity.HasOne(d => d.Booking).WithMany(p => p.Payments)
+                .HasForeignKey(d => d.BookingId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_PAYMENT_BOOKING");
 

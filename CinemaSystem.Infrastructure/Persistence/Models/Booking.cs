@@ -39,7 +39,7 @@ public partial class Booking
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
-    public virtual Payment? Payment { get; set; }
+    public virtual ICollection<Payment> Payments { get; set; } = new List<Payment>();
 
     public virtual ICollection<Refund> Refunds { get; set; } = new List<Refund>();
 

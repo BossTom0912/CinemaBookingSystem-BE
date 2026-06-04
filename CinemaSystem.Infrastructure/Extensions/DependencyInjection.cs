@@ -1,10 +1,14 @@
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Auth;
+using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
+using CinemaSystem.Infrastructure.Services;
+using CinemaSystem.Infrastructure.Showtimes;
 using CinemaSystem.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -41,6 +45,10 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICinemaService, CinemaService>();
+        services.AddScoped<ISeatService, SeatService>();
+        services.AddScoped<IRoomService, RoomService>();
+        services.AddScoped<IShowtimeService, ShowtimeService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
