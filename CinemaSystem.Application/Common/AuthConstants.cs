@@ -20,9 +20,25 @@ public static class AuthConstants
 
     public static class Policies
     {
+        public const string CanViewMoviesAndShowtimes = "CanViewMoviesAndShowtimes";
+        public const string CanRegisterOrLogin = "CanRegisterOrLogin";
         public const string CanBookTicket = "CanBookTicket";
+        public const string CanSelectSeat = "CanSelectSeat";
+        public const string CanBuyFoodAndBeverageInCheckout = "CanBuyFoodAndBeverageInCheckout";
+        public const string CanApplyVoucher = "CanApplyVoucher";
+        public const string CanPayOnline = "CanPayOnline";
+        public const string CanViewBookingHistory = "CanViewBookingHistory";
+        public const string CanReviewAndFeedback = "CanReviewAndFeedback";
         public const string CanScanTicket = "CanScanTicket";
+        public const string CanManageMovie = "CanManageMovie";
+        public const string CanManageCinemaRoomSeat = "CanManageCinemaRoomSeat";
         public const string CanManageShowtime = "CanManageShowtime";
+        public const string CanManageFoodAndBeverage = "CanManageFoodAndBeverage";
+        public const string CanManageVoucher = "CanManageVoucher";
+        public const string CanCancelShowtimeAndRefund = "CanCancelShowtimeAndRefund";
+        public const string CanViewBranchDashboard = "CanViewBranchDashboard";
+        public const string CanViewSystemDashboard = "CanViewSystemDashboard";
+        public const string CanManageUserAndRole = "CanManageUserAndRole";
         public const string CanManageSystem = "CanManageSystem";
     }
 

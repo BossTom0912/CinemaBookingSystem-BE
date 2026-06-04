@@ -13,7 +13,7 @@ namespace CinemaSystem.Controllers;
 
 [ApiController]
 [Route("api/admin")]
-[Authorize(Roles = AuthConstants.Roles.Admin)]
+[Authorize(Policy = AuthConstants.Policies.CanManageUserAndRole)]
 public sealed class AdminController : ControllerBase
 {
     private const int InvitationTokenExpiryMinutes = 60;

@@ -9,7 +9,6 @@ namespace CinemaSystem.Controllers;
 
 [ApiController]
 [Route("api/seats")]
-[Authorize(Roles = AuthConstants.Roles.Staff)]
 public sealed class SeatsController : ControllerBase
 {
     private readonly ISeatService _seatService;
@@ -26,7 +25,7 @@ public sealed class SeatsController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>List of seats for the room.</returns>
     [HttpGet("room/{roomId}")]
-    [AllowAnonymous]
+    [Authorize(Policy = AuthConstants.Policies.CanSelectSeat)]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<SeatResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status500InternalServerError)]
@@ -45,6 +44,7 @@ public sealed class SeatsController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of seats updated.</returns>
     [HttpPost("batch-update-status")]
+    [Authorize(Policy = AuthConstants.Policies.CanManageCinemaRoomSeat)]
     [ProducesResponseType(typeof(ApiResponse<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]

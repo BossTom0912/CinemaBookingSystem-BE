@@ -9,7 +9,7 @@ namespace CinemaSystem.Controllers;
 
 [ApiController]
 [Route("api/admin")]
-[Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
+[Authorize(Policy = AuthConstants.Policies.CanManageCinemaRoomSeat)]
 public sealed class RoomsController : ControllerBase
 {
     private readonly IRoomService _roomService;
