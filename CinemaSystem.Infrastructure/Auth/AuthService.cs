@@ -14,7 +14,10 @@ namespace CinemaSystem.Infrastructure.Auth;
 
 public sealed class AuthService : IAuthService
 {
-    private const int OtpExpiryMinutes = 10;
+    private const int OtpExpirySeconds = 120;
+    private const int OtpResendCooldownSeconds = 60;
+    private const int OtpMaxSendAttempts = 5;
+    private const int OtpSendLockHours = 2;
     private const string EmailVerificationPurpose = "EMAIL_VERIFICATION";
     private const string PasswordResetPurpose = "PASSWORD_RESET";
 
@@ -52,14 +55,6 @@ public sealed class AuthService : IAuthService
     public async Task<ServiceResult<object>> RegisterCustomerAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var duplicateEmail = await _dbContext.Users
-            .AnyAsync(user => user.Email == normalizedEmail, cancellationToken);
-
-        if (duplicateEmail)
-        {
-            return ServiceResult<object>.Fail(409, "Email already exists.", "DUPLICATE_EMAIL");
-        }
-
         var passwordValidationError = ValidatePassword(request.Password);
         if (passwordValidationError is not null)
         {
@@ -67,6 +62,37 @@ public sealed class AuthService : IAuthService
         }
 
         var now = _clock.UtcNow;
+        var existingUser = await _dbContext.Users
+            .Include(user => user.Role)
+            .FirstOrDefaultAsync(user => user.Email == normalizedEmail, cancellationToken);
+
+        if (existingUser is not null)
+        {
+            var canUpdatePendingRegistration =
+                existingUser.Role.RoleName == AuthConstants.Roles.Customer &&
+                !existingUser.EmailVerified &&
+                existingUser.Status == AuthConstants.UserStatus.PendingVerification;
+
+            if (!canUpdatePendingRegistration)
+            {
+                return ServiceResult<object>.Fail(409, "Email already exists.", "DUPLICATE_EMAIL");
+            }
+
+            if (!_passwordHasher.VerifySecret(request.Password, existingUser.PasswordHash))
+            {
+                return ServiceResult<object>.Fail(
+                    409,
+                    "A pending registration already exists for this email. Use the original password to update it.",
+                    "PENDING_REGISTRATION_EXISTS");
+            }
+
+            return await UpdatePendingCustomerRegistrationAsync(
+                existingUser,
+                request,
+                now,
+                cancellationToken);
+        }
+
         var customerRole = await GetOrCreateRoleAsync(
             AuthConstants.RoleIds.Customer,
             AuthConstants.Roles.Customer,
@@ -117,9 +143,10 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(OtpExpiryMinutes),
+            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
             IsUsed = false,
-            Purpose = EmailVerificationPurpose
+            Purpose = EmailVerificationPurpose,
+            AttemptCount = 1
         };
 
         _dbContext.EmailVerificationTokens.Add(verificationToken);
@@ -137,7 +164,12 @@ public sealed class AuthService : IAuthService
         }
 
         return ServiceResult<object>.Ok(
-            new { email = normalizedEmail, expiresAt = verificationToken.ExpiredAt },
+            new
+            {
+                email = normalizedEmail,
+                expiresAt = verificationToken.ExpiredAt,
+                attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
+            },
             "Registration successful. Please verify your email with the OTP sent to your inbox.",
             201);
     }
@@ -317,6 +349,17 @@ public sealed class AuthService : IAuthService
         }
 
         var now = _clock.UtcNow;
+        var latestToken = await _dbContext.EmailVerificationTokens
+            .Where(item => item.UserId == user.UserId && item.Purpose == EmailVerificationPurpose)
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        var sendPolicyFailure = GetOtpSendPolicyFailure(latestToken, now);
+
+        if (sendPolicyFailure is not null)
+        {
+            return sendPolicyFailure;
+        }
+
         var oldTokens = await _dbContext.EmailVerificationTokens
             .Where(item => item.UserId == user.UserId && item.Purpose == EmailVerificationPurpose && !item.IsUsed)
             .ToListAsync(cancellationToken);
@@ -333,9 +376,10 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(OtpExpiryMinutes),
+            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
             IsUsed = false,
-            Purpose = EmailVerificationPurpose
+            Purpose = EmailVerificationPurpose,
+            AttemptCount = GetNextOtpAttemptCount(latestToken, now)
         };
 
         _dbContext.EmailVerificationTokens.Add(verificationToken);
@@ -352,7 +396,12 @@ public sealed class AuthService : IAuthService
         }
 
         return ServiceResult<object>.Ok(
-            new { email = normalizedEmail, expiresAt = verificationToken.ExpiredAt },
+            new
+            {
+                email = normalizedEmail,
+                expiresAt = verificationToken.ExpiredAt,
+                attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
+            },
             "Verification OTP resent successfully.");
     }
 
@@ -364,9 +413,7 @@ public sealed class AuthService : IAuthService
 
         if (user is null)
         {
-            return ServiceResult<object>.Ok(
-                new { email = normalizedEmail },
-                "If the email exists and is active, a password reset OTP will be sent.");
+            return ServiceResult<object>.Fail(404, "Email is not registered.", "EMAIL_NOT_REGISTERED");
         }
 
         if (!user.EmailVerified)
@@ -380,6 +427,17 @@ public sealed class AuthService : IAuthService
         }
 
         var now = _clock.UtcNow;
+        var latestToken = await _dbContext.EmailVerificationTokens
+            .Where(item => item.UserId == user.UserId && item.Purpose == PasswordResetPurpose)
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        var sendPolicyFailure = GetOtpSendPolicyFailure(latestToken, now);
+
+        if (sendPolicyFailure is not null)
+        {
+            return sendPolicyFailure;
+        }
+
         var oldTokens = await _dbContext.EmailVerificationTokens
             .Where(item => item.UserId == user.UserId && item.Purpose == PasswordResetPurpose && !item.IsUsed)
             .ToListAsync(cancellationToken);
@@ -396,9 +454,10 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(OtpExpiryMinutes),
+            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
             IsUsed = false,
-            Purpose = PasswordResetPurpose
+            Purpose = PasswordResetPurpose,
+            AttemptCount = GetNextOtpAttemptCount(latestToken, now)
         };
 
         _dbContext.EmailVerificationTokens.Add(resetToken);
@@ -417,7 +476,12 @@ public sealed class AuthService : IAuthService
         }
 
         return ServiceResult<object>.Ok(
-            new { email = normalizedEmail, expiresAt = resetToken.ExpiredAt },
+            new
+            {
+                email = normalizedEmail,
+                expiresAt = resetToken.ExpiredAt,
+                attemptsRemaining = OtpMaxSendAttempts - resetToken.AttemptCount
+            },
             "Password reset OTP sent successfully.");
     }
 
@@ -490,6 +554,174 @@ public sealed class AuthService : IAuthService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<object>.Ok(new { email = normalizedEmail }, "Password reset successfully.");
+    }
+
+    private async Task<ServiceResult<object>> UpdatePendingCustomerRegistrationAsync(
+        User user,
+        RegisterRequest request,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        user.FullName = request.FullName.Trim();
+        user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+        user.UpdatedAt = now;
+
+        if (_autoConfirmEmail)
+        {
+            user.EmailVerified = true;
+            user.Status = AuthConstants.UserStatus.Active;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<object>.Ok(
+                new { email = user.Email },
+                "Registration information updated. Email auto-confirmed for development.");
+        }
+
+        var latestToken = await _dbContext.EmailVerificationTokens
+            .Where(item => item.UserId == user.UserId && item.Purpose == EmailVerificationPurpose)
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (latestToken is not null && !latestToken.IsUsed && latestToken.ExpiredAt > now)
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<object>.Ok(
+                new
+                {
+                    email = user.Email,
+                    expiresAt = latestToken.ExpiredAt,
+                    attemptsRemaining = OtpMaxSendAttempts - GetEffectiveOtpAttemptCount(latestToken)
+                },
+                "Registration information updated. Use the OTP already sent to your email.");
+        }
+
+        var sendPolicyFailure = GetOtpSendPolicyFailure(latestToken, now);
+        if (sendPolicyFailure is not null)
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return sendPolicyFailure;
+        }
+
+        var oldTokens = await _dbContext.EmailVerificationTokens
+            .Where(item => item.UserId == user.UserId && item.Purpose == EmailVerificationPurpose && !item.IsUsed)
+            .ToListAsync(cancellationToken);
+
+        foreach (var oldToken in oldTokens)
+        {
+            oldToken.IsUsed = true;
+        }
+
+        var otp = _otpGenerator.GenerateSixDigitOtp();
+        var verificationToken = new EmailVerificationToken
+        {
+            TokenId = NewId("EVT"),
+            UserId = user.UserId,
+            Token = _passwordHasher.HashSecret(otp),
+            CreatedAt = now,
+            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
+            IsUsed = false,
+            Purpose = EmailVerificationPurpose,
+            AttemptCount = GetNextOtpAttemptCount(latestToken, now)
+        };
+
+        _dbContext.EmailVerificationTokens.Add(verificationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var emailResult = await TrySendVerificationOtpEmailAsync(
+            user.Email,
+            otp,
+            verificationToken.ExpiredAt,
+            cancellationToken);
+        if (!emailResult.Success)
+        {
+            verificationToken.IsUsed = true;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return emailResult;
+        }
+
+        return ServiceResult<object>.Ok(
+            new
+            {
+                email = user.Email,
+                expiresAt = verificationToken.ExpiredAt,
+                attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
+            },
+            "Registration information updated. A new OTP was sent to your email.");
+    }
+
+    private static ServiceResult<object>? GetOtpSendPolicyFailure(
+        EmailVerificationToken? latestToken,
+        DateTime now)
+    {
+        if (latestToken is null)
+        {
+            return null;
+        }
+
+        if (GetEffectiveOtpAttemptCount(latestToken) >= OtpMaxSendAttempts)
+        {
+            var unlockAt = latestToken.CreatedAt.AddHours(OtpSendLockHours);
+            if (unlockAt > now)
+            {
+                return CreateOtpRateLimitFailure(
+                    "OTP send limit reached. Please try again later.",
+                    "OTP_SEND_LIMIT_REACHED",
+                    unlockAt,
+                    now);
+            }
+        }
+
+        var resendAvailableAt = latestToken.CreatedAt.AddSeconds(OtpResendCooldownSeconds);
+        if (resendAvailableAt > now)
+        {
+            return CreateOtpRateLimitFailure(
+                "Please wait before requesting another OTP.",
+                "OTP_RESEND_COOLDOWN",
+                resendAvailableAt,
+                now);
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<object> CreateOtpRateLimitFailure(
+        string message,
+        string errorCode,
+        DateTime retryAt,
+        DateTime now)
+    {
+        var retryAfterSeconds = Math.Max(1, (int)Math.Ceiling((retryAt - now).TotalSeconds));
+
+        return ServiceResult<object>.Fail(
+            429,
+            message,
+            errorCode,
+            new Dictionary<string, string[]>
+            {
+                ["retryAfterSeconds"] = [retryAfterSeconds.ToString()]
+            });
+    }
+
+    private static int GetNextOtpAttemptCount(EmailVerificationToken? latestToken, DateTime now)
+    {
+        if (latestToken is null)
+        {
+            return 1;
+        }
+
+        if (GetEffectiveOtpAttemptCount(latestToken) >= OtpMaxSendAttempts &&
+            latestToken.CreatedAt.AddHours(OtpSendLockHours) <= now)
+        {
+            return 1;
+        }
+
+        return GetEffectiveOtpAttemptCount(latestToken) + 1;
+    }
+
+    private static int GetEffectiveOtpAttemptCount(EmailVerificationToken token)
+    {
+        return Math.Max(1, token.AttemptCount);
     }
 
     private async Task<Role> GetOrCreateRoleAsync(
