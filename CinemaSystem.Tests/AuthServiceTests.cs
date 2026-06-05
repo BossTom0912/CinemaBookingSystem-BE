@@ -40,7 +40,37 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
-    public async Task RegisterDuplicateActiveEmail_ReturnsConflict()
+    public async Task RegisterPendingEmail_UsesExistingOtpWithoutUpdatingAccount()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+
+        var result = await fixture.Service.RegisterCustomerAsync(
+            new RegisterRequest
+            {
+                Email = "alice@example.com",
+                Password = "DifferentPassword1",
+                FullName = "Alice Updated",
+                PhoneNumber = "0911111111"
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(200, result.StatusCode);
+        var user = await fixture.DbContext.Users.SingleAsync();
+        Assert.Equal("Alice Nguyen", user.FullName);
+        Assert.Equal("0900000000", user.PhoneNumber);
+        Assert.True(fixture.PasswordHasher.VerifySecret("Password1", user.PasswordHash));
+        Assert.False(fixture.PasswordHasher.VerifySecret("DifferentPassword1", user.PasswordHash));
+
+        var token = Assert.Single(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+        Assert.Equal("EMAIL_VERIFICATION", token.Purpose);
+        Assert.False(token.IsUsed);
+        Assert.Single(fixture.EmailSender.SentEmails);
+    }
+
+    [Fact]
+    public async Task RegisterVerifiedEmail_ReturnsConflict()
     {
         var fixture = TestFixture.Create();
         await fixture.CreateVerifiedCustomerAsync();
@@ -167,7 +197,7 @@ public sealed class AuthServiceTests
     {
         var fixture = TestFixture.Create();
         await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
-        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(11);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddSeconds(121);
 
         var result = await fixture.Service.VerifyEmailAsync(
             new VerifyEmailRequest { Email = "alice@example.com", Otp = "123456" },
@@ -220,6 +250,51 @@ public sealed class AuthServiceTests
         Assert.False(result.Success);
         Assert.Equal(409, result.StatusCode);
         Assert.Equal("EMAIL_ALREADY_VERIFIED", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResendVerificationOtp_EnforcesCooldownAndFiveSendLimit()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+
+        var cooldownResult = await fixture.Service.ResendVerificationOtpAsync(
+            new ResendVerificationOtpRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(cooldownResult.Success);
+        Assert.Equal(429, cooldownResult.StatusCode);
+        Assert.Equal("OTP_RESEND_COOLDOWN", cooldownResult.ErrorCode);
+
+        for (var attempt = 2; attempt <= 5; attempt++)
+        {
+            fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddSeconds(61);
+            var resendResult = await fixture.Service.ResendVerificationOtpAsync(
+                new ResendVerificationOtpRequest { Email = "alice@example.com" },
+                CancellationToken.None);
+
+            Assert.True(resendResult.Success);
+        }
+
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddSeconds(61);
+        var limitedResult = await fixture.Service.ResendVerificationOtpAsync(
+            new ResendVerificationOtpRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(limitedResult.Success);
+        Assert.Equal(429, limitedResult.StatusCode);
+        Assert.Equal("OTP_SEND_LIMIT_REACHED", limitedResult.ErrorCode);
+
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddHours(2);
+        var unlockedResult = await fixture.Service.ResendVerificationOtpAsync(
+            new ResendVerificationOtpRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.True(unlockedResult.Success);
+        var latestToken = await fixture.DbContext.EmailVerificationTokens
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstAsync();
+        Assert.Equal(1, latestToken.AttemptCount);
     }
 
     [Fact]
@@ -394,6 +469,24 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task ForgotPassword_EnforcesCooldown()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.CreateVerifiedCustomerAsync();
+        await fixture.Service.ForgotPasswordAsync(
+            new ForgotPasswordRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        var result = await fixture.Service.ForgotPasswordAsync(
+            new ForgotPasswordRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(429, result.StatusCode);
+        Assert.Equal("OTP_RESEND_COOLDOWN", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task ForgotPassword_UnknownEmail_ReturnsNotFoundAndDoesNotCreateOtp()
     {
         var fixture = TestFixture.Create();
@@ -493,7 +586,7 @@ public sealed class AuthServiceTests
         await fixture.Service.ForgotPasswordAsync(
             new ForgotPasswordRequest { Email = "alice@example.com" },
             CancellationToken.None);
-        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(11);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddSeconds(121);
 
         var result = await fixture.Service.ResetPasswordAsync(
             new ResetPasswordRequest
