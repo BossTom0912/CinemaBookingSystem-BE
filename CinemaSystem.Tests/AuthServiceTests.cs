@@ -40,16 +40,40 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
-    public async Task RegisterDuplicateEmail_ReturnsConflict()
+    public async Task RegisterDuplicateActiveEmail_ReturnsConflict()
     {
         var fixture = TestFixture.Create();
-        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+        await fixture.CreateVerifiedCustomerAsync();
 
         var result = await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(409, result.StatusCode);
         Assert.Equal("DUPLICATE_EMAIL", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RegisterDuplicatePendingEmail_ResendsVerificationOtpWithoutCreatingNewUser()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(1);
+
+        var result = await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(2, fixture.EmailSender.SentEmails.Count);
+        Assert.Single(await fixture.DbContext.Users.ToListAsync());
+        Assert.Single(await fixture.DbContext.CustomerProfiles.ToListAsync());
+
+        var tokens = await fixture.DbContext.EmailVerificationTokens
+            .OrderBy(item => item.CreatedAt)
+            .ToListAsync();
+        Assert.Equal(2, tokens.Count);
+        Assert.All(tokens, token => Assert.Equal("EMAIL_VERIFICATION", token.Purpose));
+        Assert.True(tokens[0].IsUsed);
+        Assert.False(tokens[1].IsUsed);
     }
 
     [Fact]
@@ -365,11 +389,12 @@ public sealed class AuthServiceTests
         Assert.Equal("alice@example.com", sentEmail.ToEmail);
         Assert.Equal("Cinema Booking - Password Reset", sentEmail.Subject);
         Assert.Contains("123456", sentEmail.Body, StringComparison.Ordinal);
-        Assert.Single(await fixture.DbContext.EmailVerificationTokens.Where(item => !item.IsUsed).ToListAsync());
+        var token = Assert.Single(await fixture.DbContext.EmailVerificationTokens.Where(item => !item.IsUsed).ToListAsync());
+        Assert.Equal("PASSWORD_RESET", token.Purpose);
     }
 
     [Fact]
-    public async Task ForgotPassword_UnknownEmail_DoesNotSendEmailAndStillReturnsSuccess()
+    public async Task ForgotPassword_UnknownEmail_ReturnsNotFoundAndDoesNotCreateOtp()
     {
         var fixture = TestFixture.Create();
 
@@ -377,8 +402,32 @@ public sealed class AuthServiceTests
             new ForgotPasswordRequest { Email = "missing@example.com" },
             CancellationToken.None);
 
-        Assert.True(result.Success);
+        Assert.False(result.Success);
+        Assert.Equal(404, result.StatusCode);
+        Assert.Equal("USER_NOT_FOUND", result.ErrorCode);
         Assert.Empty(fixture.EmailSender.SentEmails);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ForgotPassword_UnverifiedEmail_ReturnsForbiddenAndDoesNotCreatePasswordResetOtp()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+
+        var result = await fixture.Service.ForgotPasswordAsync(
+            new ForgotPasswordRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(403, result.StatusCode);
+        Assert.Equal("EMAIL_NOT_VERIFIED", result.ErrorCode);
+        Assert.Single(fixture.EmailSender.SentEmails);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens
+            .Where(item => item.Purpose == "PASSWORD_RESET")
+            .ToListAsync());
+        var verificationToken = Assert.Single(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+        Assert.Equal("EMAIL_VERIFICATION", verificationToken.Purpose);
     }
 
     [Fact]

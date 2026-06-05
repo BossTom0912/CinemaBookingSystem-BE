@@ -52,11 +52,20 @@ public sealed class AuthService : IAuthService
     public async Task<ServiceResult<object>> RegisterCustomerAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var duplicateEmail = await _dbContext.Users
-            .AnyAsync(user => user.Email == normalizedEmail, cancellationToken);
+        var existingUser = await _dbContext.Users
+            .FirstOrDefaultAsync(user => user.Email == normalizedEmail, cancellationToken);
 
-        if (duplicateEmail)
+        if (existingUser is not null)
         {
+            if (!existingUser.EmailVerified && existingUser.Status == AuthConstants.UserStatus.PendingVerification)
+            {
+                return await SendVerificationOtpAsync(
+                    existingUser,
+                    normalizedEmail,
+                    "Account is pending email verification. A new verification OTP has been sent.",
+                    cancellationToken);
+            }
+
             return ServiceResult<object>.Fail(409, "Email already exists.", "DUPLICATE_EMAIL");
         }
 
@@ -316,6 +325,19 @@ public sealed class AuthService : IAuthService
             return ServiceResult<object>.Fail(409, "Email is already verified.", "EMAIL_ALREADY_VERIFIED");
         }
 
+        return await SendVerificationOtpAsync(
+            user,
+            normalizedEmail,
+            "Verification OTP resent successfully.",
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<object>> SendVerificationOtpAsync(
+        User user,
+        string normalizedEmail,
+        string successMessage,
+        CancellationToken cancellationToken)
+    {
         var now = _clock.UtcNow;
         var oldTokens = await _dbContext.EmailVerificationTokens
             .Where(item => item.UserId == user.UserId && item.Purpose == EmailVerificationPurpose && !item.IsUsed)
@@ -348,12 +370,14 @@ public sealed class AuthService : IAuthService
             cancellationToken);
         if (!emailResult.Success)
         {
+            verificationToken.IsUsed = true;
+            await _dbContext.SaveChangesAsync(cancellationToken);
             return emailResult;
         }
 
         return ServiceResult<object>.Ok(
             new { email = normalizedEmail, expiresAt = verificationToken.ExpiredAt },
-            "Verification OTP resent successfully.");
+            successMessage);
     }
 
     public async Task<ServiceResult<object>> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken)
@@ -364,9 +388,7 @@ public sealed class AuthService : IAuthService
 
         if (user is null)
         {
-            return ServiceResult<object>.Ok(
-                new { email = normalizedEmail },
-                "If the email exists and is active, a password reset OTP will be sent.");
+            return ServiceResult<object>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
         if (!user.EmailVerified)
