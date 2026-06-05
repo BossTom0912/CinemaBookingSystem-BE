@@ -74,6 +74,7 @@ public partial class CinemaDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // ChangeRequest workflow removed - direct CRUD used instead
         modelBuilder.Entity<AuditLog>(entity =>
         {
             entity.HasKey(e => e.AuditLogId).HasName("PK__AUDIT_LO__56A1B857E9725B26");
@@ -904,7 +905,14 @@ public partial class CinemaDbContext : DbContext
             entity.HasIndex(e => e.MovieId, "IX_SHOWTIME_MOVIE_ID");
 
             entity.HasIndex(e => new { e.RoomId, e.StartTime, e.EndTime }, "IX_SHOWTIME_ROOM_TIME");
-
+            entity.HasIndex(
+        e => new
+        {
+            e.RoomId,
+            e.StartTime
+        },
+        "UQ_SHOWTIME_ROOM_STARTTIME")
+    .IsUnique();
             entity.Property(e => e.ShowtimeId)
                 .HasMaxLength(50)
                 .HasColumnName("showtimeId");

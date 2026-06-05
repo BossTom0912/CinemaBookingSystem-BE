@@ -8,8 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CinemaSystem.Controllers;
 
 [ApiController]
-[Route("api/admin/showtimes")]
-[Authorize(Policy = AuthConstants.Policies.CanManageShowtime)]
+[Route("api/showtimes")]
 public sealed class ShowtimesController : ControllerBase
 {
     private readonly IShowtimeService _showtimeService;
@@ -20,6 +19,7 @@ public sealed class ShowtimesController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff + "," + AuthConstants.Roles.Customer)]
     public async Task<IActionResult> GetShowtimes(CancellationToken cancellationToken)
     {
         var result = await _showtimeService.GetShowtimesAsync(cancellationToken);
@@ -27,6 +27,7 @@ public sealed class ShowtimesController : ControllerBase
     }
 
     [HttpGet("{showtimeId}")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff + "," + AuthConstants.Roles.Customer)]
     public async Task<IActionResult> GetShowtimeById(string showtimeId, CancellationToken cancellationToken)
     {
         var result = await _showtimeService.GetShowtimeByIdAsync(showtimeId, cancellationToken);
@@ -34,6 +35,7 @@ public sealed class ShowtimesController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> CreateShowtime(
         CreateShowtimeRequest request,
         CancellationToken cancellationToken)
@@ -43,6 +45,7 @@ public sealed class ShowtimesController : ControllerBase
     }
 
     [HttpPut("{showtimeId}")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> UpdateShowtime(
         string showtimeId,
         UpdateShowtimeRequest request,
@@ -53,6 +56,7 @@ public sealed class ShowtimesController : ControllerBase
     }
 
     [HttpDelete("{showtimeId}")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> DeleteShowtime(string showtimeId, CancellationToken cancellationToken)
     {
         var result = await _showtimeService.DeleteShowtimeAsync(showtimeId, cancellationToken);

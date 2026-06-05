@@ -46,9 +46,23 @@ public static class DependencyInjection
 
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICinemaService, CinemaService>();
+        var redisConnectionString = configuration["Redis:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(redisConnectionString))
+        {
+            services.AddSingleton<ISeatLockStore, InMemorySeatLockStore>();
+        }
+        else
+        {
+            services.AddSingleton<ISeatLockStore>(
+                new RedisSeatLockStore(redisConnectionString));
+        }
+
         services.AddScoped<ISeatService, SeatService>();
+        services.AddScoped<SeatService>();
         services.AddScoped<IRoomService, RoomService>();
+        services.AddScoped<RoomService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
+        services.AddScoped<ShowtimeService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();

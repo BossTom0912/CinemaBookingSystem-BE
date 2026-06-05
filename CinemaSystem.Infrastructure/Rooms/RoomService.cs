@@ -3,6 +3,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Rooms;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Persistence.Models;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Rooms;
@@ -25,11 +26,56 @@ public sealed class RoomService : IRoomService
     {
         _dbContext = dbContext;
     }
+    public async Task<ServiceResult<RoomResponse>> CreateRoomAsync(
+    string cinemaId,
+    CreateRoomRequest request,
+    CancellationToken cancellationToken)
+    {
+        var roomStatus = NormalizeStatus(request.RoomStatus);
 
+        if (!ValidRoomStatuses.Contains(roomStatus))
+        {
+            return ServiceResult<RoomResponse>.Fail(
+                400,
+                "Room status is invalid.",
+                "INVALID_ROOM_STATUS");
+        }
+
+        var cinema = await _dbContext.Cinemas
+            .FirstOrDefaultAsync(
+                x => x.CinemaId == cinemaId,
+                cancellationToken);
+
+        if (cinema == null)
+        {
+            return ServiceResult<RoomResponse>.Fail(
+                404,
+                "Cinema not found.",
+                "CINEMA_NOT_FOUND");
+        }
+
+        // create room immediately
+        var roomId = NewId("ROOM");
+        var room = new Room
+        {
+            RoomId = roomId,
+            CinemaId = cinemaId,
+            RoomName = request.RoomName.Trim(),
+            Capacity = request.Capacity,
+            RoomStatus = roomStatus
+        };
+
+        _dbContext.Rooms.Add(room);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var response = ToResponse(room);
+        return ServiceResult<RoomResponse>.Ok(response, "Room created successfully.", 201);
+    }
     public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(CancellationToken cancellationToken)
     {
         var rooms = await _dbContext.Rooms
             .AsNoTracking()
+            .Where(room => room.RoomStatus != "INACTIVE")
             .Include(room => room.Cinema)
             .Include(room => room.Seats)
             .OrderBy(room => room.Cinema.CinemaName)
@@ -41,8 +87,8 @@ public sealed class RoomService : IRoomService
     }
 
     public async Task<ServiceResult<RoomResponse>> GetRoomByIdAsync(
-        string roomId,
-        CancellationToken cancellationToken)
+    string roomId,
+    CancellationToken cancellationToken)
     {
         var room = await _dbContext.Rooms
             .AsNoTracking()
@@ -52,68 +98,113 @@ public sealed class RoomService : IRoomService
 
         if (room is null)
         {
-            return ServiceResult<RoomResponse>.Fail(404, "Room was not found.", "ROOM_NOT_FOUND");
+            return ServiceResult<RoomResponse>.Fail(
+                404,
+                "Room was not found.",
+                "ROOM_NOT_FOUND");
         }
 
-        return ServiceResult<RoomResponse>.Ok(ToResponse(room), "Room retrieved successfully.");
-    }
-
-    public async Task<ServiceResult<RoomResponse>> CreateRoomAsync(
-        string cinemaId,
-        CreateRoomRequest request,
-        CancellationToken cancellationToken)
-    {
-        var roomStatus = NormalizeStatus(request.RoomStatus);
-        if (!ValidRoomStatuses.Contains(roomStatus))
-        {
-            return ServiceResult<RoomResponse>.Fail(400, "Room status is invalid.", "INVALID_ROOM_STATUS");
-        }
-
-        var cinema = await _dbContext.Cinemas
-            .FirstOrDefaultAsync(item => item.CinemaId == cinemaId, cancellationToken);
-        if (cinema is null)
-        {
-            return ServiceResult<RoomResponse>.Fail(404, "Cinema was not found.", "CINEMA_NOT_FOUND");
-        }
-
-        if (!string.Equals(cinema.CinemaStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
-        {
-            return ServiceResult<RoomResponse>.Fail(400, "Cinema is not active.", "CINEMA_NOT_ACTIVE");
-        }
-
-        var normalizedRoomName = request.RoomName.Trim();
-        var duplicatedName = await _dbContext.Rooms.AnyAsync(
-            item => item.CinemaId == cinemaId && item.RoomName == normalizedRoomName,
-            cancellationToken);
-        if (duplicatedName)
+        if (string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<RoomResponse>.Fail(
-                409,
-                "Room name already exists in this cinema.",
-                "DUPLICATE_ROOM_NAME");
+                404,
+                "Room was not found.",
+                "ROOM_NOT_FOUND");
         }
 
-        var room = new Room
-        {
-            RoomId = NewId("ROOM"),
-            CinemaId = cinemaId,
-            RoomName = normalizedRoomName,
-            Capacity = request.Capacity,
-            RoomStatus = roomStatus
-        };
-
-        var seatType = await GetOrCreateDefaultSeatTypeAsync(cancellationToken);
-        var seats = GenerateSeats(room.RoomId, seatType.SeatTypeId, request.Capacity, request.SeatsPerRow);
-
-        _dbContext.Rooms.Add(room);
-        await _dbContext.Seats.AddRangeAsync(seats, cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        room.Cinema = cinema;
-        room.Seats = seats;
-
-        return ServiceResult<RoomResponse>.Ok(ToResponse(room), "Room created and seats generated successfully.");
+        return ServiceResult<RoomResponse>.Ok(
+            ToResponse(room),
+            "Room retrieved successfully.");
     }
+    public async Task<ServiceResult<object>> GenerateSeatsAsync(
+    string roomId,
+    GenerateSeatsRequest request,
+    CancellationToken cancellationToken)
+    {
+        if (request.Rows <= 0)
+        {
+            return ServiceResult<object>.Fail(
+                400,
+                "Rows must be greater than zero.",
+                "INVALID_ROWS");
+        }
+
+        if (request.Columns <= 0)
+        {
+            return ServiceResult<object>.Fail(
+                400,
+                "Columns must be greater than zero.",
+                "INVALID_COLUMNS");
+        }
+
+        if (request.Rows * request.Columns > 500)
+        {
+            return ServiceResult<object>.Fail(
+                400,
+                "Total seats cannot exceed 500.",
+                "CAPACITY_EXCEEDED");
+        }
+        var room = await _dbContext.Rooms
+            .Include(x => x.Seats)
+            .FirstOrDefaultAsync(
+                x => x.RoomId == roomId,
+                cancellationToken);
+
+        if (room == null)
+        {
+            return ServiceResult<object>.Fail(
+                404,
+                "Room not found.",
+                "ROOM_NOT_FOUND");
+        }
+
+        if (room.Seats.Any())
+        {
+            return ServiceResult<object>.Fail(
+                409,
+                "Room already has seats.",
+                "ROOM_HAS_SEATS");
+        }
+
+        var seats = new List<Seat>();
+
+        for (int row = 0; row < request.Rows; row++)
+        {
+            var rowLabel = ((char)('A' + row)).ToString();
+
+            for (int col = 1; col <= request.Columns; col++)
+            {
+                seats.Add(new Seat
+                {
+                    SeatId = NewId("SEAT"),
+                    RoomId = roomId,
+                    SeatTypeId = request.SeatTypeId,
+                    RowLabel = rowLabel,
+                    SeatNumber = col,
+                    SeatCode = $"{rowLabel}{col}",
+                    IsActive = true
+                });
+            }
+        }
+
+        await _dbContext.Seats.AddRangeAsync(
+            seats,
+            cancellationToken);
+
+        room.Capacity = seats.Count;
+
+        await _dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return ServiceResult<object>.Ok(
+            new
+            {
+                RoomId = roomId,
+                TotalSeats = seats.Count
+            },
+            "Seats generated successfully.");
+    }
+
 
     public async Task<ServiceResult<RoomResponse>> UpdateRoomAsync(
         string roomId,
@@ -135,12 +226,28 @@ public sealed class RoomService : IRoomService
             return ServiceResult<RoomResponse>.Fail(404, "Room was not found.", "ROOM_NOT_FOUND");
         }
 
-        var normalizedRoomName = request.RoomName.Trim();
+        if (string.IsNullOrWhiteSpace(request.RoomName))
+        {
+            return ServiceResult<RoomResponse>.Fail(
+                400,
+                "Room name is required.",
+                "ROOM_NAME_REQUIRED");
+        }
+
+        var normalizedRoomName = string.Join(
+            " ",
+            request.RoomName
+                .Trim()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
         var duplicatedName = await _dbContext.Rooms.AnyAsync(
-            item => item.RoomId != roomId
-                && item.CinemaId == room.CinemaId
-                && item.RoomName == normalizedRoomName,
+            item =>
+                item.RoomId != roomId &&
+                item.CinemaId == room.CinemaId &&
+                item.RoomName.ToUpper().Trim() ==
+                normalizedRoomName.ToUpper(),
             cancellationToken);
+
         if (duplicatedName)
         {
             return ServiceResult<RoomResponse>.Fail(
@@ -148,148 +255,69 @@ public sealed class RoomService : IRoomService
                 "Room name already exists in this cinema.",
                 "DUPLICATE_ROOM_NAME");
         }
+        if (request.Capacity <= 0)
+        {
+            return ServiceResult<RoomResponse>.Fail(
+                400,
+                "Capacity must be greater than zero.",
+                "INVALID_CAPACITY");
+        }
 
+        if (request.Capacity > 500)
+        {
+            return ServiceResult<RoomResponse>.Fail(
+                400,
+                "Capacity cannot exceed 500.",
+                "CAPACITY_EXCEEDED");
+        }
+        room.Capacity = request.Capacity;
+        if (room.Seats.Any()
+    && request.Capacity < room.Seats.Count)
+        {
+            return ServiceResult<RoomResponse>.Fail(
+                400,
+                "Capacity cannot be less than existing seat count.",
+                "INVALID_CAPACITY");
+        }
+
+        // apply update immediately
         room.RoomName = normalizedRoomName;
+        room.Capacity = request.Capacity;
         room.RoomStatus = roomStatus;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return ServiceResult<RoomResponse>.Ok(ToResponse(room), "Room updated successfully.");
+        var response = ToResponse(room);
+        return ServiceResult<RoomResponse>.Ok(response, "Room updated successfully.", 200);
     }
 
-    public async Task<ServiceResult<object>> DeleteRoomAsync(string roomId, CancellationToken cancellationToken)
+    public async Task<ServiceResult<object>> DeleteRoomAsync(
+    string roomId,
+    CancellationToken cancellationToken)
     {
         var room = await _dbContext.Rooms
-            .Include(item => item.Seats)
-            .Include(item => item.Showtimes)
-            .ThenInclude(item => item.Bookings)
-            .Include(item => item.Showtimes)
-            .ThenInclude(item => item.ShowtimeSeats)
-            .Include(item => item.Showtimes)
-            .ThenInclude(item => item.ShowtimeCancellation)
-            .ThenInclude(item => item!.Refunds)
             .FirstOrDefaultAsync(item => item.RoomId == roomId, cancellationToken);
+
         if (room is null)
         {
-            return ServiceResult<object>.Fail(404, "Room was not found.", "ROOM_NOT_FOUND");
-        }
-
-        if (room.Showtimes.Any(item => item.Bookings.Any()))
-        {
             return ServiceResult<object>.Fail(
-                409,
-                "Room has showtimes with bookings and cannot be permanently deleted.",
-                "RESOURCE_HAS_BOOKINGS");
+                404,
+                "Room was not found.",
+                "ROOM_NOT_FOUND");
         }
 
-        if (room.Showtimes.Any(item => item.ShowtimeCancellation?.Refunds.Any() == true))
-        {
-            return ServiceResult<object>.Fail(
-                409,
-                "Room has showtime refund history and cannot be permanently deleted.",
-                "RESOURCE_HAS_REFUNDS");
-        }
+        // delete (soft-delete) immediately
+        room.RoomStatus = "INACTIVE";
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var deletedSeats = room.Seats.Count;
-        var deletedShowtimes = room.Showtimes.Count;
-        var deletedShowtimeSeats = room.Showtimes.Sum(item => item.ShowtimeSeats.Count);
-        var showtimeCancellations = room.Showtimes
-            .Select(item => item.ShowtimeCancellation)
-            .OfType<ShowtimeCancellation>()
-            .ToList();
-
-        var transaction = _dbContext.Database.IsRelational()
-            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-
-        try
-        {
-            _dbContext.ShowtimeSeats.RemoveRange(room.Showtimes.SelectMany(item => item.ShowtimeSeats));
-            _dbContext.ShowtimeCancellations.RemoveRange(showtimeCancellations);
-            _dbContext.Showtimes.RemoveRange(room.Showtimes);
-            _dbContext.Seats.RemoveRange(room.Seats);
-            _dbContext.Rooms.Remove(room);
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            if (transaction is not null)
-            {
-                await transaction.CommitAsync(cancellationToken);
-            }
-        }
-        catch
-        {
-            if (transaction is not null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-            }
-
-            throw;
-        }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
-        }
-
-        return ServiceResult<object>.Ok(
-            new
-            {
-                roomId,
-                deleted = true,
-                deletedSeats,
-                deletedShowtimes,
-                deletedShowtimeSeats,
-                deletedShowtimeCancellations = showtimeCancellations.Count
-            },
-            "Room permanently deleted successfully.");
+        return ServiceResult<object>.Ok(new { RoomId = roomId, RoomStatus = room.RoomStatus }, "Room deactivated successfully.");
     }
 
-    private async Task<SeatType> GetOrCreateDefaultSeatTypeAsync(CancellationToken cancellationToken)
-    {
-        var seatType = await _dbContext.SeatTypes.FirstOrDefaultAsync(
-            item => item.SeatTypeId == DefaultSeatTypeId || item.TypeName == DefaultSeatTypeName,
-            cancellationToken);
-        if (seatType is not null)
-        {
-            return seatType;
-        }
+    // Apply* methods removed — direct CRUD used
 
-        seatType = new SeatType
-        {
-            SeatTypeId = DefaultSeatTypeId,
-            TypeName = DefaultSeatTypeName,
-            ExtraFee = 0
-        };
-        _dbContext.SeatTypes.Add(seatType);
-        return seatType;
-    }
 
-    private static List<Seat> GenerateSeats(string roomId, string seatTypeId, int capacity, int seatsPerRow)
-    {
-        var seats = new List<Seat>(capacity);
-        for (var index = 0; index < capacity; index++)
-        {
-            var rowIndex = index / seatsPerRow;
-            var seatNumber = (index % seatsPerRow) + 1;
-            var rowLabel = ToRowLabel(rowIndex);
 
-            seats.Add(new Seat
-            {
-                SeatId = NewId("SEAT"),
-                RoomId = roomId,
-                SeatTypeId = seatTypeId,
-                RowLabel = rowLabel,
-                SeatNumber = seatNumber,
-                SeatCode = $"{rowLabel}{seatNumber}",
-                IsActive = true
-            });
-        }
 
-        return seats;
-    }
 
     private static RoomResponse ToResponse(Room room)
     {
@@ -297,11 +325,11 @@ public sealed class RoomService : IRoomService
         {
             RoomId = room.RoomId,
             CinemaId = room.CinemaId,
-            CinemaName = room.Cinema.CinemaName,
+            CinemaName = room.Cinema?.CinemaName ?? string.Empty,
             RoomName = room.RoomName,
             Capacity = room.Capacity,
             RoomStatus = room.RoomStatus,
-            SeatCount = room.Seats.Count
+            SeatCount = room.Seats?.Count ?? 0
         };
     }
 

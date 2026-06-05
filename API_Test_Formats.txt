@@ -1,0 +1,351 @@
+CinemaSystem API test formats
+Base URL Swagger: https://localhost:7122
+
+Seeded login accounts:
+- Customer: customer@test.com / Test@123
+- Staff:    staff@test.com    / Test@123
+- Manager:  manager@test.com  / Test@123
+- Admin:    admin@test.com    / Test@123
+
+Seeded IDs:
+- cinemaId: CIN_TEST_ALL_ROLES
+- roomId: ROOM_TEST_A
+- movieId: MOV_TEST_ALL_ROLES
+- showtimeId: SHOW_TEST_20260610_1900
+- seatId: SEAT_TEST_A1
+- seatTypeId standard: SEAT_TYPE_STANDARD
+- seatTypeId vip: SEAT_TYPE_VIP
+
+Swagger auth:
+1. POST /api/auth/login
+2. Copy data.accessToken
+3. Click Authorize
+4. Paste token value into Bearer auth box
+
+============================================================
+AUTH
+============================================================
+
+POST /api/auth/register
+Role: AllowAnonymous
+Body:
+{
+  "email": "newcustomer@test.com",
+  "password": "Test@123",
+  "fullName": "New Customer",
+  "phoneNumber": "0900000099"
+}
+
+POST /api/auth/verify-email
+Role: AllowAnonymous
+Note: otp is from email/mock email/log depending config.
+Body:
+{
+  "email": "newcustomer@test.com",
+  "otp": "123456"
+}
+
+POST /api/auth/login
+Role: AllowAnonymous
+Body Customer:
+{
+  "email": "customer@test.com",
+  "password": "Test@123"
+}
+
+Body Staff:
+{
+  "email": "staff@test.com",
+  "password": "Test@123"
+}
+
+Body Manager:
+{
+  "email": "manager@test.com",
+  "password": "Test@123"
+}
+
+Body Admin:
+{
+  "email": "admin@test.com",
+  "password": "Test@123"
+}
+
+POST /api/auth/refresh-token
+Role: AllowAnonymous
+Body:
+{
+  "refreshToken": "PASTE_REFRESH_TOKEN_FROM_LOGIN_RESPONSE"
+}
+
+POST /api/auth/logout
+Role: AllowAnonymous
+Body:
+{
+  "refreshToken": "PASTE_REFRESH_TOKEN_FROM_LOGIN_RESPONSE"
+}
+
+POST /api/auth/resend-verification-otp
+Role: AllowAnonymous
+Body:
+{
+  "email": "pending@test.com"
+}
+
+POST /api/auth/forgot-password
+Role: AllowAnonymous
+Body:
+{
+  "email": "customer@test.com"
+}
+
+POST /api/auth/reset-password
+Role: AllowAnonymous
+Note: otp is from email/mock email/log depending config.
+Body:
+{
+  "email": "customer@test.com",
+  "otp": "123456",
+  "newPassword": "NewTest@123"
+}
+
+============================================================
+ADMIN
+============================================================
+
+POST /api/admin/staff
+Role: Admin only
+Authorize with: admin@test.com token
+Body:
+{
+  "email": "newstaff@test.com",
+  "fullName": "New Staff Test"
+}
+
+============================================================
+AUTH POLICY TEST
+============================================================
+
+GET /api/auth-test/customer
+Role: Customer only
+Authorize with: customer@test.com token
+Body: none
+
+GET /api/auth-test/admin
+Role: Admin only
+Authorize with: admin@test.com token
+Body: none
+
+============================================================
+CINEMAS / HEALTH / DB TEST
+============================================================
+
+GET /api/cinemas
+Role: AllowAnonymous
+Body: none
+
+GET /api/db-test/movies-count
+Role: AllowAnonymous
+Body: none
+
+GET /api/health
+Role: AllowAnonymous
+Body: none
+
+============================================================
+ROOMS
+============================================================
+
+GET /api/admin/rooms
+Role: Manager or Admin
+Authorize with: manager@test.com token or admin@test.com token
+Body: none
+
+GET /api/admin/rooms/{roomId}
+Example: GET /api/admin/rooms/ROOM_TEST_A
+Role: Manager or Admin
+Body: none
+
+POST /api/admin/cinemas/{cinemaId}/rooms
+Example: POST /api/admin/cinemas/CIN_TEST_ALL_ROLES/rooms
+Role: Manager or Admin
+Body:
+{
+  "roomName": "Room Test B",
+  "capacity": 20,
+  "roomStatus": "ACTIVE"
+}
+
+PUT /api/admin/rooms/{roomId}
+Example: PUT /api/admin/rooms/ROOM_TEST_A
+Role: Manager or Admin
+Body:
+{
+  "roomName": "Room Test A Updated",
+  "capacity": 12,
+  "roomStatus": "ACTIVE"
+}
+
+DELETE /api/admin/rooms/{roomId}
+Example: DELETE /api/admin/rooms/ROOM_TEST_A
+Role: Manager or Admin
+Body: none
+Warning: Current service soft-deletes room by setting roomStatus = INACTIVE.
+
+POST /api/admin/{roomId}/generate-seats
+Example: POST /api/admin/ROOM_TEST_B_ID/generate-seats
+Role: Manager or Admin
+Note: Use a newly created room that has no seats yet. Existing ROOM_TEST_A already has seats.
+Body:
+{
+  "rows": 4,
+  "columns": 5,
+  "seatTypeId": "SEAT_TYPE_STANDARD"
+}
+
+============================================================
+SEATS
+============================================================
+
+POST /api/seats
+Role: Manager only
+Authorize with: manager@test.com token
+Note: This creates a pending seat change request. Admin must approve it.
+Body:
+{
+  "roomId": "ROOM_TEST_A",
+  "rowLabel": "D",
+  "seatNumber": 1,
+  "seatTypeId": "SEAT_TYPE_STANDARD"
+}
+
+PUT /api/seats/{seatId}
+Example: PUT /api/seats/SEAT_TEST_A1
+Role: Manager only
+Note: This creates a pending seat update request. Admin must approve it.
+Body:
+{
+  "rowLabel": "A",
+  "seatNumber": 1,
+  "seatTypeId": "SEAT_TYPE_VIP"
+}
+
+DELETE /api/seats/{seatId}
+Example: DELETE /api/seats/SEAT_TEST_A2
+Role: Manager only
+Note: This creates a pending seat delete request. Admin must approve it.
+Body: none
+
+GET /api/seats/room/{roomId}
+Example: GET /api/seats/room/ROOM_TEST_A
+Role: Manager or Admin
+Body: none
+
+GET /api/seats/requests/pending
+Role: Admin only
+Authorize with: admin@test.com token
+Body: none
+
+POST /api/seats/requests/{requestId}/approve
+Role: Admin only
+Authorize with: admin@test.com token
+Note: Get requestId from GET /api/seats/requests/pending.
+Example: POST /api/seats/requests/PASTE_REQUEST_ID/approve
+Body: none
+
+POST /api/seats/requests/{requestId}/reject
+Role: Admin only
+Authorize with: admin@test.com token
+Note: Get requestId from GET /api/seats/requests/pending.
+Example: POST /api/seats/requests/PASTE_REQUEST_ID/reject
+Body:
+{
+  "reason": "Seat layout needs review."
+}
+
+POST /api/seats/lock
+Role: Customer only
+Authorize with: customer@test.com token
+Body:
+{
+  "showtimeId": "SHOW_TEST_20260610_1900",
+  "seatId": "SEAT_TEST_A1"
+}
+
+GET /api/seats/showtimes/{showtimeId}/map
+Example: GET /api/seats/showtimes/SHOW_TEST_20260610_1900/map
+Role: Customer, Manager, or Admin
+Body: none
+
+============================================================
+SHOWTIMES
+============================================================
+
+GET /api/admin/showtimes
+Role: Manager or Admin
+Authorize with: manager@test.com token or admin@test.com token
+Body: none
+
+GET /api/admin/showtimes/{showtimeId}
+Example: GET /api/admin/showtimes/SHOW_TEST_20260610_1900
+Role: Manager or Admin
+Body: none
+
+POST /api/admin/showtimes
+Role: Manager or Admin
+Note: startTime must not overlap an existing showtime in the same room.
+Body:
+{
+  "movieId": "MOV_TEST_ALL_ROLES",
+  "roomId": "ROOM_TEST_A",
+  "startTime": "2026-06-10T22:00:00Z",
+  "basePrice": 90000,
+  "status": "OPEN"
+}
+
+PUT /api/admin/showtimes/{showtimeId}
+Example: PUT /api/admin/showtimes/SHOW_TEST_20260610_1900
+Role: Manager or Admin
+Body:
+{
+  "movieId": "MOV_TEST_ALL_ROLES",
+  "roomId": "ROOM_TEST_A",
+  "startTime": "2026-06-10T19:00:00Z",
+  "basePrice": 95000,
+  "status": "OPEN"
+}
+
+DELETE /api/admin/showtimes/{showtimeId}
+Example: DELETE /api/admin/showtimes/SHOW_TEST_20260610_1900
+Role: Manager or Admin
+Body: none
+
+============================================================
+QUICK ROLE MATRIX
+============================================================
+
+Customer token:
+- GET /api/auth-test/customer
+- POST /api/seats/lock
+- GET /api/seats/showtimes/{showtimeId}/map
+
+Staff token:
+- Currently no listed endpoint is Staff-only in Swagger list.
+- Staff should fail Manager/Admin endpoints.
+
+Manager token:
+- Rooms endpoints
+- Showtimes endpoints
+- POST/PUT/DELETE /api/seats request endpoints
+- GET /api/seats/room/{roomId}
+- GET /api/seats/showtimes/{showtimeId}/map
+
+Admin token:
+- POST /api/admin/staff
+- GET /api/auth-test/admin
+- Rooms endpoints
+- Showtimes endpoints
+- GET /api/seats/room/{roomId}
+- GET /api/seats/requests/pending
+- POST /api/seats/requests/{requestId}/approve
+- POST /api/seats/requests/{requestId}/reject

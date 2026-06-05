@@ -83,68 +83,42 @@ public sealed class ShowtimeService : IShowtimeService
                 validation.ErrorCode!);
         }
 
-        var activeSeats = await _dbContext.Seats
+        var roomActiveSeats = await _dbContext.Seats
             .Where(item => item.RoomId == request.RoomId && item.IsActive)
             .OrderBy(item => item.RowLabel)
             .ThenBy(item => item.SeatNumber)
             .ToListAsync(cancellationToken);
-        if (activeSeats.Count == 0)
+        if (roomActiveSeats.Count == 0)
         {
             return ServiceResult<ShowtimeResponse>.Fail(400, "Room has no active seats.", "ROOM_HAS_NO_SEATS");
         }
 
-        var transaction = _dbContext.Database.IsRelational()
-            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-
-        try
+        // create showtime immediately
+        var showtimeId = NewId("SHW");
+        var showtime = new Showtime
         {
-            var showtime = new Showtime
-            {
-                ShowtimeId = NewId("SHW"),
-                MovieId = request.MovieId,
-                RoomId = request.RoomId,
-                StartTime = EnsureUtc(request.StartTime),
-                EndTime = validation.EndTime,
-                BasePrice = request.BasePrice,
-                Status = status,
-                CreatedAt = _clock.UtcNow
-            };
+            ShowtimeId = showtimeId,
+            MovieId = request.MovieId,
+            RoomId = request.RoomId,
+            StartTime = EnsureUtc(request.StartTime),
+            EndTime = validation.EndTime,
+            BasePrice = request.BasePrice,
+            Status = status,
+            CreatedAt = _clock.UtcNow
+        };
 
-            var showtimeSeats = activeSeats
-                .Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId))
-                .ToList();
+        var activeSeatsForShowtime = await _dbContext.Seats
+            .Where(item => item.RoomId == showtime.RoomId && item.IsActive)
+            .ToListAsync(cancellationToken);
 
-            _dbContext.Showtimes.Add(showtime);
-            await _dbContext.ShowtimeSeats.AddRangeAsync(showtimeSeats, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+        var showtimeSeats = activeSeatsForShowtime.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)).ToList();
 
-            if (transaction is not null)
-            {
-                await transaction.CommitAsync(cancellationToken);
-            }
+        _dbContext.Showtimes.Add(showtime);
+        await _dbContext.ShowtimeSeats.AddRangeAsync(showtimeSeats, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
-            var created = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
-            return ServiceResult<ShowtimeResponse>.Ok(
-                ToResponse(created!),
-                "Showtime created successfully.");
-        }
-        catch
-        {
-            if (transaction is not null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-            }
-
-            throw;
-        }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
-        }
+        var created = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(created!), "Showtime created successfully.", 201);
     }
 
     public async Task<ServiceResult<ShowtimeResponse>> UpdateShowtimeAsync(
@@ -167,6 +141,13 @@ public sealed class ShowtimeService : IShowtimeService
         }
 
         var status = NormalizeStatus(request.Status);
+        if (request.BasePrice <= 0)
+        {
+            return ServiceResult<ShowtimeResponse>.Fail(
+                400,
+                "Base price must be greater than zero.",
+                "INVALID_BASE_PRICE");
+        }
         if (!ValidShowtimeStatuses.Contains(status))
         {
             return ServiceResult<ShowtimeResponse>.Fail(400, "Showtime status is invalid.", "INVALID_SHOWTIME_STATUS");
@@ -187,6 +168,7 @@ public sealed class ShowtimeService : IShowtimeService
         }
 
         var roomChanged = !string.Equals(showtime.RoomId, request.RoomId, StringComparison.Ordinal);
+
         showtime.MovieId = request.MovieId;
         showtime.RoomId = request.RoomId;
         showtime.StartTime = EnsureUtc(request.StartTime);
@@ -196,105 +178,61 @@ public sealed class ShowtimeService : IShowtimeService
 
         if (roomChanged)
         {
-            var activeSeats = await _dbContext.Seats
+            var activeSeats2 = await _dbContext.Seats
                 .Where(item => item.RoomId == request.RoomId && item.IsActive)
                 .ToListAsync(cancellationToken);
-            if (activeSeats.Count == 0)
+            if (activeSeats2.Count == 0)
             {
                 return ServiceResult<ShowtimeResponse>.Fail(400, "Room has no active seats.", "ROOM_HAS_NO_SEATS");
             }
 
             _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
-            await _dbContext.ShowtimeSeats.AddRangeAsync(
-                activeSeats.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)),
-                cancellationToken);
+            await _dbContext.ShowtimeSeats.AddRangeAsync(activeSeats2.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)), cancellationToken);
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var updated = await LoadShowtimeAsync(showtimeId, tracking: false, cancellationToken);
-        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime updated successfully.");
+        var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime updated successfully.", 200);
     }
 
     public async Task<ServiceResult<object>> DeleteShowtimeAsync(string showtimeId, CancellationToken cancellationToken)
     {
-        var showtime = await _dbContext.Showtimes
-            .Include(item => item.Bookings)
-            .Include(item => item.ShowtimeSeats)
-            .Include(item => item.ShowtimeCancellation)
-            .ThenInclude(item => item!.Refunds)
-            .FirstOrDefaultAsync(item => item.ShowtimeId == showtimeId, cancellationToken);
-        if (showtime is null)
+        var existing = await _dbContext.Showtimes
+            .Include(s => s.Bookings)
+            .Include(s => s.ShowtimeSeats)
+            .Include(s => s.ShowtimeCancellation)
+            .ThenInclude(sc => sc!.Refunds)
+            .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
+        if (existing is null)
         {
             return ServiceResult<object>.Fail(404, "Showtime was not found.", "SHOWTIME_NOT_FOUND");
         }
 
-        if (showtime.Bookings.Any())
+        if (existing.Bookings.Any())
         {
-            return ServiceResult<object>.Fail(
-                409,
-                "Showtime has bookings and cannot be permanently deleted.",
-                "RESOURCE_HAS_BOOKINGS");
+            return ServiceResult<object>.Fail(409, "Showtime has bookings and cannot be permanently deleted.", "RESOURCE_HAS_BOOKINGS");
         }
 
-        if (showtime.ShowtimeCancellation?.Refunds.Any() == true)
+        if (existing.ShowtimeCancellation?.Refunds.Any() == true)
         {
-            return ServiceResult<object>.Fail(
-                409,
-                "Showtime has refund history and cannot be permanently deleted.",
-                "RESOURCE_HAS_REFUNDS");
+            return ServiceResult<object>.Fail(409, "Showtime has refund history and cannot be permanently deleted.", "RESOURCE_HAS_REFUNDS");
         }
 
-        var deletedShowtimeSeats = showtime.ShowtimeSeats.Count;
-        var deletedShowtimeCancellations = showtime.ShowtimeCancellation is null ? 0 : 1;
-        var transaction = _dbContext.Database.IsRelational()
-            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
-            : null;
+        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
 
-        try
+        if (existing.ShowtimeCancellation is not null)
         {
-            _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
-
-            if (showtime.ShowtimeCancellation is not null)
-            {
-                _dbContext.ShowtimeCancellations.Remove(showtime.ShowtimeCancellation);
-            }
-
-            _dbContext.Showtimes.Remove(showtime);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            if (transaction is not null)
-            {
-                await transaction.CommitAsync(cancellationToken);
-            }
-        }
-        catch
-        {
-            if (transaction is not null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-            }
-
-            throw;
-        }
-        finally
-        {
-            if (transaction is not null)
-            {
-                await transaction.DisposeAsync();
-            }
+            _dbContext.ShowtimeCancellations.Remove(existing.ShowtimeCancellation);
         }
 
-        return ServiceResult<object>.Ok(
-            new
-            {
-                showtimeId,
-                deleted = true,
-                deletedShowtimeSeats,
-                deletedShowtimeCancellations
-            },
-            "Showtime permanently deleted successfully.");
+        _dbContext.Showtimes.Remove(existing);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<object>.Ok(new { showtimeId = showtimeId, deleted = true }, "Showtime permanently deleted successfully.");
     }
+
+    // ChangeRequest based apply methods removed - CRUD operates directly
 
     private async Task<Showtime?> LoadShowtimeAsync(
         string showtimeId,
@@ -332,10 +270,15 @@ public sealed class ShowtimeService : IShowtimeService
             return ShowtimeValidationResult.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
 
-        if (string.Equals(movie.MovieStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(movie.AgeRating, "C", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(
+        movie.MovieStatus,
+        "NOW_SHOWING",
+        StringComparison.OrdinalIgnoreCase))
         {
-            return ShowtimeValidationResult.Fail(400, "Movie is not sellable.", "MOVIE_NOT_SELLABLE");
+            return ShowtimeValidationResult.Fail(
+                400,
+                "Movie is not available for showtimes.",
+                "MOVIE_NOT_SELLABLE");
         }
 
         var room = await _dbContext.Rooms
@@ -353,6 +296,13 @@ public sealed class ShowtimeService : IShowtimeService
         }
 
         var normalizedStartTime = EnsureUtc(startTime);
+        if (normalizedStartTime <= _clock.UtcNow)
+        {
+            return ShowtimeValidationResult.Fail(
+                400,
+                "Start time must be in the future.",
+                "INVALID_START_TIME");
+        }
         var endTime = normalizedStartTime.AddMinutes(movie.DurationMinutes + BufferMinutes);
         var hasOverlap = await _dbContext.Showtimes.AnyAsync(
             item => item.RoomId == roomId
@@ -380,11 +330,11 @@ public sealed class ShowtimeService : IShowtimeService
         {
             ShowtimeId = showtime.ShowtimeId,
             MovieId = showtime.MovieId,
-            MovieTitle = showtime.Movie.Title,
+            MovieTitle = showtime.Movie?.Title ?? string.Empty,
             RoomId = showtime.RoomId,
-            RoomName = showtime.Room.RoomName,
-            CinemaId = showtime.Room.CinemaId,
-            CinemaName = showtime.Room.Cinema.CinemaName,
+            RoomName = showtime.Room?.RoomName ?? string.Empty,
+            CinemaId = showtime.Room?.CinemaId ?? string.Empty,
+            CinemaName = showtime.Room?.Cinema?.CinemaName ?? string.Empty,
             StartTime = showtime.StartTime,
             EndTime = showtime.EndTime,
             BasePrice = showtime.BasePrice,
@@ -417,6 +367,7 @@ public sealed class ShowtimeService : IShowtimeService
     {
         var showtimeSeat = new ShowtimeSeat
         {
+
             ShowtimeSeatId = NewId("STS"),
             ShowtimeId = showtimeId,
             SeatId = seatId,

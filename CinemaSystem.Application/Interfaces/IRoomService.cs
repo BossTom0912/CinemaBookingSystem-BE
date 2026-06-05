@@ -7,6 +7,7 @@ public interface IRoomService
 {
     Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(CancellationToken cancellationToken);
 
+
     Task<ServiceResult<RoomResponse>> GetRoomByIdAsync(string roomId, CancellationToken cancellationToken);
 
     Task<ServiceResult<RoomResponse>> CreateRoomAsync(
@@ -20,4 +21,8 @@ public interface IRoomService
         CancellationToken cancellationToken);
 
     Task<ServiceResult<object>> DeleteRoomAsync(string roomId, CancellationToken cancellationToken);
+    Task<ServiceResult<object>> GenerateSeatsAsync(
+    string roomId,
+    GenerateSeatsRequest request,
+    CancellationToken cancellationToken);
 }

@@ -12,7 +12,7 @@ namespace CinemaSystem.Tests;
 public sealed class RoomShowtimeServiceTests
 {
     [Fact]
-    public async Task CreateRoom_GeneratesSeatsForCapacity()
+    public async Task CreateRoom_ThenGenerateSeats_CreatesSeatMap()
     {
         var fixture = Fixture.Create();
         await fixture.SeedCinemaAsync();
@@ -22,14 +22,34 @@ public sealed class RoomShowtimeServiceTests
             new CreateRoomRequest
             {
                 RoomName = "Room 1",
-                Capacity = 12,
-                SeatsPerRow = 5
+                Capacity = 12
             },
             CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(200, result.StatusCode);
-        Assert.Equal(12, result.Data!.SeatCount);
+        Assert.Equal(0, result.Data!.SeatCount);
+
+        fixture.DbContext.SeatTypes.Add(new SeatType
+        {
+            SeatTypeId = "SEAT_TYPE_STANDARD",
+            TypeName = "STANDARD",
+            ExtraFee = 0
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var generated = await fixture.RoomService.GenerateSeatsAsync(
+            result.Data.RoomId,
+            new GenerateSeatsRequest
+            {
+                Rows = 3,
+                Columns = 4,
+                SeatTypeId = "SEAT_TYPE_STANDARD"
+            },
+            CancellationToken.None);
+
+        Assert.True(generated.Success);
+        Assert.Equal(200, generated.StatusCode);
 
         var seats = await fixture.DbContext.Seats
             .OrderBy(item => item.RowLabel)
@@ -38,7 +58,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.Equal(12, seats.Count);
         Assert.Equal("A1", seats[0].SeatCode);
-        Assert.Equal("C2", seats[^1].SeatCode);
+        Assert.Equal("C4", seats[^1].SeatCode);
         Assert.Equal(1, await fixture.DbContext.SeatTypes.CountAsync());
     }
 
@@ -107,7 +127,7 @@ public sealed class RoomShowtimeServiceTests
     }
 
     [Fact]
-    public async Task DeleteRoom_RemovesRoomSeatsAndRelatedShowtimes()
+    public async Task DeleteRoom_DeactivatesRoomAndKeepsExistingData()
     {
         var fixture = Fixture.Create();
         await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
@@ -127,10 +147,14 @@ public sealed class RoomShowtimeServiceTests
         var deleted = await fixture.RoomService.DeleteRoomAsync("ROOM_TEST", CancellationToken.None);
 
         Assert.True(deleted.Success);
-        Assert.Equal(0, await fixture.DbContext.Rooms.CountAsync());
-        Assert.Equal(0, await fixture.DbContext.Seats.CountAsync());
-        Assert.Equal(0, await fixture.DbContext.Showtimes.CountAsync());
-        Assert.Equal(0, await fixture.DbContext.ShowtimeSeats.CountAsync());
+        Assert.Equal(1, await fixture.DbContext.Rooms.CountAsync());
+        Assert.Equal("INACTIVE", await fixture.DbContext.Rooms
+            .Where(item => item.RoomId == "ROOM_TEST")
+            .Select(item => item.RoomStatus)
+            .SingleAsync());
+        Assert.Equal(10, await fixture.DbContext.Seats.CountAsync());
+        Assert.Equal(1, await fixture.DbContext.Showtimes.CountAsync());
+        Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
     }
 
     private sealed class Fixture

@@ -15,6 +15,7 @@
     <Folder Include="Identity\" />
     <Folder Include="Email\" />
     <Folder Include="BackgroundJobs\" />
+    <Folder Include="Migrations\" />
     <Folder Include="QRCode\" />
     <Folder Include="Payment\" />
     <Folder Include="Persistence\Configurations\" />
