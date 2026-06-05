@@ -40,32 +40,7 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
-    public async Task RegisterPendingEmail_UpdatesDetailsAndKeepsExistingOtp()
-    {
-        var fixture = TestFixture.Create();
-        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
-
-        var result = await fixture.Service.RegisterCustomerAsync(
-            new RegisterRequest
-            {
-                Email = "alice@example.com",
-                Password = "Password1",
-                FullName = "Alice Updated",
-                PhoneNumber = "0911111111"
-            },
-            CancellationToken.None);
-
-        Assert.True(result.Success);
-        var user = await fixture.DbContext.Users.SingleAsync();
-        Assert.Equal("Alice Updated", user.FullName);
-        Assert.Equal("0911111111", user.PhoneNumber);
-        Assert.True(fixture.PasswordHasher.VerifySecret("Password1", user.PasswordHash));
-        Assert.Single(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
-        Assert.Single(fixture.EmailSender.SentEmails);
-    }
-
-    [Fact]
-    public async Task RegisterPendingEmail_WithDifferentPassword_ReturnsConflict()
+    public async Task RegisterPendingEmail_UsesExistingOtpWithoutUpdatingAccount()
     {
         var fixture = TestFixture.Create();
         await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
@@ -75,13 +50,23 @@ public sealed class AuthServiceTests
             {
                 Email = "alice@example.com",
                 Password = "DifferentPassword1",
-                FullName = "Alice Updated"
+                FullName = "Alice Updated",
+                PhoneNumber = "0911111111"
             },
             CancellationToken.None);
 
-        Assert.False(result.Success);
-        Assert.Equal(409, result.StatusCode);
-        Assert.Equal("PENDING_REGISTRATION_EXISTS", result.ErrorCode);
+        Assert.True(result.Success);
+        Assert.Equal(200, result.StatusCode);
+        var user = await fixture.DbContext.Users.SingleAsync();
+        Assert.Equal("Alice Nguyen", user.FullName);
+        Assert.Equal("0900000000", user.PhoneNumber);
+        Assert.True(fixture.PasswordHasher.VerifySecret("Password1", user.PasswordHash));
+        Assert.False(fixture.PasswordHasher.VerifySecret("DifferentPassword1", user.PasswordHash));
+
+        var token = Assert.Single(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+        Assert.Equal("EMAIL_VERIFICATION", token.Purpose);
+        Assert.False(token.IsUsed);
+        Assert.Single(fixture.EmailSender.SentEmails);
     }
 
     [Fact]
@@ -95,6 +80,30 @@ public sealed class AuthServiceTests
         Assert.False(result.Success);
         Assert.Equal(409, result.StatusCode);
         Assert.Equal("DUPLICATE_EMAIL", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RegisterDuplicatePendingEmail_ResendsVerificationOtpWithoutCreatingNewUser()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddMinutes(1);
+
+        var result = await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(2, fixture.EmailSender.SentEmails.Count);
+        Assert.Single(await fixture.DbContext.Users.ToListAsync());
+        Assert.Single(await fixture.DbContext.CustomerProfiles.ToListAsync());
+
+        var tokens = await fixture.DbContext.EmailVerificationTokens
+            .OrderBy(item => item.CreatedAt)
+            .ToListAsync();
+        Assert.Equal(2, tokens.Count);
+        Assert.All(tokens, token => Assert.Equal("EMAIL_VERIFICATION", token.Purpose));
+        Assert.True(tokens[0].IsUsed);
+        Assert.False(tokens[1].IsUsed);
     }
 
     [Fact]
@@ -455,7 +464,8 @@ public sealed class AuthServiceTests
         Assert.Equal("alice@example.com", sentEmail.ToEmail);
         Assert.Equal("Cinema Booking - Password Reset", sentEmail.Subject);
         Assert.Contains("123456", sentEmail.Body, StringComparison.Ordinal);
-        Assert.Single(await fixture.DbContext.EmailVerificationTokens.Where(item => !item.IsUsed).ToListAsync());
+        var token = Assert.Single(await fixture.DbContext.EmailVerificationTokens.Where(item => !item.IsUsed).ToListAsync());
+        Assert.Equal("PASSWORD_RESET", token.Purpose);
     }
 
     [Fact]
@@ -477,7 +487,7 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
-    public async Task ForgotPassword_UnknownEmail_ReturnsNotRegistered()
+    public async Task ForgotPassword_UnknownEmail_ReturnsNotFoundAndDoesNotCreateOtp()
     {
         var fixture = TestFixture.Create();
 
@@ -487,8 +497,30 @@ public sealed class AuthServiceTests
 
         Assert.False(result.Success);
         Assert.Equal(404, result.StatusCode);
-        Assert.Equal("EMAIL_NOT_REGISTERED", result.ErrorCode);
+        Assert.Equal("USER_NOT_FOUND", result.ErrorCode);
         Assert.Empty(fixture.EmailSender.SentEmails);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ForgotPassword_UnverifiedEmail_ReturnsForbiddenAndDoesNotCreatePasswordResetOtp()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+
+        var result = await fixture.Service.ForgotPasswordAsync(
+            new ForgotPasswordRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(403, result.StatusCode);
+        Assert.Equal("EMAIL_NOT_VERIFIED", result.ErrorCode);
+        Assert.Single(fixture.EmailSender.SentEmails);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens
+            .Where(item => item.Purpose == "PASSWORD_RESET")
+            .ToListAsync());
+        var verificationToken = Assert.Single(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+        Assert.Equal("EMAIL_VERIFICATION", verificationToken.Purpose);
     }
 
     [Fact]

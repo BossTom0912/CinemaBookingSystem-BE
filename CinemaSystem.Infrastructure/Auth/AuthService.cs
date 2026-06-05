@@ -55,12 +55,6 @@ public sealed class AuthService : IAuthService
     public async Task<ServiceResult<object>> RegisterCustomerAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var passwordValidationError = ValidatePassword(request.Password);
-        if (passwordValidationError is not null)
-        {
-            return ServiceResult<object>.Fail(400, passwordValidationError, "WEAK_PASSWORD");
-        }
-
         var now = _clock.UtcNow;
         var existingUser = await _dbContext.Users
             .Include(user => user.Role)
@@ -68,29 +62,26 @@ public sealed class AuthService : IAuthService
 
         if (existingUser is not null)
         {
-            var canUpdatePendingRegistration =
-                existingUser.Role.RoleName == AuthConstants.Roles.Customer &&
+            var canResendPendingRegistration =
+                existingUser.Role?.RoleName == AuthConstants.Roles.Customer &&
                 !existingUser.EmailVerified &&
                 existingUser.Status == AuthConstants.UserStatus.PendingVerification;
 
-            if (!canUpdatePendingRegistration)
+            if (canResendPendingRegistration)
             {
-                return ServiceResult<object>.Fail(409, "Email already exists.", "DUPLICATE_EMAIL");
+                return await ResendPendingCustomerVerificationAsync(
+                    existingUser,
+                    now,
+                    cancellationToken);
             }
 
-            if (!_passwordHasher.VerifySecret(request.Password, existingUser.PasswordHash))
-            {
-                return ServiceResult<object>.Fail(
-                    409,
-                    "A pending registration already exists for this email. Use the original password to update it.",
-                    "PENDING_REGISTRATION_EXISTS");
-            }
+            return ServiceResult<object>.Fail(409, "Email already exists.", "DUPLICATE_EMAIL");
+        }
 
-            return await UpdatePendingCustomerRegistrationAsync(
-                existingUser,
-                request,
-                now,
-                cancellationToken);
+        var passwordValidationError = ValidatePassword(request.Password);
+        if (passwordValidationError is not null)
+        {
+            return ServiceResult<object>.Fail(400, passwordValidationError, "WEAK_PASSWORD");
         }
 
         var customerRole = await GetOrCreateRoleAsync(
@@ -348,6 +339,19 @@ public sealed class AuthService : IAuthService
             return ServiceResult<object>.Fail(409, "Email is already verified.", "EMAIL_ALREADY_VERIFIED");
         }
 
+        return await SendVerificationOtpAsync(
+            user,
+            normalizedEmail,
+            "Verification OTP resent successfully.",
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<object>> SendVerificationOtpAsync(
+        User user,
+        string normalizedEmail,
+        string successMessage,
+        CancellationToken cancellationToken)
+    {
         var now = _clock.UtcNow;
         var latestToken = await _dbContext.EmailVerificationTokens
             .Where(item => item.UserId == user.UserId && item.Purpose == EmailVerificationPurpose)
@@ -392,6 +396,8 @@ public sealed class AuthService : IAuthService
             cancellationToken);
         if (!emailResult.Success)
         {
+            verificationToken.IsUsed = true;
+            await _dbContext.SaveChangesAsync(cancellationToken);
             return emailResult;
         }
 
@@ -402,7 +408,7 @@ public sealed class AuthService : IAuthService
                 expiresAt = verificationToken.ExpiredAt,
                 attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
             },
-            "Verification OTP resent successfully.");
+            successMessage);
     }
 
     public async Task<ServiceResult<object>> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken cancellationToken)
@@ -413,7 +419,7 @@ public sealed class AuthService : IAuthService
 
         if (user is null)
         {
-            return ServiceResult<object>.Fail(404, "Email is not registered.", "EMAIL_NOT_REGISTERED");
+            return ServiceResult<object>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
         if (!user.EmailVerified)
@@ -556,16 +562,11 @@ public sealed class AuthService : IAuthService
         return ServiceResult<object>.Ok(new { email = normalizedEmail }, "Password reset successfully.");
     }
 
-    private async Task<ServiceResult<object>> UpdatePendingCustomerRegistrationAsync(
+    private async Task<ServiceResult<object>> ResendPendingCustomerVerificationAsync(
         User user,
-        RegisterRequest request,
         DateTime now,
         CancellationToken cancellationToken)
     {
-        user.FullName = request.FullName.Trim();
-        user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
-        user.UpdatedAt = now;
-
         if (_autoConfirmEmail)
         {
             user.EmailVerified = true;
@@ -574,7 +575,7 @@ public sealed class AuthService : IAuthService
 
             return ServiceResult<object>.Ok(
                 new { email = user.Email },
-                "Registration information updated. Email auto-confirmed for development.");
+                "Registration email auto-confirmed for development.");
         }
 
         var latestToken = await _dbContext.EmailVerificationTokens
@@ -582,7 +583,11 @@ public sealed class AuthService : IAuthService
             .OrderByDescending(item => item.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (latestToken is not null && !latestToken.IsUsed && latestToken.ExpiredAt > now)
+        var resendAvailableAt = latestToken?.CreatedAt.AddSeconds(OtpResendCooldownSeconds);
+        if (latestToken is not null &&
+            !latestToken.IsUsed &&
+            latestToken.ExpiredAt > now &&
+            resendAvailableAt > now)
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -593,13 +598,12 @@ public sealed class AuthService : IAuthService
                     expiresAt = latestToken.ExpiredAt,
                     attemptsRemaining = OtpMaxSendAttempts - GetEffectiveOtpAttemptCount(latestToken)
                 },
-                "Registration information updated. Use the OTP already sent to your email.");
+                "Account is pending email verification. Use the OTP already sent to your email.");
         }
 
         var sendPolicyFailure = GetOtpSendPolicyFailure(latestToken, now);
         if (sendPolicyFailure is not null)
         {
-            await _dbContext.SaveChangesAsync(cancellationToken);
             return sendPolicyFailure;
         }
 
@@ -647,7 +651,7 @@ public sealed class AuthService : IAuthService
                 expiresAt = verificationToken.ExpiredAt,
                 attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
             },
-            "Registration information updated. A new OTP was sent to your email.");
+            "Account is pending email verification. A new verification OTP has been sent.");
     }
 
     private static ServiceResult<object>? GetOtpSendPolicyFailure(
