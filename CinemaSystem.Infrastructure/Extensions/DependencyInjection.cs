@@ -39,9 +39,23 @@ public static class DependencyInjection
             options.Password = configuration["EmailSettings:Password"] ?? string.Empty;
         });
 
+        // Read connection string and fail fast with clear error if missing
+        var defaultConnection = configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(defaultConnection))
+        {
+            // fallback: attempt to read raw configuration key
+            defaultConnection = configuration["ConnectionStrings:DefaultConnection"];
+        }
+
+        if (string.IsNullOrWhiteSpace(defaultConnection))
+        {
+            throw new InvalidOperationException(
+                "Missing connection string 'DefaultConnection'. Add 'ConnectionStrings: { \"DefaultConnection\": \"...\" }' to appsettings.json or appsettings.{Environment}.json in the CinemaSystem project.");
+        }
+
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"));
+            options.UseSqlServer(defaultConnection);
         });
 
         services.AddScoped<IAuthService, AuthService>();
@@ -68,6 +82,25 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<IOtpGenerator, CryptoOtpGenerator>();
         services.AddSingleton<IClock, SystemClock>();
+
+        // Register Sepay settings and payment related services
+        var sepaySection = configuration.GetSection("SepaySettings");
+        // Manually read Sepay settings and register so project doesn't rely on IConfiguration binder extensions
+        var sepaySettings = new SepaySettings();
+        // Lightweight binding without IConfigurationBinder extension to avoid extra package references
+        sepaySettings.WebhookSecret = sepaySection["WebhookSecret"] ?? string.Empty;
+        sepaySettings.BankName = sepaySection["BankName"] ?? string.Empty;
+        sepaySettings.BankAccount = sepaySection["BankAccount"] ?? string.Empty;
+        services.AddSingleton(sepaySettings);
+        services.Configure<SepaySettings>(options =>
+        {
+            options.WebhookSecret = sepaySettings.WebhookSecret;
+            options.BankName = sepaySettings.BankName;
+            options.BankAccount = sepaySettings.BankAccount;
+        });
+
+        services.AddSingleton<HmacVerifyHelper>();
+        services.AddScoped<IPaymentService, PaymentService>();
 
         return services;
     }
