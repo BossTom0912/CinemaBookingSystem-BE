@@ -13,7 +13,6 @@
 
   <ItemGroup>
     <Folder Include="Features\" />
-    <Folder Include="Interfaces\" />
     <Folder Include="DTOs\" />
     <Folder Include="Common\" />
     <Folder Include="Extensions\" />
