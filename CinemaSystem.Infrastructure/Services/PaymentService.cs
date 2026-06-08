@@ -5,6 +5,7 @@ using CinemaSystem.Infrastructure.Persistence.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using CinemaSystem.Infrastructure.Configuration;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
 namespace CinemaSystem.Infrastructure.Services;
@@ -24,15 +25,43 @@ public class PaymentService : IPaymentService
     // Create payment record for a booking and return bank info + transaction code
     public async Task<CreatePaymentResponse> CreatePaymentAsync(CreatePaymentRequest request, CancellationToken cancellationToken = default)
     {
+        var bookingId = request.BookingId.Trim();
+        var paymentProviderId = request.PaymentProviderId.Trim();
+
+        if (string.IsNullOrWhiteSpace(bookingId))
+            throw new ArgumentException("BookingId must be provided.", nameof(request));
+        if (string.IsNullOrWhiteSpace(paymentProviderId))
+            throw new ArgumentException("PaymentProviderId must be provided.", nameof(request));
+
         // Find booking
-        var booking = await _db.Bookings.SingleOrDefaultAsync(b => b.BookingId == request.BookingId, cancellationToken);
+        var booking = await _db.Bookings
+            .Include(item => item.Payments)
+            .SingleOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
         if (booking == null)
-            throw new InvalidOperationException($"Booking {request.BookingId} not found.");
+            throw new InvalidOperationException($"Booking {bookingId} not found.");
 
         // Ensure payment provider exists
-        var provider = await _db.PaymentProviders.SingleOrDefaultAsync(p => p.PaymentProviderId == request.PaymentProviderId, cancellationToken);
+        var provider = await _db.PaymentProviders.SingleOrDefaultAsync(p => p.PaymentProviderId == paymentProviderId, cancellationToken);
         if (provider == null)
-            throw new InvalidOperationException($"Payment provider {request.PaymentProviderId} not found.");
+            throw new InvalidOperationException($"Payment provider {paymentProviderId} not found.");
+        if (!string.Equals(provider.ProviderStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Payment provider {paymentProviderId} is not active.");
+
+        var successfulPayment = booking.Payments
+            .FirstOrDefault(item => string.Equals(item.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase));
+        if (successfulPayment != null)
+            throw new InvalidOperationException($"Booking {booking.BookingId} has already been paid.");
+
+        var pendingPayment = booking.Payments
+            .Where(item =>
+                item.PaymentProviderId == provider.PaymentProviderId
+                && string.Equals(item.PaymentStatus, "PENDING", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefault();
+        if (pendingPayment != null)
+        {
+            return ToCreatePaymentResponse(pendingPayment);
+        }
 
         // Create payment
         var payment = new Payment
@@ -50,6 +79,11 @@ public class PaymentService : IPaymentService
         _db.Payments.Add(payment);
         await _db.SaveChangesAsync(cancellationToken);
 
+        return ToCreatePaymentResponse(payment);
+    }
+
+    private CreatePaymentResponse ToCreatePaymentResponse(Payment payment)
+    {
         return new CreatePaymentResponse
         {
             PaymentId = payment.PaymentId,
@@ -60,10 +94,17 @@ public class PaymentService : IPaymentService
         };
     }
 
-    public async Task ConfirmPaymentAsync(string transactionContent, decimal amount, CancellationToken cancellationToken = default)
+    public async Task ConfirmPaymentAsync(
+        string transactionContent,
+        decimal amount,
+        string? providerTransactionCode = null,
+        string? rawCallbackPayload = null,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(transactionContent))
             throw new ArgumentException("Transaction content must be provided.", nameof(transactionContent));
+        if (amount <= 0)
+            throw new ArgumentException("Payment amount must be greater than zero.", nameof(amount));
 
         // Extract transaction code from content using regex (transaction codes are like TXXXXXXXXXX)
         var match = TransactionCodeRegex.Match(transactionContent);
@@ -95,6 +136,12 @@ public class PaymentService : IPaymentService
             payment.PaymentStatus = "SUCCESS";
             payment.PaidAt = DateTime.UtcNow;
             payment.UpdatedAt = DateTime.UtcNow;
+            payment.ProviderTransactionCode = string.IsNullOrWhiteSpace(providerTransactionCode)
+                ? payment.ProviderTransactionCode
+                : providerTransactionCode.Trim();
+            payment.RawCallbackPayload = string.IsNullOrWhiteSpace(rawCallbackPayload)
+                ? payment.RawCallbackPayload
+                : rawCallbackPayload;
 
             // Update booking status to PAID when previously PENDING_PAYMENT
             var booking = payment.Booking ?? await _db.Bookings.SingleOrDefaultAsync(b => b.BookingId == payment.BookingId, cancellationToken);
@@ -120,12 +167,10 @@ public class PaymentService : IPaymentService
 
     private static string GenerateTransactionCode()
     {
-        // Simple transaction code generator matching the example pattern
-        var rng = Random.Shared;
         const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         var sb = new System.Text.StringBuilder();
         sb.Append('T');
-        for (int i = 0; i < 10; i++) sb.Append(chars[rng.Next(chars.Length)]);
+        for (int i = 0; i < 10; i++) sb.Append(chars[RandomNumberGenerator.GetInt32(chars.Length)]);
         return sb.ToString();
     }
 }

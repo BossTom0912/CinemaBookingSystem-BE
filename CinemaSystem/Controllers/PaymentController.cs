@@ -1,9 +1,9 @@
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Payments;
-using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace CinemaSystem.Controllers;
 
@@ -12,12 +12,10 @@ namespace CinemaSystem.Controllers;
 public class PaymentController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
-    private readonly SepaySettings _sepaySettings;
 
-    public PaymentController(IPaymentService paymentService, IOptions<SepaySettings> sepayOptions)
+    public PaymentController(IPaymentService paymentService)
     {
         _paymentService = paymentService;
-        _sepaySettings = sepayOptions.Value;
     }
 
     // POST /api/payment
@@ -25,7 +23,7 @@ public class PaymentController : ControllerBase
     public async Task<IActionResult> CreatePayment([FromBody] CreatePaymentRequest request, CancellationToken cancellationToken)
     {
         var response = await _paymentService.CreatePaymentAsync(request, cancellationToken);
-        return Ok(response);
+        return Ok(ApiResponse<CreatePaymentResponse>.Ok(response, "Payment created."));
     }
 
     // POST /api/payment/sepay-webhook
@@ -42,22 +40,22 @@ public class PaymentController : ControllerBase
 
         // Get headers
         if (!Request.Headers.TryGetValue("x-sepay-signature", out var signature))
-            return Unauthorized();
+            return Unauthorized(ApiResponse<object>.Fail("Missing SePay signature.", "INVALID_WEBHOOK_SIGNATURE"));
         if (!Request.Headers.TryGetValue("x-sepay-timestamp", out var timestamp))
-            return Unauthorized();
+            return Unauthorized(ApiResponse<object>.Fail("Missing SePay timestamp.", "INVALID_WEBHOOK_SIGNATURE"));
 
         // Verify HMAC
-        if (!hmacHelper.Verify(signature, timestamp, body))
-            return Unauthorized();
+        if (!hmacHelper.Verify(signature.ToString(), timestamp.ToString(), body))
+            return Unauthorized(ApiResponse<object>.Fail("Invalid SePay signature.", "INVALID_WEBHOOK_SIGNATURE"));
 
         // Deserialize
-        var payload = System.Text.Json.JsonSerializer.Deserialize<SepayWebhookRequest>(body);
+        var payload = JsonSerializer.Deserialize<SepayWebhookRequest>(body);
         if (payload == null)
-            return BadRequest();
+            return BadRequest(ApiResponse<object>.Fail("Invalid SePay webhook payload.", "INVALID_WEBHOOK_PAYLOAD"));
 
         // Confirm the payment
-        await paymentService.ConfirmPaymentAsync(payload.Content, payload.Amount);
+        await paymentService.ConfirmPaymentAsync(payload.Content, payload.Amount, payload.ReferenceCode, body);
 
-        return Ok();
+        return Ok(ApiResponse<object>.Ok(null, "Payment confirmed."));
     }
 }

@@ -18,12 +18,16 @@ public sealed class HmacVerifyHelper
     public bool Verify(string signature, string timestamp, string payload)
     {
         if (string.IsNullOrEmpty(signature) || string.IsNullOrEmpty(timestamp)) return false;
+        if (string.IsNullOrWhiteSpace(_settings.WebhookSecret)) return false;
 
         var secret = _settings.WebhookSecret ?? string.Empty;
         var expectedRaw = timestamp + "." + payload;
         var expectedHash = ComputeHmacSha256(expectedRaw, secret);
         var expected = "sha256=" + expectedHash;
-        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(signature));
+        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+        var signatureBytes = Encoding.UTF8.GetBytes(signature);
+        return signatureBytes.Length == expectedBytes.Length
+            && CryptographicOperations.FixedTimeEquals(expectedBytes, signatureBytes);
     }
 
     private static string ComputeHmacSha256(string data, string key)
