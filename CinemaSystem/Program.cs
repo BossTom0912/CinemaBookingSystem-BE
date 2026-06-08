@@ -5,6 +5,7 @@ using CinemaSystem.Contracts.Common;
 using CinemaSystem.Data;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Extensions;
+using CinemaSystem.Filters;
 using CinemaSystem.Middlewares;
 using CinemaSystem.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -40,6 +41,8 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
+    options.OperationFilter<SepayWebhookExampleOperationFilter>();
+
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",

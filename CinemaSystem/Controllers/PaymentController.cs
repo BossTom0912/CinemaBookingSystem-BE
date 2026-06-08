@@ -28,33 +28,32 @@ public class PaymentController : ControllerBase
 
     // POST /api/payment/sepay-webhook
     [HttpPost("sepay-webhook")]
-    public async Task<IActionResult> SepayWebhook([
-        FromServices] HmacVerifyHelper hmacHelper,
-        [FromServices] IPaymentService paymentService)
+    public async Task<IActionResult> SepayWebhook(
+        [FromServices] HmacVerifyHelper hmacHelper,
+        [FromServices] IPaymentService paymentService,
+        [FromBody] JsonElement payload,
+        [FromHeader(Name = "x-sepay-signature")] string? signatureHeader = null,
+        [FromHeader(Name = "x-sepay-timestamp")] string? timestampHeader = null)
     {
-        // Read raw body
-        Request.EnableBuffering();
-        using var reader = new StreamReader(Request.Body, leaveOpen: true);
-        var body = await reader.ReadToEndAsync();
-        Request.Body.Position = 0;
+        var body = payload.GetRawText();
 
         // Get headers
-        if (!Request.Headers.TryGetValue("x-sepay-signature", out var signature))
+        if (string.IsNullOrWhiteSpace(signatureHeader))
             return Unauthorized(ApiResponse<object>.Fail("Missing SePay signature.", "INVALID_WEBHOOK_SIGNATURE"));
-        if (!Request.Headers.TryGetValue("x-sepay-timestamp", out var timestamp))
+        if (string.IsNullOrWhiteSpace(timestampHeader))
             return Unauthorized(ApiResponse<object>.Fail("Missing SePay timestamp.", "INVALID_WEBHOOK_SIGNATURE"));
 
         // Verify HMAC
-        if (!hmacHelper.Verify(signature.ToString(), timestamp.ToString(), body))
+        if (!hmacHelper.Verify(signatureHeader, timestampHeader, body))
             return Unauthorized(ApiResponse<object>.Fail("Invalid SePay signature.", "INVALID_WEBHOOK_SIGNATURE"));
 
         // Deserialize
-        var payload = JsonSerializer.Deserialize<SepayWebhookRequest>(body);
-        if (payload == null)
+        var webhook = payload.Deserialize<SepayWebhookRequest>();
+        if (webhook == null)
             return BadRequest(ApiResponse<object>.Fail("Invalid SePay webhook payload.", "INVALID_WEBHOOK_PAYLOAD"));
 
         // Confirm the payment
-        await paymentService.ConfirmPaymentAsync(payload.Content, payload.Amount, payload.ReferenceCode, body);
+        await paymentService.ConfirmPaymentAsync(webhook.Content, webhook.Amount, webhook.ReferenceCode, body);
 
         return Ok(ApiResponse<object>.Ok(null, "Payment confirmed."));
     }
