@@ -2,6 +2,7 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Auth;
 using CinemaSystem.Contracts.Common;
+using CinemaSystem.Mapping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -22,7 +23,9 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.RegisterCustomerAsync(request, cancellationToken);
+        var result = await _authService.RegisterCustomerAsync(
+            request.MapTo<Contracts.Auth.RegisterRequest>(),
+            cancellationToken);
         return ToActionResult(result);
     }
 
@@ -30,7 +33,9 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> VerifyEmail(VerifyEmailRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.VerifyEmailAsync(request, cancellationToken);
+        var result = await _authService.VerifyEmailAsync(
+            request.MapTo<Contracts.Auth.VerifyEmailRequest>(),
+            cancellationToken);
         return ToActionResult(result);
     }
 
@@ -38,23 +43,29 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.LoginAsync(request, cancellationToken);
-        return ToActionResult(result);
+        var result = await _authService.LoginAsync(
+            request.MapTo<Contracts.Auth.LoginRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Auth.AuthResponse, AuthResponse>());
     }
 
     [HttpPost("refresh-token")]
     [AllowAnonymous]
     public async Task<IActionResult> RefreshToken(RefreshTokenRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.RefreshTokenAsync(request, cancellationToken);
-        return ToActionResult(result);
+        var result = await _authService.RefreshTokenAsync(
+            request.MapTo<Contracts.Auth.RefreshTokenRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Auth.TokenResponse, TokenResponse>());
     }
 
     [HttpPost("logout")]
     [AllowAnonymous]
     public async Task<IActionResult> Logout(LogoutRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.LogoutAsync(request, cancellationToken);
+        var result = await _authService.LogoutAsync(
+            request.MapTo<Contracts.Auth.LogoutRequest>(),
+            cancellationToken);
         return ToActionResult(result);
     }
 
@@ -64,7 +75,9 @@ public sealed class AuthController : ControllerBase
         ResendVerificationOtpRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _authService.ResendVerificationOtpAsync(request, cancellationToken);
+        var result = await _authService.ResendVerificationOtpAsync(
+            request.MapTo<Contracts.Auth.ResendVerificationOtpRequest>(),
+            cancellationToken);
         return ToActionResult(result);
     }
 
@@ -72,7 +85,9 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.ForgotPasswordAsync(request, cancellationToken);
+        var result = await _authService.ForgotPasswordAsync(
+            request.MapTo<Contracts.Auth.ForgotPasswordRequest>(),
+            cancellationToken);
         return ToActionResult(result);
     }
 
@@ -80,7 +95,9 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken cancellationToken)
     {
-        var result = await _authService.ResetPasswordAsync(request, cancellationToken);
+        var result = await _authService.ResetPasswordAsync(
+            request.MapTo<Contracts.Auth.ResetPasswordRequest>(),
+            cancellationToken);
         return ToActionResult(result);
     }
 

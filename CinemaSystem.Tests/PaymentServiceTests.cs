@@ -1,7 +1,7 @@
 using CinemaSystem.Contracts.Payments;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Persistence.Models;
+using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;

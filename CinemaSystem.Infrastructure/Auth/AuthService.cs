@@ -3,7 +3,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Auth;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Persistence.Models;
+using CinemaSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;

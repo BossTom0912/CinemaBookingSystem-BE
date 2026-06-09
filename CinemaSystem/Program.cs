@@ -2,18 +2,17 @@ using System.Text;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
-using CinemaSystem.Data;
+using CinemaSystem.Infrastructure.Data;
+using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Extensions;
 using CinemaSystem.Filters;
 using CinemaSystem.Middlewares;
-using CinemaSystem.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -187,8 +186,8 @@ if (app.Environment.IsDevelopment())
     try
     {
         using var scope = app.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CinemaSystem.Infrastructure.Persistence.CinemaDbContext>();
-        await db.Database.MigrateAsync();
+        var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
+        await databaseMaintenance.MigrateAsync();
     }
     catch (Exception ex)
     {
@@ -200,7 +199,9 @@ if (app.Environment.IsDevelopment())
 
     try
     {
-        await DbInitializer.SeedAsync(app.Services, app.Environment);
+        using var scope = app.Services.CreateScope();
+        var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
+        await databaseMaintenance.SeedAsync(app.Environment.IsDevelopment());
     }
     catch (Exception ex)
     {

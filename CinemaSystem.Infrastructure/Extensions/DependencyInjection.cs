@@ -2,6 +2,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Auth;
 using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
+using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
@@ -59,6 +60,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<ICinemaService, CinemaService>();
         var redisConnectionString = configuration["Redis:ConnectionString"];
         if (string.IsNullOrWhiteSpace(redisConnectionString))
@@ -101,6 +103,10 @@ public static class DependencyInjection
 
         services.AddSingleton<HmacVerifyHelper>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IPaymentWebhookService, PaymentWebhookService>();
+        services.AddScoped<ICinemaDiagnosticsService, CinemaDiagnosticsService>();
+        services.AddScoped<IDatabaseMaintenanceService, DatabaseMaintenanceService>();
+        services.AddSingleton<IWebhookSignatureVerifier, HmacVerifyHelper>();
 
         return services;
     }

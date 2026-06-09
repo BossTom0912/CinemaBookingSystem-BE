@@ -2,7 +2,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Rooms;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Persistence.Models;
+using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Showtimes;
 using Microsoft.EntityFrameworkCore;

@@ -2,6 +2,7 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Cinemas;
 using CinemaSystem.Contracts.Common;
+using CinemaSystem.Mapping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +24,7 @@ public sealed class CinemasController : ControllerBase
     public async Task<IActionResult> GetCinemas(CancellationToken cancellationToken)
     {
         var result = await _cinemaService.GetCinemasAsync(cancellationToken);
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Cinemas.CinemaResponse>, IReadOnlyList<CinemaResponse>>());
     }
 
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)

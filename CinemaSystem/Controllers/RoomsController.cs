@@ -2,6 +2,7 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Rooms;
+using CinemaSystem.Mapping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +24,7 @@ public sealed class RoomsController : ControllerBase
     public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
     {
         var result = await _roomService.GetRoomsAsync(cancellationToken);
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Rooms.RoomResponse>, IReadOnlyList<RoomResponse>>());
     }
 
     [HttpGet("rooms/{roomId}")]
@@ -31,7 +32,7 @@ public sealed class RoomsController : ControllerBase
     public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
     {
         var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
     [HttpPost("cinemas/{cinemaId}/rooms")]
@@ -41,8 +42,11 @@ public sealed class RoomsController : ControllerBase
         CreateRoomRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _roomService.CreateRoomAsync(cinemaId, request, cancellationToken);
-        return ToActionResult(result);
+        var result = await _roomService.CreateRoomAsync(
+            cinemaId,
+            request.MapTo<Contracts.Rooms.CreateRoomRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
     [HttpPut("rooms/{roomId}")]
@@ -52,8 +56,11 @@ public sealed class RoomsController : ControllerBase
         UpdateRoomRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _roomService.UpdateRoomAsync(roomId, request, cancellationToken);
-        return ToActionResult(result);
+        var result = await _roomService.UpdateRoomAsync(
+            roomId,
+            request.MapTo<Contracts.Rooms.UpdateRoomRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
     [HttpDelete("rooms/{roomId}")]
@@ -81,7 +88,7 @@ public sealed class RoomsController : ControllerBase
     {
         var result = await _roomService.GenerateSeatsAsync(
             roomId,
-            request,
+            request.MapTo<Contracts.Rooms.GenerateSeatsRequest>(),
             cancellationToken);
 
         return ToActionResult(result);

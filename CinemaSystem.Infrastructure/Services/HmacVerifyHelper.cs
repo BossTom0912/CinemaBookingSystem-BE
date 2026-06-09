@@ -1,11 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using CinemaSystem.Application.Interfaces;
 using Microsoft.Extensions.Options;
 using CinemaSystem.Infrastructure.Configuration;
 
 namespace CinemaSystem.Infrastructure.Services;
 
-public sealed class HmacVerifyHelper
+public sealed class HmacVerifyHelper : IWebhookSignatureVerifier
 {
     private readonly SepaySettings _settings;
 
