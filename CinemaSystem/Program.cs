@@ -12,8 +12,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 builder.Services.AddControllers();
 builder.Services.Configure<ApiBehaviorOptions>(options =>
@@ -118,14 +122,54 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
+    options.AddPolicy(AuthConstants.Policies.CanViewMoviesAndShowtimes, policy =>
+        policy.RequireAssertion(_ => true));
+    options.AddPolicy(AuthConstants.Policies.CanRegisterOrLogin, policy =>
+        policy.RequireAssertion(_ => true));
     options.AddPolicy(AuthConstants.Policies.CanBookTicket, policy =>
+        policy.RequireRole(AuthConstants.Roles.Customer));
+    options.AddPolicy(AuthConstants.Policies.CanSelectSeat, policy =>
+    policy.RequireRole(
+        AuthConstants.Roles.Customer,
+        AuthConstants.Roles.Staff,
+        AuthConstants.Roles.Manager,
+        AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanBuyFoodAndBeverageInCheckout, policy =>
+        policy.RequireRole(AuthConstants.Roles.Customer));
+    options.AddPolicy(AuthConstants.Policies.CanApplyVoucher, policy =>
+        policy.RequireRole(AuthConstants.Roles.Customer));
+    options.AddPolicy(AuthConstants.Policies.CanPayOnline, policy =>
+        policy.RequireRole(AuthConstants.Roles.Customer));
+    options.AddPolicy(AuthConstants.Policies.CanViewBookingHistory, policy =>
+        policy.RequireRole(AuthConstants.Roles.Customer));
+    options.AddPolicy(AuthConstants.Policies.CanReviewAndFeedback, policy =>
         policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanScanTicket, policy =>
         policy.RequireRole(AuthConstants.Roles.Staff, AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanManageMovie, policy =>
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(
+    AuthConstants.Policies.CanManageCinemaRoomSeat,
+    policy => policy.RequireRole(
+        AuthConstants.Roles.Manager,
+        AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageShowtime, policy =>
         policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanManageFoodAndBeverage, policy =>
+        policy.RequireRole(AuthConstants.Roles.Staff, AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanManageVoucher, policy =>
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanCancelShowtimeAndRefund, policy =>
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanViewBranchDashboard, policy =>
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanViewSystemDashboard, policy =>
+        policy.RequireRole(AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanManageUserAndRole, policy =>
+        policy.RequireRole(AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageSystem, policy =>
         policy.RequireRole(AuthConstants.Roles.Admin));
+    // approval-specific policies removed
 });
 
 var app = builder.Build();
@@ -135,6 +179,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
     app.UseCors("DevCors");
+
+    // ensure database migrations are applied in development to avoid missing tables (e.g. CHANGE_REQUEST)
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaSystem.Infrastructure.Persistence.CinemaDbContext>();
+        await db.Database.MigrateAsync();
+    }
+    catch (Exception ex)
+    {
+        var migLogger = app.Services
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Program");
+        migLogger.LogWarning(ex, "Database migration skipped because the database is unavailable.");
+    }
 
     try
     {

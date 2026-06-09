@@ -1,0 +1,409 @@
+/*
+Seed test data for CinemaBookingDB.
+Use for local/dev testing only.
+
+Login password for all seeded users: Test@123
+
+Accounts:
+- customer@test.com  / Test@123 / Customer
+- staff@test.com     / Test@123 / Staff
+- manager@test.com   / Test@123 / Manager
+- admin@test.com     / Test@123 / Admin
+
+Negative login cases:
+- pending@test.com   / Test@123 / Customer / PENDING_VERIFICATION
+- banned@test.com    / Test@123 / Customer / BANNED
+*/
+
+USE [CinemaBookingDB];
+GO
+
+DECLARE @Now DATETIME2 = SYSUTCDATETIME();
+DECLARE @PasswordHash NVARCHAR(500) =
+    N'PBKDF2-SHA256.100000.MDEyMzQ1Njc4OWFiY2RlZg==.iPkm2WRuJndacg85yt/G4CxojqfW9YZT+3MoOrFWoVE=';
+
+-- Roles
+MERGE [ROLE] AS target
+USING (VALUES
+    (N'ROLE_CUSTOMER', N'Customer', N'Customer account'),
+    (N'ROLE_STAFF',    N'Staff',    N'Cinema staff account'),
+    (N'ROLE_MANAGER',  N'Manager',  N'Cinema manager account'),
+    (N'ROLE_ADMIN',    N'Admin',    N'System administrator')
+) AS source ([roleId], [roleName], [description])
+ON target.[roleId] = source.[roleId]
+WHEN MATCHED THEN
+    UPDATE SET [roleName] = source.[roleName], [description] = source.[description]
+WHEN NOT MATCHED THEN
+    INSERT ([roleId], [roleName], [description])
+    VALUES (source.[roleId], source.[roleName], source.[description]);
+GO
+
+-- Base cinema
+MERGE [CINEMA] AS target
+USING (VALUES
+    (N'CIN_TEST_ALL_ROLES', N'Cinema Test All Roles', N'123 Nguyen Hue', N'Ho Chi Minh', N'0909000000', N'ACTIVE')
+) AS source ([cinemaId], [cinemaName], [address], [city], [phoneNumber], [cinemaStatus])
+ON target.[cinemaId] = source.[cinemaId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [cinemaName] = source.[cinemaName],
+        [address] = source.[address],
+        [city] = source.[city],
+        [phoneNumber] = source.[phoneNumber],
+        [cinemaStatus] = source.[cinemaStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([cinemaId], [cinemaName], [address], [city], [phoneNumber], [cinemaStatus])
+    VALUES (source.[cinemaId], source.[cinemaName], source.[address], source.[city], source.[phoneNumber], source.[cinemaStatus]);
+GO
+
+-- Users for role testing
+DECLARE @Now DATETIME2 = SYSUTCDATETIME();
+DECLARE @PasswordHash NVARCHAR(500) =
+    N'PBKDF2-SHA256.100000.MDEyMzQ1Njc4OWFiY2RlZg==.iPkm2WRuJndacg85yt/G4CxojqfW9YZT+3MoOrFWoVE=';
+
+MERGE [USER] AS target
+USING (VALUES
+    (N'USR_TEST_CUSTOMER', N'ROLE_CUSTOMER', N'customer@test.com', N'Dev Customer', N'0900000001', N'ACTIVE', 1),
+    (N'USR_TEST_STAFF',    N'ROLE_STAFF',    N'staff@test.com',    N'Dev Staff',    N'0900000002', N'ACTIVE', 1),
+    (N'USR_TEST_MANAGER',  N'ROLE_MANAGER',  N'manager@test.com',  N'Dev Manager',  N'0900000003', N'ACTIVE', 1),
+    (N'USR_TEST_ADMIN',    N'ROLE_ADMIN',    N'admin@test.com',    N'Dev Admin',    N'0900000004', N'ACTIVE', 1),
+    (N'USR_TEST_PENDING',  N'ROLE_CUSTOMER', N'pending@test.com',  N'Pending User', N'0900000005', N'PENDING_VERIFICATION', 0),
+    (N'USR_TEST_BANNED',   N'ROLE_CUSTOMER', N'banned@test.com',   N'Banned User',  N'0900000006', N'BANNED', 1)
+) AS source ([userId], [roleId], [email], [fullName], [phoneNumber], [status], [emailVerified])
+ON target.[email] = source.[email]
+WHEN MATCHED THEN
+    UPDATE SET
+        [roleId] = source.[roleId],
+        [passwordHash] = @PasswordHash,
+        [fullName] = source.[fullName],
+        [phoneNumber] = source.[phoneNumber],
+        [status] = source.[status],
+        [emailVerified] = source.[emailVerified],
+        [updatedAt] = @Now
+WHEN NOT MATCHED THEN
+    INSERT ([userId], [roleId], [email], [passwordHash], [fullName], [phoneNumber], [status], [emailVerified], [createdAt])
+    VALUES (source.[userId], source.[roleId], source.[email], @PasswordHash, source.[fullName], source.[phoneNumber], source.[status], source.[emailVerified], @Now);
+GO
+
+-- Customer profiles
+MERGE [CUSTOMER_PROFILE] AS target
+USING (
+    SELECT
+        N'CUS_TEST_CUSTOMER' AS [customerProfileId],
+        (SELECT [userId] FROM [USER] WHERE [email] = N'customer@test.com') AS [userId],
+        N'STANDARD' AS [memberLevel],
+        100 AS [rewardPoints],
+        CAST('2000-01-01' AS date) AS [dateOfBirth],
+        N'OTHER' AS [gender],
+        N'ID_TEST_CUSTOMER' AS [identityCard],
+        N'Customer test address' AS [address]
+    UNION ALL
+    SELECT
+        N'CUS_TEST_PENDING',
+        (SELECT [userId] FROM [USER] WHERE [email] = N'pending@test.com'),
+        N'STANDARD',
+        0,
+        CAST('2001-01-01' AS date),
+        N'OTHER',
+        N'ID_TEST_PENDING',
+        N'Pending test address'
+    UNION ALL
+    SELECT
+        N'CUS_TEST_BANNED',
+        (SELECT [userId] FROM [USER] WHERE [email] = N'banned@test.com'),
+        N'STANDARD',
+        0,
+        CAST('2002-01-01' AS date),
+        N'OTHER',
+        N'ID_TEST_BANNED',
+        N'Banned test address'
+) AS source ([customerProfileId], [userId], [memberLevel], [rewardPoints], [dateOfBirth], [gender], [identityCard], [address])
+ON target.[userId] = source.[userId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [memberLevel] = source.[memberLevel],
+        [rewardPoints] = source.[rewardPoints],
+        [dateOfBirth] = source.[dateOfBirth],
+        [gender] = source.[gender],
+        [identityCard] = source.[identityCard],
+        [address] = source.[address]
+WHEN NOT MATCHED THEN
+    INSERT ([customerProfileId], [userId], [memberLevel], [rewardPoints], [dateOfBirth], [gender], [identityCard], [address])
+    VALUES (source.[customerProfileId], source.[userId], source.[memberLevel], source.[rewardPoints], source.[dateOfBirth], source.[gender], source.[identityCard], source.[address]);
+GO
+
+-- Staff-like profiles for staff and manager.
+MERGE [STAFF_PROFILE] AS target
+USING (
+    SELECT
+        N'STF_TEST_STAFF' AS [staffProfileId],
+        (SELECT [userId] FROM [USER] WHERE [email] = N'staff@test.com') AS [userId],
+        N'CIN_TEST_ALL_ROLES' AS [cinemaId],
+        N'Ticket Scanner' AS [position],
+        CAST('2026-01-01' AS date) AS [hireDate],
+        N'ACTIVE' AS [employmentStatus]
+    UNION ALL
+    SELECT
+        N'STF_TEST_MANAGER',
+        (SELECT [userId] FROM [USER] WHERE [email] = N'manager@test.com'),
+        N'CIN_TEST_ALL_ROLES',
+        N'Branch Manager',
+        CAST('2026-01-01' AS date),
+        N'ACTIVE'
+) AS source ([staffProfileId], [userId], [cinemaId], [position], [hireDate], [employmentStatus])
+ON target.[userId] = source.[userId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [cinemaId] = source.[cinemaId],
+        [position] = source.[position],
+        [hireDate] = source.[hireDate],
+        [employmentStatus] = source.[employmentStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([staffProfileId], [userId], [cinemaId], [position], [hireDate], [employmentStatus])
+    VALUES (source.[staffProfileId], source.[userId], source.[cinemaId], source.[position], source.[hireDate], source.[employmentStatus]);
+GO
+
+-- Cinema structure and showtime test data
+MERGE [SEAT_TYPE] AS target
+USING (VALUES
+    (N'SEAT_TYPE_STANDARD', N'STANDARD', 0.00),
+    (N'SEAT_TYPE_VIP',      N'VIP',      20000.00)
+) AS source ([seatTypeId], [typeName], [extraFee])
+ON target.[seatTypeId] = source.[seatTypeId]
+WHEN MATCHED THEN
+    UPDATE SET [typeName] = source.[typeName], [extraFee] = source.[extraFee]
+WHEN NOT MATCHED THEN
+    INSERT ([seatTypeId], [typeName], [extraFee])
+    VALUES (source.[seatTypeId], source.[typeName], source.[extraFee]);
+GO
+
+MERGE [ROOM] AS target
+USING (VALUES
+    (N'ROOM_TEST_A', N'CIN_TEST_ALL_ROLES', N'Room Test A', 12, N'ACTIVE')
+) AS source ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+ON target.[roomId] = source.[roomId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [cinemaId] = source.[cinemaId],
+        [roomName] = source.[roomName],
+        [capacity] = source.[capacity],
+        [roomStatus] = source.[roomStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+    VALUES (source.[roomId], source.[cinemaId], source.[roomName], source.[capacity], source.[roomStatus]);
+GO
+
+MERGE [SEAT] AS target
+USING (VALUES
+    (N'SEAT_TEST_A1',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'A1', N'A', 1, 1),
+    (N'SEAT_TEST_A2',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'A2', N'A', 2, 1),
+    (N'SEAT_TEST_A3',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'A3', N'A', 3, 1),
+    (N'SEAT_TEST_A4',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'A4', N'A', 4, 1),
+    (N'SEAT_TEST_B1',  N'ROOM_TEST_A', N'SEAT_TYPE_VIP',      N'B1', N'B', 1, 1),
+    (N'SEAT_TEST_B2',  N'ROOM_TEST_A', N'SEAT_TYPE_VIP',      N'B2', N'B', 2, 1),
+    (N'SEAT_TEST_B3',  N'ROOM_TEST_A', N'SEAT_TYPE_VIP',      N'B3', N'B', 3, 1),
+    (N'SEAT_TEST_B4',  N'ROOM_TEST_A', N'SEAT_TYPE_VIP',      N'B4', N'B', 4, 1),
+    (N'SEAT_TEST_C1',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'C1', N'C', 1, 1),
+    (N'SEAT_TEST_C2',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'C2', N'C', 2, 1),
+    (N'SEAT_TEST_C3',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'C3', N'C', 3, 1),
+    (N'SEAT_TEST_C4',  N'ROOM_TEST_A', N'SEAT_TYPE_STANDARD', N'C4', N'C', 4, 1)
+) AS source ([seatId], [roomId], [seatTypeId], [seatCode], [rowLabel], [seatNumber], [isActive])
+ON target.[seatId] = source.[seatId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [roomId] = source.[roomId],
+        [seatTypeId] = source.[seatTypeId],
+        [seatCode] = source.[seatCode],
+        [rowLabel] = source.[rowLabel],
+        [seatNumber] = source.[seatNumber],
+        [isActive] = source.[isActive]
+WHEN NOT MATCHED THEN
+    INSERT ([seatId], [roomId], [seatTypeId], [seatCode], [rowLabel], [seatNumber], [isActive])
+    VALUES (source.[seatId], source.[roomId], source.[seatTypeId], source.[seatCode], source.[rowLabel], source.[seatNumber], source.[isActive]);
+GO
+
+MERGE [MOVIE] AS target
+USING (
+    SELECT
+        N'MOV_TEST_ALL_ROLES' AS [movieId],
+        N'Test Movie For Roles' AS [title],
+        120 AS [durationMinutes],
+        N'Action' AS [genre],
+        N'Vietnamese' AS [language],
+        CAST('2026-06-01' AS date) AS [releaseDate],
+        N'T13' AS [ageRating],
+        N'Movie for local role/API testing.' AS [description],
+        N'NOW_SHOWING' AS [movieStatus]
+) AS source ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate], [ageRating], [description], [movieStatus])
+ON target.[movieId] = source.[movieId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [title] = source.[title],
+        [durationMinutes] = source.[durationMinutes],
+        [genre] = source.[genre],
+        [language] = source.[language],
+        [releaseDate] = source.[releaseDate],
+        [ageRating] = source.[ageRating],
+        [description] = source.[description],
+        [movieStatus] = source.[movieStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate], [ageRating], [description], [movieStatus])
+    VALUES (source.[movieId], source.[title], source.[durationMinutes], source.[genre], source.[language], source.[releaseDate], source.[ageRating], source.[description], source.[movieStatus]);
+GO
+
+MERGE [SHOWTIME] AS target
+USING (
+    SELECT
+        N'SHOW_TEST_20260610_1900' AS [showtimeId],
+        N'MOV_TEST_ALL_ROLES' AS [movieId],
+        N'ROOM_TEST_A' AS [roomId],
+        CAST('2026-06-10T19:00:00' AS datetime2) AS [startTime],
+        CAST('2026-06-10T21:00:00' AS datetime2) AS [endTime],
+        CAST(90000.00 AS decimal(18,2)) AS [basePrice],
+        N'OPEN' AS [status]
+) AS source ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+ON target.[showtimeId] = source.[showtimeId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [movieId] = source.[movieId],
+        [roomId] = source.[roomId],
+        [startTime] = source.[startTime],
+        [endTime] = source.[endTime],
+        [basePrice] = source.[basePrice],
+        [status] = source.[status]
+WHEN NOT MATCHED THEN
+    INSERT ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status], [createdAt])
+    VALUES (source.[showtimeId], source.[movieId], source.[roomId], source.[startTime], source.[endTime], source.[basePrice], source.[status], SYSUTCDATETIME());
+GO
+
+MERGE [SHOWTIME_SEAT] AS target
+USING (VALUES
+    (N'STS_TEST_A1',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_A1', N'AVAILABLE'),
+    (N'STS_TEST_A2',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_A2', N'AVAILABLE'),
+    (N'STS_TEST_A3',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_A3', N'AVAILABLE'),
+    (N'STS_TEST_A4',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_A4', N'AVAILABLE'),
+    (N'STS_TEST_B1',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_B1', N'AVAILABLE'),
+    (N'STS_TEST_B2',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_B2', N'AVAILABLE'),
+    (N'STS_TEST_B3',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_B3', N'AVAILABLE'),
+    (N'STS_TEST_B4',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_B4', N'AVAILABLE'),
+    (N'STS_TEST_C1',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_C1', N'AVAILABLE'),
+    (N'STS_TEST_C2',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_C2', N'AVAILABLE'),
+    (N'STS_TEST_C3',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_C3', N'AVAILABLE'),
+    (N'STS_TEST_C4',  N'SHOW_TEST_20260610_1900', N'SEAT_TEST_C4', N'AVAILABLE')
+) AS source ([showtimeSeatId], [showtimeId], [seatId], [seatStatus])
+ON target.[showtimeSeatId] = source.[showtimeSeatId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [showtimeId] = source.[showtimeId],
+        [seatId] = source.[seatId],
+        [seatStatus] = source.[seatStatus],
+        [lockedUntil] = NULL,
+        [lockedByUserId] = NULL
+WHEN NOT MATCHED THEN
+    INSERT ([showtimeSeatId], [showtimeId], [seatId], [seatStatus], [lockedUntil], [lockedByUserId])
+    VALUES (source.[showtimeSeatId], source.[showtimeId], source.[seatId], source.[seatStatus], NULL, NULL);
+GO
+
+-- Optional payment/voucher/F&B reference data
+MERGE [PAYMENT_PROVIDER] AS target
+USING (VALUES
+    (N'PAYPROV_TEST_CASH', N'CASH_TEST', NULL, N'ACTIVE'),
+    (N'PAYPROV_TEST_VNPAY', N'VNPAY_TEST', N'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html', N'ACTIVE')
+) AS source ([paymentProviderId], [providerName], [apiEndpoint], [providerStatus])
+ON target.[paymentProviderId] = source.[paymentProviderId]
+WHEN MATCHED THEN
+    UPDATE SET [providerName] = source.[providerName], [apiEndpoint] = source.[apiEndpoint], [providerStatus] = source.[providerStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([paymentProviderId], [providerName], [apiEndpoint], [providerStatus])
+    VALUES (source.[paymentProviderId], source.[providerName], source.[apiEndpoint], source.[providerStatus]);
+GO
+
+MERGE [FB_ITEM] AS target
+USING (VALUES
+    (N'FB_TEST_POPCORN', N'Popcorn Test', 45000.00, N'AVAILABLE'),
+    (N'FB_TEST_COLA',    N'Cola Test',    25000.00, N'AVAILABLE')
+) AS source ([fbItemId], [itemName], [price], [itemStatus])
+ON target.[fbItemId] = source.[fbItemId]
+WHEN MATCHED THEN
+    UPDATE SET [itemName] = source.[itemName], [price] = source.[price], [itemStatus] = source.[itemStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([fbItemId], [itemName], [price], [itemStatus])
+    VALUES (source.[fbItemId], source.[itemName], source.[price], source.[itemStatus]);
+GO
+
+MERGE [VOUCHER] AS target
+USING (
+    SELECT
+        N'VOU_TEST_10P' AS [voucherId],
+        N'TEST10' AS [voucherCode],
+        N'Test 10 percent off' AS [title],
+        N'PERCENT' AS [discountType],
+        CAST(10.00 AS decimal(18,2)) AS [discountValue],
+        CAST(50000.00 AS decimal(18,2)) AS [minOrderAmount],
+        CAST(30000.00 AS decimal(18,2)) AS [maxDiscountAmount],
+        100 AS [usageLimit],
+        1 AS [perCustomerLimit],
+        CAST('2026-01-01T00:00:00' AS datetime2) AS [startDate],
+        CAST('2026-12-31T23:59:59' AS datetime2) AS [endDate],
+        N'ACTIVE' AS [voucherStatus]
+) AS source ([voucherId], [voucherCode], [title], [discountType], [discountValue], [minOrderAmount], [maxDiscountAmount], [usageLimit], [perCustomerLimit], [startDate], [endDate], [voucherStatus])
+ON target.[voucherId] = source.[voucherId]
+WHEN MATCHED THEN
+    UPDATE SET
+        [voucherCode] = source.[voucherCode],
+        [title] = source.[title],
+        [discountType] = source.[discountType],
+        [discountValue] = source.[discountValue],
+        [minOrderAmount] = source.[minOrderAmount],
+        [maxDiscountAmount] = source.[maxDiscountAmount],
+        [usageLimit] = source.[usageLimit],
+        [perCustomerLimit] = source.[perCustomerLimit],
+        [startDate] = source.[startDate],
+        [endDate] = source.[endDate],
+        [voucherStatus] = source.[voucherStatus]
+WHEN NOT MATCHED THEN
+    INSERT ([voucherId], [voucherCode], [title], [discountType], [discountValue], [minOrderAmount], [maxDiscountAmount], [usageLimit], [perCustomerLimit], [usedCount], [startDate], [endDate], [voucherStatus])
+    VALUES (source.[voucherId], source.[voucherCode], source.[title], source.[discountType], source.[discountValue], source.[minOrderAmount], source.[maxDiscountAmount], source.[usageLimit], source.[perCustomerLimit], 0, source.[startDate], source.[endDate], source.[voucherStatus]);
+GO
+
+SELECT
+    u.[email],
+    N'Test@123' AS [password],
+    r.[roleName],
+    u.[status],
+    u.[emailVerified]
+FROM [USER] u
+JOIN [ROLE] r ON r.[roleId] = u.[roleId]
+WHERE u.[email] IN (
+    N'customer@test.com',
+    N'staff@test.com',
+    N'manager@test.com',
+    N'admin@test.com',
+    N'pending@test.com',
+    N'banned@test.com'
+)
+ORDER BY
+    CASE r.[roleName]
+        WHEN N'Customer' THEN 1
+        WHEN N'Staff' THEN 2
+        WHEN N'Manager' THEN 3
+        WHEN N'Admin' THEN 4
+        ELSE 5
+    END,
+    u.[email];
+GO
+
+SELECT
+    c.[cinemaId],
+    r.[roomId],
+    m.[movieId],
+    s.[showtimeId],
+    COUNT(ss.[showtimeSeatId]) AS [showtimeSeatCount]
+FROM [CINEMA] c
+JOIN [ROOM] r ON r.[cinemaId] = c.[cinemaId]
+JOIN [SHOWTIME] s ON s.[roomId] = r.[roomId]
+JOIN [MOVIE] m ON m.[movieId] = s.[movieId]
+LEFT JOIN [SHOWTIME_SEAT] ss ON ss.[showtimeId] = s.[showtimeId]
+WHERE c.[cinemaId] = N'CIN_TEST_ALL_ROLES'
+GROUP BY c.[cinemaId], r.[roomId], m.[movieId], s.[showtimeId];
+GO
