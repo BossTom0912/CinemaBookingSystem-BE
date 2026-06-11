@@ -9,6 +9,7 @@
 !.env.example
 
 # Local application settings that may contain secrets
+**/appsettings.json
 **/appsettings.Development.json
 !**/appsettings.Development.example.json
 
