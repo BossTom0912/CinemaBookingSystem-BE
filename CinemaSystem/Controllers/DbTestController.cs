@@ -1,6 +1,5 @@
-﻿using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Controllers;
 
@@ -8,17 +7,17 @@ namespace CinemaSystem.Controllers;
 [Route("api/db-test")]
 public class DbTestController : ControllerBase
 {
-    private readonly CinemaDbContext _context;
+    private readonly ICinemaDiagnosticsService _diagnosticsService;
 
-    public DbTestController(CinemaDbContext context)
+    public DbTestController(ICinemaDiagnosticsService diagnosticsService)
     {
-        _context = context;
+        _diagnosticsService = diagnosticsService;
     }
 
     [HttpGet("movies-count")]
     public async Task<IActionResult> GetMoviesCount()
     {
-        var count = await _context.Movies.CountAsync();
+        var count = await _diagnosticsService.GetMoviesCountAsync(HttpContext.RequestAborted);
 
         return Ok(new
         {
