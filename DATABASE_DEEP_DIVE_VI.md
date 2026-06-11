@@ -376,7 +376,7 @@ Lưu challenge OTP dùng cho xác minh email và đặt lại mật khẩu.
 | `tokenId` | `NVARCHAR(50)`, PK | Định danh lần phát hành token. |
 | `userId` | `NVARCHAR(50)`, NOT NULL, FK | Chủ sở hữu token. |
 | `token` | `NVARCHAR(255)`, NOT NULL, UNIQUE | Giá trị OTP/token đã hash; không trả về API. |
-| `purpose` | `NVARCHAR(30)`, mặc định `EMAIL_VERIFICATION` | Phân biệt `EMAIL_VERIFICATION` và `PASSWORD_RESET`. |
+| `purpose` | `NVARCHAR(30)`, mặc định `EMAIL_VERIFICATION` | Phân biệt `EMAIL_VERIFICATION`, `PASSWORD_RESET`, `EMAIL_UPDATE`, và `PHONE_UPDATE`. |
 | `attemptCount` | `INT`, mặc định `0`, `>= 0` | Đếm số lần nhập sai để rate-limit/brute-force protection. |
 | `expiredAt` | `DATETIME2`, NOT NULL | Hạn sử dụng. |
 | `verifiedAt` | `DATETIME2`, NULL | Thời điểm token được xác nhận thành công. |
@@ -390,7 +390,7 @@ Lưu challenge OTP dùng cho xác minh email và đặt lại mật khẩu.
 ### Constraint
 
 - `UQ_EMAIL_VERIFICATION_TOKEN`: token hash không trùng.
-- `CK_EMAIL_VERIFICATION_TOKEN_PURPOSE`: chỉ hai mục đích hợp lệ.
+- `CK_EMAIL_VERIFICATION_TOKEN_PURPOSE`: các mục đích hợp lệ (`EMAIL_VERIFICATION`, `PASSWORD_RESET`, `EMAIL_UPDATE`, `PHONE_UPDATE`).
 - `CK_EMAIL_VERIFICATION_EXPIRED_AT`: `expiredAt > createdAt`.
 - `CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT`: không âm.
 
