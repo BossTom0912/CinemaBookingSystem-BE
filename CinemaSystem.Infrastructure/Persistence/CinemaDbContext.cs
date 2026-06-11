@@ -464,6 +464,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.Genre)
                 .HasMaxLength(255)
                 .HasColumnName("genre");
+            entity.Property(e => e.Highlight)
+                .HasMaxLength(30)
+                .HasColumnName("highlight");
             entity.Property(e => e.Language)
                 .HasMaxLength(100)
                 .HasColumnName("language");

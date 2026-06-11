@@ -25,6 +25,8 @@ public partial class Movie
 
     public string? TrailerUrl { get; set; }
 
+    public string? Highlight { get; set; }
+
     public string MovieStatus { get; set; } = null!;
 
     public virtual ICollection<Review> Reviews { get; set; } = new List<Review>();

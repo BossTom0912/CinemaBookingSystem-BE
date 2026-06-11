@@ -95,6 +95,7 @@ CREATE TABLE [MOVIE] (
     [description] NVARCHAR(MAX) NULL,
     [posterUrl] NVARCHAR(1000) NULL,
     [trailerUrl] NVARCHAR(1000) NULL,
+    [highlight] NVARCHAR(30) NULL,
     [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
 
     CONSTRAINT [CK_MOVIE_DURATION] CHECK ([durationMinutes] > 0),
