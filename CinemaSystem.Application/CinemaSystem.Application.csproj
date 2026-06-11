@@ -6,10 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\CinemaSystem.Contracts\CinemaSystem.Contracts.csproj" />
-    <ProjectReference Include="..\CinemaSystem.Domain\CinemaSystem.Domain.csproj" />
-  </ItemGroup>
+ <ItemGroup>
+  <ProjectReference Include="..\CinemaSystem.Domain\CinemaSystem.Domain.csproj" />
+  <ProjectReference Include="..\CinemaSystem.Contracts\CinemaSystem.Contracts.csproj" />
+</ItemGroup>
 
   <ItemGroup>
     <Folder Include="Features\" />

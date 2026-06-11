@@ -2,6 +2,7 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Showtimes;
+using CinemaSystem.Mapping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,7 +24,7 @@ public sealed class ShowtimesController : ControllerBase
     public async Task<IActionResult> GetShowtimes(CancellationToken cancellationToken)
     {
         var result = await _showtimeService.GetShowtimesAsync(cancellationToken);
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Showtimes.ShowtimeResponse>, IReadOnlyList<ShowtimeResponse>>());
     }
 
     [HttpGet("{showtimeId}")]
@@ -31,7 +32,7 @@ public sealed class ShowtimesController : ControllerBase
     public async Task<IActionResult> GetShowtimeById(string showtimeId, CancellationToken cancellationToken)
     {
         var result = await _showtimeService.GetShowtimeByIdAsync(showtimeId, cancellationToken);
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<Contracts.Showtimes.ShowtimeResponse, ShowtimeResponse>());
     }
 
     [HttpPost]
@@ -40,8 +41,10 @@ public sealed class ShowtimesController : ControllerBase
         CreateShowtimeRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _showtimeService.CreateShowtimeAsync(request, cancellationToken);
-        return ToActionResult(result);
+        var result = await _showtimeService.CreateShowtimeAsync(
+            request.MapTo<Contracts.Showtimes.CreateShowtimeRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Showtimes.ShowtimeResponse, ShowtimeResponse>());
     }
 
     [HttpPut("{showtimeId}")]
@@ -51,8 +54,11 @@ public sealed class ShowtimesController : ControllerBase
         UpdateShowtimeRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _showtimeService.UpdateShowtimeAsync(showtimeId, request, cancellationToken);
-        return ToActionResult(result);
+        var result = await _showtimeService.UpdateShowtimeAsync(
+            showtimeId,
+            request.MapTo<Contracts.Showtimes.UpdateShowtimeRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Showtimes.ShowtimeResponse, ShowtimeResponse>());
     }
 
     [HttpDelete("{showtimeId}")]
