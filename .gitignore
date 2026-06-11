@@ -11,6 +11,7 @@
 # Local application settings that may contain secrets
 **/appsettings.Development.json
 !**/appsettings.Development.example.json
+CinemaSystem/appsettings.json
 
 # Codex/local analysis scratch folders
 .codex_tmp/
