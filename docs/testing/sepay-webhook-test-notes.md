@@ -19,7 +19,7 @@ $body = @'
 }
 '@
 
-$secret = "Admin@123"
+$secret = "<your-local-webhook-secret>"
 $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
 $data = "$timestamp.$body"
 
