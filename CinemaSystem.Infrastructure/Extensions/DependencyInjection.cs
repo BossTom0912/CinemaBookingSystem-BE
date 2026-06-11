@@ -111,6 +111,12 @@ public static class DependencyInjection
         services.AddScoped<IDatabaseMaintenanceService, DatabaseMaintenanceService>();
         services.AddSingleton<IWebhookSignatureVerifier, HmacVerifyHelper>();
 
+        services.Configure<GeminiSettings>(options =>
+        {
+            options.ApiKey = configuration["GeminiSettings:ApiKey"] ?? string.Empty;
+        });
+        services.AddScoped<IChatbotService, GeminiChatbotService>();
+
         return services;
     }
 
