@@ -3,15 +3,16 @@
 ## Start
 - Task started in the local workspace on 2026-05-22.
 
-## Documents Read From `KhoBauG2`
-- `SRS_Group2.docx`
-- `Backend_System_Design_CinemaBooking_Group2_CleanArchitecture.docx`
-- `Bussiness Rule.docx`
-- `Giai_thich_Conceptual_ERD_SRS_Rap_Chieu_Phim.docx`
-- `DB_CinemaBookingDB.txt`
+## Documents Read
+- `docs/requirements/srs-group-2.docx`
+- `docs/architecture/backend-system-design-clean-architecture.docx`
+- `docs/requirements/business-rules.docx`
+- `docs/architecture/conceptual-erd-explanation.docx`
+- `docs/database/cinema-booking-schema.sql`
 
 ## Existing Project Structure Discovered
-- Solution file: `CinemaSystem.slnx`
+- Solution file at the time: `CinemaSystem.slnx` (later replaced by
+  `CinemaSystem.sln` for .NET 8 CI compatibility).
 - API project: `CinemaSystem`
 - Application project: `CinemaSystem.Application`
 - Contracts project: `CinemaSystem.Contracts`
@@ -57,7 +58,7 @@
 - Added Auth controller endpoints.
 - Added safe policy test endpoints.
 - Added automated xUnit test project with 22 tests.
-- Added manual Swagger/Postman test cases in `Auth_TestCases.md`.
+- Added manual Swagger/Postman test cases in `docs/testing/auth-manual-test-cases.md`.
 
 ## Endpoints Implemented
 - `POST /api/auth/register`
@@ -71,7 +72,7 @@
 
 ## Files Created
 - `AGENTS.md`
-- `Auth_TestCases.md`
+- `docs/testing/auth-manual-test-cases.md`
 - `CinemaSystem.Contracts/Common/ApiResponse.cs`
 - `CinemaSystem.Contracts/Auth/RegisterRequest.cs`
 - `CinemaSystem.Contracts/Auth/VerifyEmailRequest.cs`
@@ -196,7 +197,7 @@ Use appsettings, user secrets, or environment variables:
 Do not commit a real Gmail password. Use a Gmail App Password, not the normal Gmail account password.
 
 ## Manual Swagger/Postman Test Cases
-Detailed cases are saved in `Auth_TestCases.md`.
+Detailed cases are saved in `docs/testing/auth-manual-test-cases.md`.
 
 Required flows:
 - Flow A: Register + verify + login.

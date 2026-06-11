@@ -4,12 +4,12 @@
 CinemaSystem is an ASP.NET Core Web API backend for an Online Movie Ticket Booking and Management System. The current solution follows a Clean Architecture-style structure with API, Application, Domain, Infrastructure, and Contracts projects.
 
 ## Documentation
-Authoritative project documents are in `KhoBauG2`:
-- `SRS_Group2.docx`
-- `Backend_System_Design_CinemaBooking_Group2_CleanArchitecture.docx`
-- `Bussiness Rule.docx`
-- `Giai_thich_Conceptual_ERD_SRS_Rap_Chieu_Phim.docx`
-- `DB_CinemaBookingDB.txt`
+Authoritative project documents are indexed in `docs/README.md`:
+- `docs/requirements/srs-group-2.docx`
+- `docs/requirements/business-rules.docx`
+- `docs/architecture/backend-system-design-clean-architecture.docx`
+- `docs/architecture/conceptual-erd-explanation.docx`
+- `docs/database/cinema-booking-schema.sql`
 
 Always inspect these documents before making feature-level changes.
 
@@ -24,17 +24,13 @@ Always inspect these documents before making feature-level changes.
 - Do not rename projects, namespaces, or scaffolded database-first models unnecessarily.
 - Prefer the existing database schema and scaffolded EF Core models.
 
-## Sprint 1 Auth Scope
-Implement only Sprint 1 authentication and authorization:
-- Register Customer account.
-- Send Gmail SMTP email OTP verification.
-- Verify account by OTP.
-- Login with JWT.
-- Refresh token.
-- Logout by revoking refresh token.
-- Role-based authorization.
+## Current Implemented Scope
+The repository currently contains authentication and authorization, cinema,
+room, seat, showtime, seat-locking, and SePay payment functionality. Inspect the
+existing service and controller patterns before extending these modules.
 
-Do not implement Movie, Showtime, Booking, Payment, Ticket, Refund, or other modules unless required for compilation.
+Do not implement Movie, Booking, Ticket, Refund, Voucher, Food and Beverage, or
+other incomplete modules unless explicitly requested.
 
 ## Database/Auth Tables
 Documents and current EF models define these Sprint 1 auth tables:
@@ -101,8 +97,8 @@ Never commit real SMTP passwords or production JWT secrets.
 
 ## Testing Commands
 Run from repository root:
-- `dotnet restore`
-- `dotnet build`
-- `dotnet test`
+- `dotnet restore CinemaSystem.sln`
+- `dotnet build CinemaSystem.sln`
+- `dotnet test CinemaSystem.sln`
 
 If no test project exists and the project structure supports it, create focused tests for the changed feature.

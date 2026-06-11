@@ -4,7 +4,7 @@ Ngày rà soát: 07/06/2026
 
 ## 1. Phạm vi và nguồn đối chiếu
 
-Tài liệu này phân tích schema trong `OnepieceOfG2/DB_CinemaBookingDB.txt`, đồng thời đối chiếu với:
+Tài liệu này phân tích schema trong `docs/database/cinema-booking-schema.sql`, đồng thời đối chiếu với:
 
 - `Giai_thich_Conceptual_ERD_SRS_Rap_Chieu_Phim.docx`
 - `Backend_System_Design_CinemaBooking_Group2_CleanArchitecture.docx`
