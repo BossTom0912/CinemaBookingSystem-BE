@@ -1,5 +1,6 @@
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Auth;
+using CinemaSystem.Infrastructure.Bookings;
 using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
@@ -39,6 +40,15 @@ public static class DependencyInjection
             options.SenderName = configuration["EmailSettings:SenderName"] ?? "Cinema Booking System";
             options.Password = configuration["EmailSettings:Password"] ?? string.Empty;
         });
+        services.Configure<BookingSettings>(options =>
+        {
+            options.OnlineSaleCutoffMinutes = ReadInt(
+                configuration["BookingSettings:OnlineSaleCutoffMinutes"],
+                15);
+            options.MaxSeatsPerCheckout = ReadInt(
+                configuration["BookingSettings:MaxSeatsPerCheckout"],
+                10);
+        });
 
         // Read connection string and fail fast with clear error if missing
         var defaultConnection = configuration.GetConnectionString("DefaultConnection");
@@ -60,6 +70,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICheckoutService, CheckoutService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<ICinemaService, CinemaService>();
         var redisConnectionString = configuration["Redis:ConnectionString"];
