@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using CinemaSystem.Infrastructure.Persistence.Models;
+using CinemaSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Persistence;

@@ -10,7 +10,7 @@ using CinemaSystem.Infrastructure.Auth;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Persistence.Models;
+using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;

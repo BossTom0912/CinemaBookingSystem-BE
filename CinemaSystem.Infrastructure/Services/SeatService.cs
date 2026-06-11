@@ -3,7 +3,7 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Seats;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Persistence.Models;
+using CinemaSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Services;

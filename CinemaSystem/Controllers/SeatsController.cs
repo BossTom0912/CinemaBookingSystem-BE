@@ -2,6 +2,7 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Seats;
+using CinemaSystem.Mapping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -34,7 +35,7 @@ public sealed class SeatsController : ControllerBase
         var userId = GetUserId();
 
         var result = await _seatService.CreateSeatAsync(
-            request,
+            request.MapTo<Contracts.Seats.CreateSeatRequest>(),
             userId,
             cancellationToken);
 
@@ -57,7 +58,7 @@ public sealed class SeatsController : ControllerBase
         request.SeatId = seatId;
 
         var result = await _seatService.UpdateSeatAsync(
-            request,
+            request.MapTo<Contracts.Seats.UpdateSeatRequest>(),
             GetUserId(),
             cancellationToken);
 
@@ -116,11 +117,11 @@ public sealed class SeatsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _seatService.LockSeatAsync(
-            request,
+            request.MapTo<Contracts.Seats.LockSeatRequest>(),
             GetUserId(),
             cancellationToken);
 
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<Contracts.Seats.LockSeatResponse, LockSeatResponse>());
     }
 
     [Authorize(Policy = AuthConstants.Policies.CanSelectSeat)]
@@ -136,7 +137,7 @@ public sealed class SeatsController : ControllerBase
             showtimeId,
             cancellationToken);
 
-        return ToActionResult(result);
+        return ToActionResult(result.MapDataTo<Contracts.Seats.SeatMapResponse, SeatMapResponse>());
     }
 
     private string GetUserId()

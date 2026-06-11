@@ -12,8 +12,4 @@
     <Folder Include="Requests\" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\CinemaSystem.Domain\CinemaSystem.Domain.csproj" />
-  </ItemGroup>
-
 </Project>

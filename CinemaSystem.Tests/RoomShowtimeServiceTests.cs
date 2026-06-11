@@ -2,7 +2,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Rooms;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Persistence.Models;
+
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Showtimes;
 using Microsoft.EntityFrameworkCore;
@@ -155,6 +155,189 @@ public sealed class RoomShowtimeServiceTests
         Assert.Equal(10, await fixture.DbContext.Seats.CountAsync());
         Assert.Equal(1, await fixture.DbContext.Showtimes.CountAsync());
         Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
+    }
+
+    [Fact]
+    public async Task GetRoomsAsync_ExcludesInactiveRooms()
+    {
+        // Luồng: seed phòng ACTIVE + INACTIVE → GetRooms chỉ trả ACTIVE.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+        fixture.DbContext.Rooms.Add(new Room
+        {
+            RoomId = "ROOM_INACTIVE",
+            CinemaId = "CIN_TEST",
+            RoomName = "Closed Room",
+            Capacity = 5,
+            RoomStatus = "INACTIVE"
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var result = await fixture.RoomService.GetRoomsAsync(CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(result.Data!);
+        Assert.Equal("ROOM_TEST", result.Data[0].RoomId);
+    }
+
+    [Fact]
+    public async Task GetRoomByIdAsync_ReturnsRoomDetail()
+    {
+        // Luồng: lấy chi tiết phòng ACTIVE → 200 kèm SeatCount.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+
+        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("Room Test", result.Data!.RoomName);
+        Assert.Equal(10, result.Data.SeatCount);
+    }
+
+    [Fact]
+    public async Task GetRoomByIdAsync_InactiveRoom_ReturnsNotFound()
+    {
+        // Luồng: phòng INACTIVE được coi như không tồn tại → 404 ROOM_NOT_FOUND.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+        var room = await fixture.DbContext.Rooms.SingleAsync(r => r.RoomId == "ROOM_TEST");
+        room.RoomStatus = "INACTIVE";
+        await fixture.DbContext.SaveChangesAsync();
+
+        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(404, result.StatusCode);
+        Assert.Equal("ROOM_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateRoomAsync_HappyPath_UpdatesRoom()
+    {
+        // Luồng: cập nhật tên + capacity phòng hợp lệ → 200.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+
+        var result = await fixture.RoomService.UpdateRoomAsync(
+            "ROOM_TEST",
+            new UpdateRoomRequest
+            {
+                RoomName = "Room Updated",
+                Capacity = 20,
+                RoomStatus = "ACTIVE"
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("Room Updated", result.Data!.RoomName);
+        Assert.Equal(20, result.Data.Capacity);
+    }
+
+    [Fact]
+    public async Task GenerateSeatsAsync_RoomAlreadyHasSeats_ReturnsConflict()
+    {
+        // Luồng: phòng đã có ghế → generate lại → 409 ROOM_HAS_SEATS.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+
+        var result = await fixture.RoomService.GenerateSeatsAsync(
+            "ROOM_TEST",
+            new GenerateSeatsRequest { Rows = 2, Columns = 2, SeatTypeId = "SEAT_TYPE_STANDARD" },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(409, result.StatusCode);
+        Assert.Equal("ROOM_HAS_SEATS", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateShowtimeAsync_HappyPath_CreatesShowtimeSeats()
+    {
+        // Luồng: tạo suất chiếu hợp lệ → sinh ShowtimeSeat cho mọi ghế active.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+
+        var result = await fixture.ShowtimeService.CreateShowtimeAsync(
+            new CreateShowtimeRequest
+            {
+                MovieId = "MOV_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = new DateTime(2026, 6, 1, 14, 0, 0, DateTimeKind.Utc),
+                BasePrice = 85000
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(201, result.StatusCode);
+        Assert.Equal(10, result.Data!.ShowtimeSeatCount);
+        Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
+    }
+
+    [Fact]
+    public async Task GetShowtimesAsync_ReturnsAllShowtimes()
+    {
+        // Luồng: có 1 showtime → GetShowtimes trả danh sách.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+        await fixture.ShowtimeService.CreateShowtimeAsync(
+            new CreateShowtimeRequest
+            {
+                MovieId = "MOV_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = new DateTime(2026, 6, 1, 14, 0, 0, DateTimeKind.Utc),
+                BasePrice = 85000
+            },
+            CancellationToken.None);
+
+        var result = await fixture.ShowtimeService.GetShowtimesAsync(CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(result.Data!);
+    }
+
+    [Fact]
+    public async Task GetShowtimeByIdAsync_NotFound_Returns404()
+    {
+        // Luồng: showtime không tồn tại → 404 SHOWTIME_NOT_FOUND.
+        var fixture = Fixture.Create();
+
+        var result = await fixture.ShowtimeService.GetShowtimeByIdAsync("SHW_MISSING", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(404, result.StatusCode);
+        Assert.Equal("SHOWTIME_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateShowtimeAsync_HappyPath_UpdatesPrice()
+    {
+        // Luồng: cập nhật base price showtime không có booking → 200.
+        var fixture = Fixture.Create();
+        await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
+        var created = await fixture.ShowtimeService.CreateShowtimeAsync(
+            new CreateShowtimeRequest
+            {
+                MovieId = "MOV_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = new DateTime(2026, 6, 1, 14, 0, 0, DateTimeKind.Utc),
+                BasePrice = 85000
+            },
+            CancellationToken.None);
+
+        var result = await fixture.ShowtimeService.UpdateShowtimeAsync(
+            created.Data!.ShowtimeId,
+            new UpdateShowtimeRequest
+            {
+                MovieId = "MOV_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = new DateTime(2026, 6, 1, 16, 0, 0, DateTimeKind.Utc),
+                BasePrice = 95000,
+                Status = "OPEN"
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(95000, result.Data!.BasePrice);
     }
 
     private sealed class Fixture
