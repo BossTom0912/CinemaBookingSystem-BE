@@ -35,6 +35,8 @@ agents discover them there automatically.
   complete local database creation script.
 - [`database/profile-token-counter-sale-patch.sql`](database/profile-token-counter-sale-patch.sql):
   incremental reference patch.
+- [`database/test-customer-seed.sql`](database/test-customer-seed.sql):
+  optional local test customer seed.
 
 ## Testing
 
@@ -46,3 +48,7 @@ agents discover them there automatically.
 
 Files under [`reports`](reports) describe completed implementation work. They
 are retained for traceability but are not authoritative specifications.
+
+- [`reports/customer-flow-movie-view-booking.md`](reports/customer-flow-movie-view-booking.md)
+- [`reports/forgot-password-implementation.md`](reports/forgot-password-implementation.md)
+- [`reports/sprint-1-auth-implementation.md`](reports/sprint-1-auth-implementation.md)
