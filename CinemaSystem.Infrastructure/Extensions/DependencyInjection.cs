@@ -5,6 +5,7 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
+using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
