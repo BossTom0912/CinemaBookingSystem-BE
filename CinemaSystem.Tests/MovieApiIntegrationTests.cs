@@ -35,6 +35,26 @@ public sealed class MovieApiIntegrationTests
         Assert.Equal("HOT", body.Data[0].Highlight);
     }
 
+    [Fact]
+    public async Task GetMovieById_ReturnsMovieDetailWithoutAuthentication()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedMovieAsync(factory);
+
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/api/movies/MOV_01");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = JsonSerializer.Deserialize<ApiResponse<MovieDetailResponse>>(
+            await response.Content.ReadAsStringAsync(),
+            JsonOptions);
+
+        Assert.True(body!.Success);
+        Assert.Equal("MOV_01", body.Data!.MovieId);
+        Assert.Equal("Test Movie", body.Data.Title);
+        Assert.Equal("NOW_SHOWING", body.Data.MovieStatus);
+    }
+
     private static async Task SeedMovieAsync(CinemaWebApplicationFactory factory)
     {
         await using var scope = factory.Services.CreateAsyncScope();

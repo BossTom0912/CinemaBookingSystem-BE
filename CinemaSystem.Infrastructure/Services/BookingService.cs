@@ -214,7 +214,7 @@ public sealed class BookingService : IBookingService
     {
         var bookings = await _dbContext.Bookings
             .Include(b => b.CustomerProfile)
-            .Where(b => b.CustomerProfile.UserId == userId)
+            .Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId)
             .OrderByDescending(b => b.CreatedAt)
             .Select(b => new BookingResponse
             {
