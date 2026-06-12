@@ -51,4 +51,5 @@ are retained for traceability but are not authoritative specifications.
 
 - [`reports/customer-flow-movie-view-booking.md`](reports/customer-flow-movie-view-booking.md)
 - [`reports/forgot-password-implementation.md`](reports/forgot-password-implementation.md)
+- [`reports/scrum-157-checkout-implementation-plan.md`](reports/scrum-157-checkout-implementation-plan.md)
 - [`reports/sprint-1-auth-implementation.md`](reports/sprint-1-auth-implementation.md)

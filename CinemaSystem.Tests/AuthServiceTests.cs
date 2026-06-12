@@ -12,7 +12,7 @@ using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Security;
-using Microsoft.AspNetCore.Mvc.Testing;
+using CinemaSystem.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -626,7 +626,7 @@ public sealed class AuthServiceTests
     [Fact]
     public async Task CustomerToken_CanAccessCustomerPolicyEndpoint()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = CreateApiFactory();
         var client = factory.CreateClient();
         var token = GenerateCurrentAccessToken(AuthConstants.Roles.Customer);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
@@ -639,7 +639,7 @@ public sealed class AuthServiceTests
     [Fact]
     public async Task CustomerToken_CannotAccessAdminPolicyEndpoint()
     {
-        await using var factory = new WebApplicationFactory<Program>();
+        await using var factory = CreateApiFactory();
         var client = factory.CreateClient();
         var token = GenerateCurrentAccessToken(AuthConstants.Roles.Customer);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
@@ -658,6 +658,11 @@ public sealed class AuthServiceTests
             FullName = "Alice Nguyen",
             PhoneNumber = "0900000000"
         };
+    }
+
+    private static CinemaWebApplicationFactory CreateApiFactory()
+    {
+        return new CinemaWebApplicationFactory();
     }
 
     private static string HashRefreshToken(string refreshToken)
