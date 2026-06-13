@@ -12,10 +12,8 @@ using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Security;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
+using CinemaSystem.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Tests;
@@ -662,14 +660,9 @@ public sealed class AuthServiceTests
         };
     }
 
-    private static WebApplicationFactory<Program> CreateApiFactory()
+    private static CinemaWebApplicationFactory CreateApiFactory()
     {
-        return new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseEnvironment("Testing");
-                builder.ConfigureLogging(logging => logging.ClearProviders());
-            });
+        return new CinemaWebApplicationFactory();
     }
 
     private static string HashRefreshToken(string refreshToken)

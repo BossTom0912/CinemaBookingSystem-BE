@@ -88,7 +88,9 @@ public sealed class BookingsControllerTests
         FakeCheckoutService checkoutService,
         string? userId = null)
     {
-        var controller = new BookingsController(checkoutService);
+        var controller = new BookingsController(
+            new FakeBookingService(),
+            checkoutService);
         var claims = userId is null
             ? []
             : new[] { new Claim("userId", userId) };
@@ -102,6 +104,32 @@ public sealed class BookingsControllerTests
         };
 
         return controller;
+    }
+
+    private sealed class FakeBookingService : IBookingService
+    {
+        public Task<ServiceResult<BookingResponse>> CreateBookingAsync(
+            CreateBookingRequest request,
+            string userId,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ServiceResult<BookingDetailsResponse>> GetBookingDetailsAsync(
+            string bookingId,
+            string userId,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ServiceResult<IReadOnlyList<BookingResponse>>> GetMyBookingsAsync(
+            string userId,
+            CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class FakeCheckoutService : ICheckoutService

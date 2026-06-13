@@ -1,0 +1,28 @@
+image: mcr.microsoft.com/dotnet/sdk:8.0
+
+stages:
+  - build
+  - test
+
+variables:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NUGET_PACKAGES: "$CI_PROJECT_DIR/.nuget/packages"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .nuget/packages/
+
+before_script:
+  - dotnet restore CinemaSystem.sln
+
+build:
+  stage: build
+  script:
+    - dotnet build CinemaSystem.sln --no-restore --configuration Release
+
+test:
+  stage: test
+  script:
+    - dotnet test CinemaSystem.sln --no-restore --configuration Release

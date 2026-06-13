@@ -17,6 +17,14 @@
 .codex_tmp/
 _ba_zip_analysis/
 
+# Local AI assistant configuration
+.gemini/
+.claude/
+.cursor/
+
+# Legacy local document drop folder (canonical documents live in docs/)
+OnepieceOfG2/
+
 # User-specific files
 *.rsuser
 *.suo

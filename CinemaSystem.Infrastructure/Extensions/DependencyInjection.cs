@@ -6,6 +6,7 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
+using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
@@ -72,7 +73,10 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICheckoutService, CheckoutService>();
         services.AddScoped<IAdminService, AdminService>();
+        services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ICinemaService, CinemaService>();
+        services.AddScoped<IMovieService, MovieService>();
+        services.AddScoped<IBookingService, BookingService>();
         var redisConnectionString = configuration["Redis:ConnectionString"];
         if (string.IsNullOrWhiteSpace(redisConnectionString))
         {

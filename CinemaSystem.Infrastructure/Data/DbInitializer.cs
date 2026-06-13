@@ -75,8 +75,15 @@ public static class DbInitializer
             return;
         }
 
+        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD");
+        if (string.IsNullOrWhiteSpace(adminPassword))
+        {
+            logger.LogWarning(
+                "Admin seeding skipped because ADMIN_PASSWORD is not configured.");
+            return;
+        }
+
         var adminEmail = Environment.GetEnvironmentVariable("ADMIN_EMAIL") ?? "admin@cinema.com";
-        var adminPassword = Environment.GetEnvironmentVariable("ADMIN_PASSWORD") ?? "Admin@123";
         var normalizedEmail = NormalizeEmail(adminEmail);
         var now = clock.UtcNow;
 
@@ -106,23 +113,31 @@ public static class DbInitializer
         IClock clock,
         ILogger logger)
     {
-        await SeedStaffUserAsync(
-            dbContext,
-            passwordHasher,
-            clock,
-            logger,
-            "staff@test.com",
-            "Staff@123",
-            "Dev Staff");
+        var staffPassword = Environment.GetEnvironmentVariable("DEV_STAFF_PASSWORD");
+        if (!string.IsNullOrWhiteSpace(staffPassword))
+        {
+            await SeedStaffUserAsync(
+                dbContext,
+                passwordHasher,
+                clock,
+                logger,
+                "staff@test.com",
+                staffPassword,
+                "Dev Staff");
+        }
 
-        await SeedCustomerUserAsync(
-            dbContext,
-            passwordHasher,
-            clock,
-            logger,
-            "customer@test.com",
-            "Customer@123",
-            "Dev Customer");
+        var customerPassword = Environment.GetEnvironmentVariable("DEV_CUSTOMER_PASSWORD");
+        if (!string.IsNullOrWhiteSpace(customerPassword))
+        {
+            await SeedCustomerUserAsync(
+                dbContext,
+                passwordHasher,
+                clock,
+                logger,
+                "customer@test.com",
+                customerPassword,
+                "Dev Customer");
+        }
     }
 
     private static async Task SeedStaffUserAsync(
