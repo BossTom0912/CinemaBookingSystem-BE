@@ -31,6 +31,12 @@ public interface ISeatService
             string userId,
             CancellationToken cancellationToken);
 
+    Task<ServiceResult<UnlockSeatResponse>>
+        UnlockSeatAsync(
+            UnlockSeatRequest request,
+            string userId,
+            CancellationToken cancellationToken);
+
     Task<ServiceResult<SeatMapResponse>>
         GetSeatMapAsync(
             string showtimeId,

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using CinemaSystem.Infrastructure.Configuration;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using CinemaSystem.Application.Common;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -14,6 +15,7 @@ public class PaymentService : IPaymentService
 {
     private readonly CinemaDbContext _db;
     private readonly SepaySettings _sepaySettings;
+    private const int PaymentExpiryMinutes = 10;
     private static readonly Regex TransactionCodeRegex = new(@"T[A-Z0-9]{10}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public PaymentService(CinemaDbContext db, IOptions<SepaySettings> sepayOptions)
@@ -23,22 +25,36 @@ public class PaymentService : IPaymentService
     }
 
     // Create payment record for a booking and return bank info + transaction code
-    public async Task<CreatePaymentResponse> CreatePaymentAsync(CreatePaymentRequest request, CancellationToken cancellationToken = default)
+    public async Task<CreatePaymentResponse> CreatePaymentAsync(
+        CreatePaymentRequest request,
+        string userId,
+        CancellationToken cancellationToken = default)
     {
         var bookingId = request.BookingId.Trim();
         var paymentProviderId = request.PaymentProviderId.Trim();
+        var normalizedUserId = userId?.Trim();
 
         if (string.IsNullOrWhiteSpace(bookingId))
             throw new ArgumentException("BookingId must be provided.", nameof(request));
         if (string.IsNullOrWhiteSpace(paymentProviderId))
             throw new ArgumentException("PaymentProviderId must be provided.", nameof(request));
+        if (string.IsNullOrWhiteSpace(normalizedUserId))
+            throw new UnauthorizedAccessException("Unauthorized.");
 
         // Find booking
         var booking = await _db.Bookings
             .Include(item => item.Payments)
+            .Include(item => item.CustomerProfile)
             .SingleOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
         if (booking == null)
             throw new InvalidOperationException($"Booking {bookingId} not found.");
+
+        if (booking.CustomerProfile is null ||
+            !string.Equals(booking.CustomerProfile.UserId, normalizedUserId, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("You are not allowed to pay for this booking.");
+
+        if (!string.Equals(booking.BookingStatus, "PENDING_PAYMENT", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Booking {booking.BookingId} is not awaiting payment.");
 
         // Ensure payment provider exists
         var provider = await _db.PaymentProviders.SingleOrDefaultAsync(p => p.PaymentProviderId == paymentProviderId, cancellationToken);
@@ -52,6 +68,7 @@ public class PaymentService : IPaymentService
         if (successfulPayment != null)
             throw new InvalidOperationException($"Booking {booking.BookingId} has already been paid.");
 
+        var paymentAmount = GetPaymentAmount(booking.TotalAmount);
         var pendingPayment = booking.Payments
             .Where(item =>
                 item.PaymentProviderId == provider.PaymentProviderId
@@ -60,8 +77,16 @@ public class PaymentService : IPaymentService
             .FirstOrDefault();
         if (pendingPayment != null)
         {
-            return ToCreatePaymentResponse(pendingPayment);
+            if (pendingPayment.Amount != paymentAmount)
+            {
+                pendingPayment.Amount = paymentAmount;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            return ToCreatePaymentResponse(pendingPayment, booking.ExpiredAt);
         }
+
+        var now = DateTime.UtcNow;
 
         // Create payment
         var payment = new Payment
@@ -69,20 +94,21 @@ public class PaymentService : IPaymentService
             PaymentId = GenerateId("PAY"),
             BookingId = booking.BookingId,
             PaymentProviderId = provider.PaymentProviderId,
-            Amount = booking.TotalAmount,
+            Amount = paymentAmount,
             TransactionCode = GenerateTransactionCode(),
             PaymentStatus = "PENDING",
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = now,
             PaymentMethod = "SEPAY"
         };
 
+        booking.ExpiredAt = now.AddMinutes(PaymentExpiryMinutes);
         _db.Payments.Add(payment);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return ToCreatePaymentResponse(payment);
+        return ToCreatePaymentResponse(payment, booking.ExpiredAt);
     }
 
-    private CreatePaymentResponse ToCreatePaymentResponse(Payment payment)
+    private CreatePaymentResponse ToCreatePaymentResponse(Payment payment, DateTime? expiresAt)
     {
         return new CreatePaymentResponse
         {
@@ -90,8 +116,16 @@ public class PaymentService : IPaymentService
             Amount = payment.Amount,
             TransactionCode = payment.TransactionCode ?? string.Empty,
             BankName = _sepaySettings.BankName,
-            BankAccount = _sepaySettings.BankAccount
+            BankAccount = _sepaySettings.BankAccount,
+            ExpiresAt = expiresAt
         };
+    }
+
+    private decimal GetPaymentAmount(decimal bookingTotalAmount)
+    {
+        return _sepaySettings.DevelopmentPaymentAmountOverride is > 0
+            ? _sepaySettings.DevelopmentPaymentAmountOverride.Value
+            : bookingTotalAmount;
     }
 
     public async Task ConfirmPaymentAsync(
@@ -116,6 +150,11 @@ public class PaymentService : IPaymentService
         // Find payment by exact transaction code
         var payment = await _db.Payments
             .Include(p => p.Booking)
+                .ThenInclude(b => b.BookingSeats)
+                    .ThenInclude(bs => bs.ShowtimeSeat)
+            .Include(p => p.Booking)
+                .ThenInclude(b => b.BookingSeats)
+                    .ThenInclude(bs => bs.Ticket)
             .SingleOrDefaultAsync(p => p.TransactionCode == transactionCode, cancellationToken);
 
         if (payment == null)
@@ -153,6 +192,25 @@ public class PaymentService : IPaymentService
                 booking.BookingStatus = "PAID";
             }
 
+            foreach (var bookingSeat in booking.BookingSeats)
+            {
+                bookingSeat.ShowtimeSeat.SeatStatus = "BOOKED";
+                bookingSeat.ShowtimeSeat.LockedUntil = null;
+                bookingSeat.ShowtimeSeat.LockedByUserId = null;
+
+                if (bookingSeat.Ticket == null)
+                {
+                    _db.Tickets.Add(new Ticket
+                    {
+                        TicketId = GenerateId("TCK"),
+                        BookingSeatId = bookingSeat.BookingSeatId,
+                        QrCode = GenerateTicketQrCode(booking.BookingId, bookingSeat.BookingSeatId),
+                        TicketStatus = "UNUSED",
+                        GeneratedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
             await _db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
         }
@@ -164,6 +222,9 @@ public class PaymentService : IPaymentService
     }
 
     private static string GenerateId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+
+    private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
+        $"G2C|{bookingId}|{bookingSeatId}|{Guid.NewGuid():N}";
 
     private static string GenerateTransactionCode()
     {

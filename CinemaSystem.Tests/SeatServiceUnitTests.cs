@@ -212,6 +212,7 @@ public sealed class SeatServiceUnitTests
     Assert.Empty(result.Data.LockedSeats);
     Assert.Equal(SeatId, result.Data.AvailableSeats[0].SeatId);
     Assert.Equal("AVAILABLE", result.Data.AvailableSeats[0].SeatStatus);
+    Assert.Equal(90000m, result.Data.AvailableSeats[0].Price);
 
     fixture.LockStoreMock.Verify(
       store => store.ReleaseAsync(
@@ -495,6 +496,7 @@ public sealed class SeatServiceUnitTests
     Assert.Empty(result.Data!.AvailableSeats);
     var lockedSeat = Assert.Single(result.Data.LockedSeats);
     Assert.Equal("LOCKED", lockedSeat.SeatStatus);
+    Assert.Equal(90000m, lockedSeat.Price);
     Assert.NotNull(lockedSeat.LockedUntil);
   }
 

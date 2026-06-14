@@ -49,6 +49,12 @@ public static class DependencyInjection
             options.MaxSeatsPerCheckout = ReadInt(
                 configuration["BookingSettings:MaxSeatsPerCheckout"],
                 10);
+            options.PendingPaymentExpiryMinutes = ReadInt(
+                configuration["BookingSettings:PendingPaymentExpiryMinutes"],
+                10);
+            options.PendingPaymentCleanupIntervalSeconds = ReadInt(
+                configuration["BookingSettings:PendingPaymentCleanupIntervalSeconds"],
+                60);
         });
 
         // Read connection string and fail fast with clear error if missing
@@ -108,12 +114,15 @@ public static class DependencyInjection
         sepaySettings.WebhookSecret = sepaySection["WebhookSecret"] ?? string.Empty;
         sepaySettings.BankName = sepaySection["BankName"] ?? string.Empty;
         sepaySettings.BankAccount = sepaySection["BankAccount"] ?? string.Empty;
+        sepaySettings.DevelopmentPaymentAmountOverride = ReadDecimal(
+            sepaySection["DevelopmentPaymentAmountOverride"]);
         services.AddSingleton(sepaySettings);
         services.Configure<SepaySettings>(options =>
         {
             options.WebhookSecret = sepaySettings.WebhookSecret;
             options.BankName = sepaySettings.BankName;
             options.BankAccount = sepaySettings.BankAccount;
+            options.DevelopmentPaymentAmountOverride = sepaySettings.DevelopmentPaymentAmountOverride;
         });
 
         services.AddSingleton<HmacVerifyHelper>();
@@ -129,5 +138,10 @@ public static class DependencyInjection
     private static int ReadInt(string? value, int fallback)
     {
         return int.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
+    private static decimal? ReadDecimal(string? value)
+    {
+        return decimal.TryParse(value, out var parsed) ? parsed : null;
     }
 }

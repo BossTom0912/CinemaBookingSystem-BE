@@ -421,11 +421,12 @@ GO
 
 CREATE TABLE [CHECKIN_LOG] (
     [checkInLogId] NVARCHAR(50) PRIMARY KEY,
-    [ticketId] NVARCHAR(50) NOT NULL,
+    [ticketId] NVARCHAR(50) NULL,
     [staffProfileId] NVARCHAR(50) NOT NULL,
     [scanTime] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     [result] NVARCHAR(30) NOT NULL,
     [failureReason] NVARCHAR(500) NULL,
+    [rawQrCode] NVARCHAR(450) NULL,
 
     CONSTRAINT [CK_CHECKIN_LOG_RESULT]
         CHECK ([result] IN ('SUCCESS', 'FAILED')),
@@ -699,6 +700,7 @@ CREATE INDEX [IX_ROOM_CINEMA_ID] ON [ROOM]([cinemaId]);
 CREATE INDEX [IX_SEAT_ROOM_ID] ON [SEAT]([roomId]);
 CREATE INDEX [IX_SHOWTIME_MOVIE_ID] ON [SHOWTIME]([movieId]);
 CREATE INDEX [IX_SHOWTIME_ROOM_TIME] ON [SHOWTIME]([roomId], [startTime], [endTime]);
+CREATE UNIQUE INDEX [UQ_SHOWTIME_ROOM_STARTTIME] ON [SHOWTIME]([roomId], [startTime]);
 CREATE INDEX [IX_SHOWTIME_SEAT_SHOWTIME_ID] ON [SHOWTIME_SEAT]([showtimeId]);
 CREATE INDEX [IX_SHOWTIME_SEAT_STATUS] ON [SHOWTIME_SEAT]([showtimeId], [seatStatus]);
 CREATE INDEX [IX_BOOKING_CUSTOMER_PROFILE_ID] ON [BOOKING]([customerProfileId]);
@@ -709,6 +711,273 @@ CREATE INDEX [IX_BOOKING_STATUS] ON [BOOKING]([bookingStatus]);
 CREATE INDEX [IX_PAYMENT_BOOKING_ID] ON [PAYMENT]([bookingId]);
 CREATE INDEX [IX_REFUND_BOOKING_ID] ON [REFUND]([bookingId]);
 CREATE INDEX [IX_CHECKIN_LOG_TICKET_ID] ON [CHECKIN_LOG]([ticketId]);
+CREATE INDEX [IX_CHECKIN_LOG_RAW_QR_CODE] ON [CHECKIN_LOG]([rawQrCode]) WHERE [rawQrCode] IS NOT NULL;
 CREATE INDEX [IX_NOTIFICATION_USER_READ] ON [NOTIFICATION]([userId], [isRead]);
 CREATE INDEX [IX_AUDIT_LOG_USER_CREATED_AT] ON [AUDIT_LOG]([userId], [createdAt]);
+GO
+
+-- =========================
+-- 12. DEVELOPMENT SEED DATA
+-- =========================
+-- This seed matches the current backend constants and EF mappings.
+-- Order matters because MOVIE, SEAT, SHOWTIME and SHOWTIME_SEAT depend on
+-- ROLE, CINEMA, ROOM and SEAT_TYPE foreign keys.
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_CUSTOMER')
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES ('ROLE_CUSTOMER', 'CUSTOMER', N'Customer account');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_STAFF')
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES ('ROLE_STAFF', 'STAFF', N'Cinema staff account');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_MANAGER')
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES ('ROLE_MANAGER', 'MANAGER', N'Cinema manager account');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_ADMIN')
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES ('ROLE_ADMIN', 'ADMIN', N'System administrator account');
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_NORMAL')
+    INSERT INTO dbo.[SEAT_TYPE] ([seatTypeId], [typeName], [extraFee])
+    VALUES ('SEAT_TYPE_NORMAL', 'NORMAL', 0.00);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_VIP')
+    INSERT INTO dbo.[SEAT_TYPE] ([seatTypeId], [typeName], [extraFee])
+    VALUES ('SEAT_TYPE_VIP', 'VIP', 30000.00);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_SWEETBOX')
+    INSERT INTO dbo.[SEAT_TYPE] ([seatTypeId], [typeName], [extraFee])
+    VALUES ('SEAT_TYPE_SWEETBOX', 'SWEETBOX', 50000.00);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[CINEMA] WHERE [cinemaId] = 'CIN_ND_Q1')
+    INSERT INTO dbo.[CINEMA] ([cinemaId], [cinemaName], [address], [city], [phoneNumber], [cinemaStatus])
+    VALUES ('CIN_ND_Q1', N'Rap Nguyen Du - Quan 1', N'116 Nguyen Du, Phuong Ben Thanh, Quan 1', N'Ho Chi Minh', '02838273111', 'ACTIVE');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[CINEMA] WHERE [cinemaId] = 'CIN_BH_DN')
+    INSERT INTO dbo.[CINEMA] ([cinemaId], [cinemaName], [address], [city], [phoneNumber], [cinemaStatus])
+    VALUES ('CIN_BH_DN', N'Rap Bien Hoa - Dong Nai', N'Khu pho 2, Phuong Tan Tien, TP Bien Hoa', N'Dong Nai', '02513822111', 'ACTIVE');
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROOM] WHERE [roomId] = 'RM01')
+    INSERT INTO dbo.[ROOM] ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+    VALUES ('RM01', 'CIN_ND_Q1', N'Phong 1 - 2D Dolby', 40, 'ACTIVE');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROOM] WHERE [roomId] = 'RM02')
+    INSERT INTO dbo.[ROOM] ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+    VALUES ('RM02', 'CIN_ND_Q1', N'Phong 2 - 3D IMAX', 30, 'ACTIVE');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROOM] WHERE [roomId] = 'RM03')
+    INSERT INTO dbo.[ROOM] ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+    VALUES ('RM03', 'CIN_BH_DN', N'Phong VIP', 20, 'ACTIVE');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROOM] WHERE [roomId] = 'RM04')
+    INSERT INTO dbo.[ROOM] ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+    VALUES ('RM04', 'CIN_BH_DN', N'Phong Sweetbox', 12, 'ACTIVE');
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_DOCTOR_STRANGE_3')
+    INSERT INTO dbo.[MOVIE]
+        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+         [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
+    VALUES
+        ('MOV_DOCTOR_STRANGE_3', N'Doctor Strange 3', 120, N'Hanh dong, Vien tuong',
+         N'Tieng Anh - Phu de Tieng Viet', '2026-05-01', 'T16',
+         N'Phan phim tiep theo ve Phu Thuy Toi Thuong.',
+         'https://image.example.com/doctor-strange-3.jpg',
+         'https://youtube.com/watch?v=doctor-strange-3', 'NOW_SHOWING');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_LAT_MAT_8')
+    INSERT INTO dbo.[MOVIE]
+        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+         [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
+    VALUES
+        ('MOV_LAT_MAT_8', N'Lat Mat 8', 115, N'Hai, Gia dinh, Tam ly',
+         N'Tieng Viet', '2026-04-28', 'P',
+         N'Tac pham dien anh moi voi cau chuyen gia dinh va hanh trinh hoa giai.',
+         'https://image.example.com/lat-mat-8.jpg',
+         'https://youtube.com/watch?v=lat-mat-8', 'NOW_SHOWING');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_AVENGERS_SECRET_WARS')
+    INSERT INTO dbo.[MOVIE]
+        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+         [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
+    VALUES
+        ('MOV_AVENGERS_SECRET_WARS', N'Avengers: Secret Wars', 150, N'Hanh dong, Sieu anh hung',
+         N'Tieng Anh - Phu de Tieng Viet', '2026-06-20', 'T13',
+         N'Biet doi sieu anh hung doi mat moi de doa da vu tru.',
+         'https://image.example.com/avengers-secret-wars.jpg',
+         'https://youtube.com/watch?v=avengers-secret-wars', 'NOW_SHOWING');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_DORAEMON_2026')
+    INSERT INTO dbo.[MOVIE]
+        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+         [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
+    VALUES
+        ('MOV_DORAEMON_2026', N'Doraemon Movie 2026', 105, N'Hoat hinh, Phieu luu, Gia dinh',
+         N'Long tieng Viet', '2026-06-01', 'P',
+         N'Doraemon va nhom ban trong chuyen phieu luu moi.',
+         'https://image.example.com/doraemon-2026.jpg',
+         'https://youtube.com/watch?v=doraemon-2026', 'NOW_SHOWING');
+GO
+
+DECLARE @RoomId NVARCHAR(50);
+DECLARE @Rows TABLE ([rowLabel] NVARCHAR(10), [seatCount] INT);
+DECLARE @RowLabel NVARCHAR(10);
+DECLARE @SeatCount INT;
+DECLARE @SeatNumber INT;
+DECLARE @SeatTypeId NVARCHAR(50);
+DECLARE @SeatId NVARCHAR(50);
+DECLARE @SeatCode NVARCHAR(20);
+
+DECLARE room_cursor CURSOR LOCAL FAST_FORWARD FOR
+    SELECT [roomId] FROM (VALUES ('RM01'), ('RM02'), ('RM03'), ('RM04')) AS seededRooms([roomId]);
+
+OPEN room_cursor;
+FETCH NEXT FROM room_cursor INTO @RoomId;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DELETE FROM @Rows;
+
+    IF @RoomId = 'RM01'
+        INSERT INTO @Rows VALUES ('A', 10), ('B', 10), ('C', 10), ('D', 10);
+    ELSE IF @RoomId = 'RM02'
+        INSERT INTO @Rows VALUES ('A', 10), ('B', 10), ('C', 10);
+    ELSE IF @RoomId = 'RM03'
+        INSERT INTO @Rows VALUES ('A', 8), ('B', 8), ('C', 4);
+    ELSE
+        INSERT INTO @Rows VALUES ('S', 12);
+
+    DECLARE row_cursor CURSOR LOCAL FAST_FORWARD FOR
+        SELECT [rowLabel], [seatCount] FROM @Rows;
+
+    OPEN row_cursor;
+    FETCH NEXT FROM row_cursor INTO @RowLabel, @SeatCount;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @SeatNumber = 1;
+
+        WHILE @SeatNumber <= @SeatCount
+        BEGIN
+            SET @SeatCode = CONCAT(@RowLabel, @SeatNumber);
+            SET @SeatId = CONCAT('SEAT_', @RoomId, '_', @RowLabel, RIGHT(CONCAT('0', @SeatNumber), 2));
+            SET @SeatTypeId =
+                CASE
+                    WHEN @RoomId = 'RM04' THEN 'SEAT_TYPE_SWEETBOX'
+                    WHEN @RowLabel IN ('C', 'D', 'S') THEN 'SEAT_TYPE_VIP'
+                    ELSE 'SEAT_TYPE_NORMAL'
+                END;
+
+            IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT] WHERE [seatId] = @SeatId)
+                INSERT INTO dbo.[SEAT]
+                    ([seatId], [roomId], [seatTypeId], [seatCode], [rowLabel], [seatNumber], [isActive])
+                VALUES
+                    (@SeatId, @RoomId, @SeatTypeId, @SeatCode, @RowLabel, @SeatNumber, 1);
+
+            SET @SeatNumber += 1;
+        END;
+
+        FETCH NEXT FROM row_cursor INTO @RowLabel, @SeatCount;
+    END;
+
+    CLOSE row_cursor;
+    DEALLOCATE row_cursor;
+
+    FETCH NEXT FROM room_cursor INTO @RoomId;
+END;
+
+CLOSE room_cursor;
+DEALLOCATE room_cursor;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = 'SHW001')
+    INSERT INTO dbo.[SHOWTIME] ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+    VALUES ('SHW001', 'MOV_DOCTOR_STRANGE_3', 'RM01', '2026-07-01T10:00:00', '2026-07-01T12:15:00', 80000.00, 'OPEN');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = 'SHW002')
+    INSERT INTO dbo.[SHOWTIME] ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+    VALUES ('SHW002', 'MOV_LAT_MAT_8', 'RM01', '2026-07-01T13:00:00', '2026-07-01T15:10:00', 85000.00, 'OPEN');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = 'SHW003')
+    INSERT INTO dbo.[SHOWTIME] ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+    VALUES ('SHW003', 'MOV_AVENGERS_SECRET_WARS', 'RM02', '2026-07-01T14:30:00', '2026-07-01T17:15:00', 120000.00, 'OPEN');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = 'SHW004')
+    INSERT INTO dbo.[SHOWTIME] ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+    VALUES ('SHW004', 'MOV_DORAEMON_2026', 'RM03', '2026-07-01T19:00:00', '2026-07-01T21:00:00', 90000.00, 'OPEN');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = 'SHW005')
+    INSERT INTO dbo.[SHOWTIME] ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+    VALUES ('SHW005', 'MOV_DOCTOR_STRANGE_3', 'RM04', '2026-07-02T20:00:00', '2026-07-02T22:15:00', 150000.00, 'OPEN');
+GO
+
+INSERT INTO dbo.[SHOWTIME_SEAT] ([showtimeSeatId], [showtimeId], [seatId], [seatStatus], [lockedUntil], [lockedByUserId])
+SELECT
+    CONCAT('STS_', showtime.[showtimeId], '_', seat.[seatId]),
+    showtime.[showtimeId],
+    seat.[seatId],
+    CASE
+        WHEN showtime.[showtimeId] = 'SHW001' AND seat.[seatCode] IN ('A1', 'A2') THEN 'BOOKED'
+        WHEN showtime.[showtimeId] = 'SHW001' AND seat.[seatCode] IN ('B1', 'B2') THEN 'UNAVAILABLE'
+        WHEN showtime.[showtimeId] = 'SHW003' AND seat.[seatCode] IN ('C1', 'C2') THEN 'LOCKED'
+        ELSE 'AVAILABLE'
+    END,
+    CASE
+        WHEN showtime.[showtimeId] = 'SHW003' AND seat.[seatCode] IN ('C1', 'C2')
+            THEN DATEADD(MINUTE, 10, SYSUTCDATETIME())
+        ELSE NULL
+    END,
+    NULL
+FROM dbo.[SHOWTIME] AS showtime
+INNER JOIN dbo.[SEAT] AS seat
+    ON seat.[roomId] = showtime.[roomId]
+    AND seat.[isActive] = 1
+WHERE showtime.[showtimeId] IN ('SHW001', 'SHW002', 'SHW003', 'SHW004', 'SHW005')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.[SHOWTIME_SEAT] AS existing
+        WHERE existing.[showtimeId] = showtime.[showtimeId]
+            AND existing.[seatId] = seat.[seatId]
+    );
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[FB_ITEM] WHERE [fbItemId] = 'FB_POPCORN_PEPSI_L')
+    INSERT INTO dbo.[FB_ITEM] ([fbItemId], [itemName], [price], [itemStatus])
+    VALUES ('FB_POPCORN_PEPSI_L', N'Combo bap ngot va Pepsi lon', 75000.00, 'AVAILABLE');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[FB_ITEM] WHERE [fbItemId] = 'FB_CHEESE_POPCORN_M')
+    INSERT INTO dbo.[FB_ITEM] ([fbItemId], [itemName], [price], [itemStatus])
+    VALUES ('FB_CHEESE_POPCORN_M', N'Bap pho mai co vua', 55000.00, 'AVAILABLE');
+
+INSERT INTO dbo.[CINEMA_FB_INVENTORY] ([cinemaInventoryId], [cinemaId], [fbItemId], [quantity])
+SELECT
+    CONCAT('CFI_', cinema.[cinemaId], '_', item.[fbItemId]),
+    cinema.[cinemaId],
+    item.[fbItemId],
+    500
+FROM dbo.[CINEMA] AS cinema
+CROSS JOIN dbo.[FB_ITEM] AS item
+WHERE cinema.[cinemaStatus] = 'ACTIVE'
+    AND item.[fbItemId] IN ('FB_POPCORN_PEPSI_L', 'FB_CHEESE_POPCORN_M')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.[CINEMA_FB_INVENTORY] AS existing
+        WHERE existing.[cinemaId] = cinema.[cinemaId]
+            AND existing.[fbItemId] = item.[fbItemId]
+    );
+
+UPDATE inventory
+SET [quantity] = 500
+FROM dbo.[CINEMA_FB_INVENTORY] AS inventory
+WHERE inventory.[fbItemId] IN ('FB_POPCORN_PEPSI_L', 'FB_CHEESE_POPCORN_M')
+    AND inventory.[quantity] < 500;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT_PROVIDER] WHERE [paymentProviderId] = 'PP_SEPAY')
+    INSERT INTO dbo.[PAYMENT_PROVIDER] ([paymentProviderId], [providerName], [apiEndpoint], [providerStatus])
+    VALUES ('PP_SEPAY', 'SEPAY', 'https://my.sepay.vn', 'ACTIVE');
 GO
