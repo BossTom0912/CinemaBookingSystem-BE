@@ -25,6 +25,8 @@ public sealed class SeatMapItemResponse
 
     public string SeatTypeId { get; init; } = string.Empty;
 
+    public decimal Price { get; init; }
+
     public string SeatStatus { get; init; } = string.Empty;
 
     public DateTime? LockedUntil { get; init; }

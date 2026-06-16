@@ -257,13 +257,88 @@ public sealed class SeatService : ISeatService
             "Seat locked for 10 minutes.");
     }
 
+    public async Task<ServiceResult<UnlockSeatResponse>> UnlockSeatAsync(
+        UnlockSeatRequest request,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return ServiceResult<UnlockSeatResponse>.Fail(401, "User is required.", "USER_REQUIRED");
+        }
+
+        var showtimeSeat = await _dbContext.ShowtimeSeats
+            .Include(item => item.BookingSeat)
+            .FirstOrDefaultAsync(
+                item =>
+                    item.ShowtimeId == request.ShowtimeId
+                    && item.SeatId == request.SeatId,
+                cancellationToken);
+        if (showtimeSeat == null)
+        {
+            return ServiceResult<UnlockSeatResponse>.Fail(
+                404,
+                "Showtime seat not found.",
+                "SHOWTIME_SEAT_NOT_FOUND");
+        }
+
+        if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+        {
+            return ServiceResult<UnlockSeatResponse>.Fail(
+                409,
+                "Seat has already been sold.",
+                "SEAT_SOLD");
+        }
+
+        var now = DateTime.UtcNow;
+        if (showtimeSeat.SeatStatus != SeatLocked
+            || !showtimeSeat.LockedUntil.HasValue
+            || showtimeSeat.LockedUntil.Value <= now)
+        {
+            showtimeSeat.SeatStatus = SeatAvailable;
+            showtimeSeat.LockedUntil = null;
+            showtimeSeat.LockedByUserId = null;
+
+            await _seatLockStore.ReleaseAsync(
+                BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
+                cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<UnlockSeatResponse>.Ok(
+                ToUnlockSeatResponse(showtimeSeat),
+                "Seat lock has already expired.");
+        }
+
+        if (!string.Equals(showtimeSeat.LockedByUserId, userId, StringComparison.Ordinal))
+        {
+            return ServiceResult<UnlockSeatResponse>.Fail(
+                403,
+                "Seat is locked by another user.",
+                "SEAT_LOCKED_BY_ANOTHER_USER");
+        }
+
+        showtimeSeat.SeatStatus = SeatAvailable;
+        showtimeSeat.LockedUntil = null;
+        showtimeSeat.LockedByUserId = null;
+
+        await _seatLockStore.ReleaseAsync(
+            BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
+            cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<UnlockSeatResponse>.Ok(
+            ToUnlockSeatResponse(showtimeSeat),
+            "Seat lock released successfully.");
+    }
+
     public async Task<ServiceResult<SeatMapResponse>> GetSeatMapAsync(
         string showtimeId,
         CancellationToken cancellationToken)
     {
-        var showtimeExists = await _dbContext.Showtimes
-            .AnyAsync(showtime => showtime.ShowtimeId == showtimeId, cancellationToken);
-        if (!showtimeExists)
+        var showtime = await _dbContext.Showtimes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ShowtimeId == showtimeId, cancellationToken);
+        if (showtime == null)
         {
             return ServiceResult<SeatMapResponse>.Fail(
                 404,
@@ -277,6 +352,7 @@ public sealed class SeatService : ISeatService
             .AsNoTracking()
             .Include(item => item.BookingSeat)
             .Include(item => item.Seat)
+                .ThenInclude(item => item.SeatType)
             .Where(item => item.ShowtimeId == showtimeId)
             .OrderBy(item => item.Seat.RowLabel)
             .ThenBy(item => item.Seat.SeatNumber)
@@ -291,7 +367,7 @@ public sealed class SeatService : ISeatService
         {
             if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
             {
-                soldSeats.Add(ToSeatMapItem(showtimeSeat, SeatBooked));
+                soldSeats.Add(ToSeatMapItem(showtimeSeat, SeatBooked, showtime.BasePrice));
                 continue;
             }
 
@@ -299,11 +375,11 @@ public sealed class SeatService : ISeatService
                 && showtimeSeat.LockedUntil.HasValue
                 && showtimeSeat.LockedUntil.Value > now)
             {
-                lockedSeats.Add(ToSeatMapItem(showtimeSeat, SeatLocked));
+                lockedSeats.Add(ToSeatMapItem(showtimeSeat, SeatLocked, showtime.BasePrice));
                 continue;
             }
 
-            availableSeats.Add(ToSeatMapItem(showtimeSeat, SeatAvailable));
+            availableSeats.Add(ToSeatMapItem(showtimeSeat, SeatAvailable, showtime.BasePrice));
         }
 
         return ServiceResult<SeatMapResponse>.Ok(
@@ -525,7 +601,8 @@ public sealed class SeatService : ISeatService
 
     private static SeatMapItemResponse ToSeatMapItem(
         ShowtimeSeat showtimeSeat,
-        string status)
+        string status,
+        decimal basePrice)
     {
         return new SeatMapItemResponse
         {
@@ -535,8 +612,20 @@ public sealed class SeatService : ISeatService
             SeatNumber = showtimeSeat.Seat.SeatNumber,
             SeatCode = showtimeSeat.Seat.SeatCode,
             SeatTypeId = showtimeSeat.Seat.SeatTypeId,
+            Price = basePrice + showtimeSeat.Seat.SeatType.ExtraFee,
             SeatStatus = status,
             LockedUntil = showtimeSeat.LockedUntil
+        };
+    }
+
+    private static UnlockSeatResponse ToUnlockSeatResponse(ShowtimeSeat showtimeSeat)
+    {
+        return new UnlockSeatResponse
+        {
+            ShowtimeSeatId = showtimeSeat.ShowtimeSeatId,
+            ShowtimeId = showtimeSeat.ShowtimeId,
+            SeatId = showtimeSeat.SeatId,
+            SeatStatus = showtimeSeat.SeatStatus
         };
     }
 

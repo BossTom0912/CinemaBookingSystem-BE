@@ -4,10 +4,10 @@ public static class AuthConstants
 {
     public static class Roles
     {
-        public const string Customer = "CUSTOMER";
-        public const string Staff = "STAFF";
-        public const string Manager = "MANAGER";
-        public const string Admin = "ADMIN";
+        public const string Customer = "Customer";
+        public const string Staff = "Staff";
+        public const string Manager = "Manager";
+        public const string Admin = "Admin";
     }
 
     public static class RoleIds

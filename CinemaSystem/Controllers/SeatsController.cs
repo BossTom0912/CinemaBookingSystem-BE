@@ -124,6 +124,23 @@ public sealed class SeatsController : ControllerBase
         return ToActionResult(result.MapDataTo<Contracts.Seats.LockSeatResponse, LockSeatResponse>());
     }
 
+    [Authorize(Policy = AuthConstants.Policies.CanBookTicket)]
+    [HttpPost("unlock")]
+    [ProducesResponseType(
+        typeof(ApiResponse<UnlockSeatResponse>),
+        StatusCodes.Status200OK)]
+    public async Task<IActionResult> UnlockSeat(
+        [FromBody] UnlockSeatRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _seatService.UnlockSeatAsync(
+            request.MapTo<Contracts.Seats.UnlockSeatRequest>(),
+            GetUserId(),
+            cancellationToken);
+
+        return ToActionResult(result.MapDataTo<Contracts.Seats.UnlockSeatResponse, UnlockSeatResponse>());
+    }
+
     [Authorize(Policy = AuthConstants.Policies.CanSelectSeat)]
     [HttpGet("showtimes/{showtimeId}/map")]
     [ProducesResponseType(

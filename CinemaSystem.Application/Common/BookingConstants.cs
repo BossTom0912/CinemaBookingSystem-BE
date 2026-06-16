@@ -20,6 +20,7 @@ public static class BookingConstants
     public static class ShowtimeSeatStatus
     {
         public const string Locked = "LOCKED";
+        public const string Available = "AVAILABLE";
     }
 
     public static class ResourceStatus
