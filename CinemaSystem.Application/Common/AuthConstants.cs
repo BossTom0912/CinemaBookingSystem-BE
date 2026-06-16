@@ -4,26 +4,18 @@ public static class AuthConstants
 {
     public static class Roles
     {
-        public const string CUSTOMER = "Customer";
-        public const string STAFF = "Staff";
-        public const string MANAGER = "Manager";
-        public const string ADMIN = "Admin";
-        public const string Customer = CUSTOMER;
-        public const string Staff = STAFF;
-        public const string Manager = MANAGER;
-        public const string Admin = ADMIN;
+        public const string Customer = "Customer";
+        public const string Staff = "Staff";
+        public const string Manager = "Manager";
+        public const string Admin = "Admin";
     }
 
     public static class RoleIds
     {
-        public const string CUSTOMER = "ROLE_CUSTOMER";
-        public const string STAFF = "ROLE_STAFF";
-        public const string MANAGER = "ROLE_MANAGER";
-        public const string ADMIN = "ROLE_ADMIN";
-        public const string Customer = CUSTOMER;
-        public const string Staff = STAFF;
-        public const string Manager = MANAGER;
-        public const string Admin = ADMIN;
+        public const string Customer = "ROLE_CUSTOMER";
+        public const string Staff = "ROLE_STAFF";
+        public const string Manager = "ROLE_MANAGER";
+        public const string Admin = "ROLE_ADMIN";
     }
 
     public static class Policies

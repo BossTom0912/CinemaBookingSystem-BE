@@ -131,48 +131,48 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthConstants.Policies.CanRegisterOrLogin, policy =>
         policy.RequireAssertion(_ => true));
     options.AddPolicy(AuthConstants.Policies.CanBookTicket, policy =>
-        policy.RequireRole(AuthConstants.Roles.CUSTOMER));
+        policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanSelectSeat, policy =>
     policy.RequireRole(
-        AuthConstants.Roles.CUSTOMER,
-        AuthConstants.Roles.STAFF,
-        AuthConstants.Roles.MANAGER,
-        AuthConstants.Roles.ADMIN));
+        AuthConstants.Roles.Customer,
+        AuthConstants.Roles.Staff,
+        AuthConstants.Roles.Manager,
+        AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanBuyFoodAndBeverageInCheckout, policy =>
-        policy.RequireRole(AuthConstants.Roles.CUSTOMER));
+        policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanApplyVoucher, policy =>
-        policy.RequireRole(AuthConstants.Roles.CUSTOMER));
+        policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanPayOnline, policy =>
-        policy.RequireRole(AuthConstants.Roles.CUSTOMER));
+        policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanViewBookingHistory, policy =>
-        policy.RequireRole(AuthConstants.Roles.CUSTOMER));
+        policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanReviewAndFeedback, policy =>
-        policy.RequireRole(AuthConstants.Roles.CUSTOMER));
+        policy.RequireRole(AuthConstants.Roles.Customer));
     options.AddPolicy(AuthConstants.Policies.CanScanTicket, policy =>
-        policy.RequireRole(AuthConstants.Roles.STAFF, AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Staff, AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageMovie, policy =>
-        policy.RequireRole(AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(
     AuthConstants.Policies.CanManageCinemaRoomSeat,
     policy => policy.RequireRole(
-        AuthConstants.Roles.MANAGER,
-        AuthConstants.Roles.ADMIN));
+        AuthConstants.Roles.Manager,
+        AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageShowtime, policy =>
-        policy.RequireRole(AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageFoodAndBeverage, policy =>
-        policy.RequireRole(AuthConstants.Roles.STAFF, AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Staff, AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageVoucher, policy =>
-        policy.RequireRole(AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanCancelShowtimeAndRefund, policy =>
-        policy.RequireRole(AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanViewBranchDashboard, policy =>
-        policy.RequireRole(AuthConstants.Roles.MANAGER, AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanViewSystemDashboard, policy =>
-        policy.RequireRole(AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageUserAndRole, policy =>
-        policy.RequireRole(AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageSystem, policy =>
-        policy.RequireRole(AuthConstants.Roles.ADMIN));
+        policy.RequireRole(AuthConstants.Roles.Admin));
     // approval-specific policies removed
 });
 

@@ -63,7 +63,7 @@ public sealed class AuthService : IAuthService
         if (existingUser is not null)
         {
             var canResendPendingRegistration =
-                existingUser.Role?.RoleName == AuthConstants.Roles.CUSTOMER &&
+                existingUser.Role?.RoleName == AuthConstants.Roles.Customer &&
                 !existingUser.EmailVerified &&
                 existingUser.Status == AuthConstants.UserStatus.PendingVerification;
 
@@ -85,8 +85,8 @@ public sealed class AuthService : IAuthService
         }
 
         var customerRole = await GetOrCreateRoleAsync(
-            AuthConstants.RoleIds.CUSTOMER,
-            AuthConstants.Roles.CUSTOMER,
+            AuthConstants.RoleIds.Customer,
+            AuthConstants.Roles.Customer,
             "Customer account",
             cancellationToken);
 

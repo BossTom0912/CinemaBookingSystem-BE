@@ -63,7 +63,7 @@ public sealed class AdminService : IAdminService
 
         var staffRole = await _dbContext.Roles
             .FirstOrDefaultAsync(
-                role => role.RoleName == AuthConstants.Roles.STAFF || role.RoleId == AuthConstants.RoleIds.STAFF,
+                role => role.RoleName == AuthConstants.Roles.Staff || role.RoleId == AuthConstants.RoleIds.Staff,
                 cancellationToken);
 
         if (staffRole is null)

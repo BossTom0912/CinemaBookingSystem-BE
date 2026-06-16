@@ -36,9 +36,10 @@ public static class DbInitializer
     {
         var roleDefinitions = new[]
         {
-            (AuthConstants.RoleIds.ADMIN, AuthConstants.Roles.ADMIN, "System administrator"),
-            (AuthConstants.RoleIds.STAFF, AuthConstants.Roles.STAFF, "Cinema staff account"),
-            (AuthConstants.RoleIds.CUSTOMER, AuthConstants.Roles.CUSTOMER, "Customer account")
+            (AuthConstants.RoleIds.Admin, AuthConstants.Roles.Admin, "System administrator"),
+            (AuthConstants.RoleIds.Manager, AuthConstants.Roles.Manager, "Cinema manager account"),
+            (AuthConstants.RoleIds.Staff, AuthConstants.Roles.Staff, "Cinema staff account"),
+            (AuthConstants.RoleIds.Customer, AuthConstants.Roles.Customer, "Customer account")
         };
 
         foreach (var (roleId, roleName, description) in roleDefinitions)
@@ -70,7 +71,7 @@ public static class DbInitializer
     {
         var hasAdmin = await dbContext.Users
             .Include(user => user.Role)
-            .AnyAsync(user => user.Role.RoleName == AuthConstants.Roles.ADMIN);
+            .AnyAsync(user => user.Role.RoleName == AuthConstants.Roles.Admin);
 
         if (hasAdmin)
         {
@@ -90,7 +91,7 @@ public static class DbInitializer
         var now = clock.UtcNow;
 
         var adminRole = await dbContext.Roles.SingleAsync(
-            role => role.RoleName == AuthConstants.Roles.ADMIN);
+            role => role.RoleName == AuthConstants.Roles.Admin);
 
         var adminUser = new User
         {
@@ -158,7 +159,7 @@ public static class DbInitializer
         }
 
         var staffRole = await dbContext.Roles.SingleAsync(
-            role => role.RoleName == AuthConstants.Roles.STAFF);
+            role => role.RoleName == AuthConstants.Roles.Staff);
         var now = clock.UtcNow;
         var userId = NewId("USR");
 
@@ -204,7 +205,7 @@ public static class DbInitializer
         }
 
         var customerRole = await dbContext.Roles.SingleAsync(
-            role => role.RoleName == AuthConstants.Roles.CUSTOMER);
+            role => role.RoleName == AuthConstants.Roles.Customer);
         var now = clock.UtcNow;
         var userId = NewId("USR");
 

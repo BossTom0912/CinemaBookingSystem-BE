@@ -24,7 +24,7 @@ public sealed class SeatsController : ControllerBase
     /// Create seat — applied immediately. Admin and Manager may create.
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = AuthConstants.Roles.MANAGER + "," + AuthConstants.Roles.ADMIN)]
+    [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]
     [ProducesResponseType(
         typeof(ApiResponse<bool>),
         StatusCodes.Status201Created)]
@@ -46,7 +46,7 @@ public sealed class SeatsController : ControllerBase
     /// Update seat — applied immediately. Admin and Manager may update.
     /// </summary>
     [HttpPut("{seatId}")]
-    [Authorize(Roles = AuthConstants.Roles.MANAGER + "," + AuthConstants.Roles.ADMIN)]
+    [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]
     [ProducesResponseType(
         typeof(ApiResponse<bool>),
         StatusCodes.Status201Created)]
@@ -69,7 +69,7 @@ public sealed class SeatsController : ControllerBase
     /// Delete seat — applied immediately. Admin and Manager may delete.
     /// </summary>
     [HttpDelete("{seatId}")]
-    [Authorize(Roles = AuthConstants.Roles.MANAGER + "," + AuthConstants.Roles.ADMIN)]
+    [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]
     [ProducesResponseType(
         typeof(ApiResponse<bool>),
         StatusCodes.Status201Created)]
@@ -90,7 +90,7 @@ public sealed class SeatsController : ControllerBase
     /// </summary>
     [HttpGet("room/{roomId}")]
     [Authorize(
-        Roles = $"{AuthConstants.Roles.STAFF},{AuthConstants.Roles.MANAGER},{AuthConstants.Roles.ADMIN}")]
+        Roles = $"{AuthConstants.Roles.Staff},{AuthConstants.Roles.Manager},{AuthConstants.Roles.Admin}")]
     [ProducesResponseType(
         typeof(ApiResponse<IEnumerable<SeatResponse>>),
         StatusCodes.Status200OK)]

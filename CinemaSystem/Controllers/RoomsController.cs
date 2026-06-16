@@ -20,7 +20,7 @@ public sealed class RoomsController : ControllerBase
     }
 
     [HttpGet("rooms")]
-    [Authorize(Roles = AuthConstants.Roles.ADMIN + "," + AuthConstants.Roles.MANAGER + "," + AuthConstants.Roles.STAFF)]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
     public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
     {
         var result = await _roomService.GetRoomsAsync(cancellationToken);
@@ -28,7 +28,7 @@ public sealed class RoomsController : ControllerBase
     }
 
     [HttpGet("rooms/{roomId}")]
-    [Authorize(Roles = AuthConstants.Roles.ADMIN + "," + AuthConstants.Roles.MANAGER + "," + AuthConstants.Roles.STAFF                                                                                              )]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
     public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
     {
         var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
@@ -36,7 +36,7 @@ public sealed class RoomsController : ControllerBase
     }
 
     [HttpPost("cinemas/{cinemaId}/rooms")]
-    [Authorize(Roles = AuthConstants.Roles.ADMIN + "," + AuthConstants.Roles.MANAGER)]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> CreateRoom(
         string cinemaId,
         CreateRoomRequest request,
@@ -50,7 +50,7 @@ public sealed class RoomsController : ControllerBase
     }
 
     [HttpPut("rooms/{roomId}")]
-    [Authorize(Roles = AuthConstants.Roles.ADMIN + "," + AuthConstants.Roles.MANAGER)]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> UpdateRoom(
         string roomId,
         UpdateRoomRequest request,
@@ -64,14 +64,14 @@ public sealed class RoomsController : ControllerBase
     }
 
     [HttpDelete("rooms/{roomId}")]
-    [Authorize(Roles = AuthConstants.Roles.ADMIN + "," + AuthConstants.Roles.MANAGER)]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> DeleteRoom(string roomId, CancellationToken cancellationToken)
     {
         var result = await _roomService.DeleteRoomAsync(roomId, cancellationToken);
         return ToActionResult(result);
     }
     [HttpPost("{roomId}/generate-seats")]
-    [Authorize(Roles = AuthConstants.Roles.ADMIN + "," + AuthConstants.Roles.MANAGER)]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     [ProducesResponseType(
         typeof(ApiResponse<object>),
         StatusCodes.Status200OK)]
