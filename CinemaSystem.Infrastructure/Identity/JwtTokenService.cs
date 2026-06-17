@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using CinemaSystem.Application.Auth;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
@@ -31,15 +32,16 @@ public sealed class JwtTokenService : IJwtTokenService
         var expiresAt = _clock.UtcNow.AddMinutes(Math.Max(1, _settings.AccessTokenMinutes));
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+        var normalizedRole = AuthConstants.Roles.Normalize(role);
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, userId),
             new Claim(JwtRegisteredClaimNames.Email, email),
             new Claim(ClaimTypes.NameIdentifier, userId),
             new Claim(ClaimTypes.Email, email),
-            new Claim(ClaimTypes.Role, role),
+            new Claim(ClaimTypes.Role, normalizedRole),
             new Claim("userId", userId),
-            new Claim("role", role)
+            new Claim("role", normalizedRole)
         };
 
         var token = new JwtSecurityToken(
@@ -61,4 +63,5 @@ public sealed class JwtTokenService : IJwtTokenService
     {
         return Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
     }
+
 }

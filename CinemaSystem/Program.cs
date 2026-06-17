@@ -215,7 +215,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
-app.UseHttpsRedirection();
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments(
+        "/api/payment/sepay-webhook",
+        StringComparison.OrdinalIgnoreCase),
+    branch => branch.UseHttpsRedirection());
 
 app.UseAuthentication();
 app.UseAuthorization();

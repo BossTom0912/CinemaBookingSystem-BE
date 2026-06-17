@@ -44,10 +44,16 @@ public static class DbInitializer
 
         foreach (var (roleId, roleName, description) in roleDefinitions)
         {
-            var exists = await dbContext.Roles.AnyAsync(
-                role => role.RoleId == roleId || role.RoleName == roleName);
-            if (exists)
+            var role = await dbContext.Roles.FirstOrDefaultAsync(
+                item => item.RoleId == roleId || item.RoleName == roleName);
+            if (role is not null)
             {
+                if (role.RoleName != roleName)
+                {
+                    role.RoleName = roleName;
+                    logger.LogInformation("Normalized role {RoleId} to {RoleName}.", roleId, roleName);
+                }
+
                 continue;
             }
 
@@ -71,7 +77,7 @@ public static class DbInitializer
     {
         var hasAdmin = await dbContext.Users
             .Include(user => user.Role)
-            .AnyAsync(user => user.Role.RoleName == AuthConstants.Roles.Admin);
+            .AnyAsync(user => user.RoleId == AuthConstants.RoleIds.Admin);
 
         if (hasAdmin)
         {
@@ -91,7 +97,7 @@ public static class DbInitializer
         var now = clock.UtcNow;
 
         var adminRole = await dbContext.Roles.SingleAsync(
-            role => role.RoleName == AuthConstants.Roles.Admin);
+            role => role.RoleId == AuthConstants.RoleIds.Admin);
 
         var adminUser = new User
         {
@@ -159,7 +165,7 @@ public static class DbInitializer
         }
 
         var staffRole = await dbContext.Roles.SingleAsync(
-            role => role.RoleName == AuthConstants.Roles.Staff);
+            role => role.RoleId == AuthConstants.RoleIds.Staff);
         var now = clock.UtcNow;
         var userId = NewId("USR");
 
@@ -205,7 +211,7 @@ public static class DbInitializer
         }
 
         var customerRole = await dbContext.Roles.SingleAsync(
-            role => role.RoleName == AuthConstants.Roles.Customer);
+            role => role.RoleId == AuthConstants.RoleIds.Customer);
         var now = clock.UtcNow;
         var userId = NewId("USR");
 

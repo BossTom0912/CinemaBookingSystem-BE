@@ -4,10 +4,27 @@ public static class AuthConstants
 {
     public static class Roles
     {
-        public const string Customer = "Customer";
-        public const string Staff = "Staff";
-        public const string Manager = "Manager";
-        public const string Admin = "Admin";
+        public const string Customer = "CUSTOMER";
+        public const string Staff = "STAFF";
+        public const string Manager = "MANAGER";
+        public const string Admin = "ADMIN";
+
+        public static string Normalize(string? role)
+        {
+            if (string.IsNullOrWhiteSpace(role))
+            {
+                return string.Empty;
+            }
+
+            return role.Trim().ToUpperInvariant() switch
+            {
+                Customer or "ROLE_CUSTOMER" => Customer,
+                Staff or "ROLE_STAFF" => Staff,
+                Manager or "ROLE_MANAGER" => Manager,
+                Admin or "ROLE_ADMIN" => Admin,
+                var normalizedRole => normalizedRole
+            };
+        }
     }
 
     public static class RoleIds
