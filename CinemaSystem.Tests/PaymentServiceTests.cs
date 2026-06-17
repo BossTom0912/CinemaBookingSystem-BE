@@ -17,11 +17,13 @@ public sealed class PaymentServiceTests
         var fixture = Fixture.Create();
         await fixture.SeedPendingBookingAsync();
 
-        var result = await fixture.Service.CreatePaymentAsync(new CreatePaymentRequest
-        {
-            BookingId = "BOOKING_TEST",
-            PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        });
+        var result = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
 
         Assert.Equal(120000m, result.Amount);
         Assert.Equal("Test Bank", result.BankName);
@@ -39,16 +41,20 @@ public sealed class PaymentServiceTests
         var fixture = Fixture.Create();
         await fixture.SeedPendingBookingAsync();
 
-        var first = await fixture.Service.CreatePaymentAsync(new CreatePaymentRequest
-        {
-            BookingId = "BOOKING_TEST",
-            PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        });
-        var second = await fixture.Service.CreatePaymentAsync(new CreatePaymentRequest
-        {
-            BookingId = "BOOKING_TEST",
-            PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        });
+        var first = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
+        var second = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
 
         Assert.Equal(first.PaymentId, second.PaymentId);
         Assert.Equal(first.TransactionCode, second.TransactionCode);
@@ -56,15 +62,55 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task CreatePayment_DevelopmentPaymentAmountOverride_UsesConfiguredAmount()
+    {
+        var fixture = Fixture.Create(3000m);
+        await fixture.SeedPendingBookingAsync();
+
+        var result = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
+
+        Assert.Equal(3000m, result.Amount);
+
+        var payment = await fixture.DbContext.Payments.SingleAsync();
+        Assert.Equal(3000m, payment.Amount);
+    }
+
+    [Fact]
+    public async Task CreatePayment_BookingOwnedByAnotherCustomer_ThrowsUnauthorized()
+    {
+        var fixture = Fixture.Create();
+        await fixture.SeedPendingBookingAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Service.CreatePaymentAsync(
+                new CreatePaymentRequest
+                {
+                    BookingId = "BOOKING_TEST",
+                    PaymentProviderId = "PAYPROV_TEST_SEPAY"
+                },
+                "USER_OTHER"));
+
+        Assert.Empty(await fixture.DbContext.Payments.ToListAsync());
+    }
+
+    [Fact]
     public async Task ConfirmPayment_ValidWebhookContent_MarksPaymentAndBookingPaid()
     {
         var fixture = Fixture.Create();
         await fixture.SeedPendingBookingAsync();
-        var created = await fixture.Service.CreatePaymentAsync(new CreatePaymentRequest
-        {
-            BookingId = "BOOKING_TEST",
-            PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        });
+        var created = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
         var rawPayload = $$"""{"content":"Cinema {{created.TransactionCode}}","transferAmount":120000,"referenceCode":"SEP123"}""";
 
         await fixture.Service.ConfirmPaymentAsync(
@@ -94,7 +140,7 @@ public sealed class PaymentServiceTests
 
         public PaymentService Service { get; }
 
-        public static Fixture Create()
+        public static Fixture Create(decimal? paymentAmountOverride = null)
         {
             var options = new DbContextOptionsBuilder<CinemaDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -107,7 +153,8 @@ public sealed class PaymentServiceTests
                 {
                     WebhookSecret = "test-secret",
                     BankName = "Test Bank",
-                    BankAccount = "123456789"
+                    BankAccount = "123456789",
+                    DevelopmentPaymentAmountOverride = paymentAmountOverride
                 }));
 
             return new Fixture(dbContext, service);
@@ -121,9 +168,35 @@ public sealed class PaymentServiceTests
                 ProviderName = "SEPAY_TEST",
                 ProviderStatus = "ACTIVE"
             });
+            DbContext.Roles.Add(new Role
+            {
+                RoleId = "ROLE_CUSTOMER",
+                RoleName = "CUSTOMER",
+                Description = "Customer"
+            });
+            DbContext.Users.Add(new User
+            {
+                UserId = "USER_TEST",
+                RoleId = "ROLE_CUSTOMER",
+                Email = "customer@test.com",
+                PasswordHash = "HASH",
+                FullName = "Customer Test",
+                PhoneNumber = "0900000000",
+                Status = "ACTIVE",
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            DbContext.CustomerProfiles.Add(new CustomerProfile
+            {
+                CustomerProfileId = "CUS_TEST",
+                UserId = "USER_TEST",
+                MemberLevel = "BRONZE",
+                RewardPoints = 0
+            });
             DbContext.Bookings.Add(new Booking
             {
                 BookingId = "BOOKING_TEST",
+                CustomerProfileId = "CUS_TEST",
                 ShowtimeId = "SHOWTIME_TEST",
                 BookingStatus = "PENDING_PAYMENT",
                 TotalAmount = 120000m,

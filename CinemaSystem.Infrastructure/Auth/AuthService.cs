@@ -63,7 +63,7 @@ public sealed class AuthService : IAuthService
         if (existingUser is not null)
         {
             var canResendPendingRegistration =
-                existingUser.Role?.RoleName == AuthConstants.Roles.Customer &&
+                AuthConstants.Roles.Normalize(existingUser.Role?.RoleName) == AuthConstants.Roles.Customer &&
                 !existingUser.EmailVerified &&
                 existingUser.Status == AuthConstants.UserStatus.PendingVerification;
 
@@ -250,7 +250,7 @@ public sealed class AuthService : IAuthService
                 UserId = user.UserId,
                 Email = user.Email,
                 FullName = user.FullName,
-                Role = user.Role.RoleName
+                Role = AuthConstants.Roles.Normalize(user.Role.RoleName)
             },
             "Login successful.");
     }
@@ -740,6 +740,13 @@ public sealed class AuthService : IAuthService
 
         if (role is not null)
         {
+            var normalizedRoleName = AuthConstants.Roles.Normalize(role.RoleName);
+            if (role.RoleName != normalizedRoleName)
+            {
+                role.RoleName = normalizedRoleName;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
             return role;
         }
 

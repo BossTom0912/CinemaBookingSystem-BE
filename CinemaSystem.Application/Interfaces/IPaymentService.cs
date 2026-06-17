@@ -4,7 +4,11 @@ namespace CinemaSystem.Application.Interfaces;
 
 public interface IPaymentService
 {
-    Task<CreatePaymentResponse> CreatePaymentAsync(CreatePaymentRequest request, CancellationToken cancellationToken = default);
+    Task<CreatePaymentResponse> CreatePaymentAsync(
+        CreatePaymentRequest request,
+        string userId,
+        CancellationToken cancellationToken = default);
+
     Task ConfirmPaymentAsync(
         string transactionContent,
         decimal amount,

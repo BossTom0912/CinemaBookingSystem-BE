@@ -141,7 +141,7 @@ public sealed class BookingApiIntegrationTests
         };
         var payloadJson = JsonSerializer.Serialize(webhookPayload);
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
-        var secret = "Admin@123";
+        var secret = CinemaWebApplicationFactory.TestSepayWebhookSecret;
         var signature = "sha256=" + ComputeHmacSha256(timestamp + "." + payloadJson, secret);
 
         var webhookRequest = new HttpRequestMessage(HttpMethod.Post, "/api/payment/sepay-webhook")

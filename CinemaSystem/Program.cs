@@ -6,6 +6,7 @@ using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Extensions;
+using CinemaSystem.Services;
 using CinemaSystem.Filters;
 using CinemaSystem.Middlewares;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -69,6 +70,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
 var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
 if (useMockEmail)
@@ -213,7 +215,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
-app.UseHttpsRedirection();
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments(
+        "/api/payment/sepay-webhook",
+        StringComparison.OrdinalIgnoreCase),
+    branch => branch.UseHttpsRedirection());
 
 app.UseAuthentication();
 app.UseAuthorization();

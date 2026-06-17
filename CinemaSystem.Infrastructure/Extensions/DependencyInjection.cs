@@ -1,10 +1,12 @@
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Auth;
+using CinemaSystem.Infrastructure.Bookings;
 using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
+using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
@@ -39,6 +41,21 @@ public static class DependencyInjection
             options.SenderName = configuration["EmailSettings:SenderName"] ?? "Cinema Booking System";
             options.Password = configuration["EmailSettings:Password"] ?? string.Empty;
         });
+        services.Configure<BookingSettings>(options =>
+        {
+            options.OnlineSaleCutoffMinutes = ReadInt(
+                configuration["BookingSettings:OnlineSaleCutoffMinutes"],
+                15);
+            options.MaxSeatsPerCheckout = ReadInt(
+                configuration["BookingSettings:MaxSeatsPerCheckout"],
+                10);
+            options.PendingPaymentExpiryMinutes = ReadInt(
+                configuration["BookingSettings:PendingPaymentExpiryMinutes"],
+                10);
+            options.PendingPaymentCleanupIntervalSeconds = ReadInt(
+                configuration["BookingSettings:PendingPaymentCleanupIntervalSeconds"],
+                60);
+        });
 
         // Read connection string and fail fast with clear error if missing
         var defaultConnection = configuration.GetConnectionString("DefaultConnection");
@@ -60,6 +77,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICheckoutService, CheckoutService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ICinemaService, CinemaService>();
@@ -96,12 +114,15 @@ public static class DependencyInjection
         sepaySettings.WebhookSecret = sepaySection["WebhookSecret"] ?? string.Empty;
         sepaySettings.BankName = sepaySection["BankName"] ?? string.Empty;
         sepaySettings.BankAccount = sepaySection["BankAccount"] ?? string.Empty;
+        sepaySettings.DevelopmentPaymentAmountOverride = ReadDecimal(
+            sepaySection["DevelopmentPaymentAmountOverride"]);
         services.AddSingleton(sepaySettings);
         services.Configure<SepaySettings>(options =>
         {
             options.WebhookSecret = sepaySettings.WebhookSecret;
             options.BankName = sepaySettings.BankName;
             options.BankAccount = sepaySettings.BankAccount;
+            options.DevelopmentPaymentAmountOverride = sepaySettings.DevelopmentPaymentAmountOverride;
         });
 
         services.AddSingleton<HmacVerifyHelper>();
@@ -123,5 +144,10 @@ public static class DependencyInjection
     private static int ReadInt(string? value, int fallback)
     {
         return int.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
+    private static decimal? ReadDecimal(string? value)
+    {
+        return decimal.TryParse(value, out var parsed) ? parsed : null;
     }
 }

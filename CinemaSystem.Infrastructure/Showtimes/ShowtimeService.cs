@@ -33,12 +33,22 @@ public sealed class ShowtimeService : IShowtimeService
     {
         var showtimes = await _dbContext.Showtimes
             .AsNoTracking()
-            .Include(item => item.Movie)
-            .Include(item => item.Room)
-            .ThenInclude(room => room.Cinema)
-            .Include(item => item.ShowtimeSeats)
             .OrderBy(item => item.StartTime)
-            .Select(item => ToResponse(item))
+            .Select(item => new ShowtimeResponse
+            {
+                ShowtimeId = item.ShowtimeId,
+                MovieId = item.MovieId,
+                MovieTitle = item.Movie.Title,
+                RoomId = item.RoomId,
+                RoomName = item.Room.RoomName,
+                CinemaId = item.Room.CinemaId,
+                CinemaName = item.Room.Cinema.CinemaName,
+                StartTime = item.StartTime,
+                EndTime = item.EndTime,
+                BasePrice = item.BasePrice,
+                Status = item.Status,
+                ShowtimeSeatCount = item.ShowtimeSeats.Count
+            })
             .ToListAsync(cancellationToken);
 
         return ServiceResult<IReadOnlyList<ShowtimeResponse>>.Ok(
@@ -50,13 +60,31 @@ public sealed class ShowtimeService : IShowtimeService
         string showtimeId,
         CancellationToken cancellationToken)
     {
-        var showtime = await LoadShowtimeAsync(showtimeId, tracking: false, cancellationToken);
+        var showtime = await _dbContext.Showtimes
+            .AsNoTracking()
+            .Where(item => item.ShowtimeId == showtimeId)
+            .Select(item => new ShowtimeResponse
+            {
+                ShowtimeId = item.ShowtimeId,
+                MovieId = item.MovieId,
+                MovieTitle = item.Movie.Title,
+                RoomId = item.RoomId,
+                RoomName = item.Room.RoomName,
+                CinemaId = item.Room.CinemaId,
+                CinemaName = item.Room.Cinema.CinemaName,
+                StartTime = item.StartTime,
+                EndTime = item.EndTime,
+                BasePrice = item.BasePrice,
+                Status = item.Status,
+                ShowtimeSeatCount = item.ShowtimeSeats.Count
+            })
+            .FirstOrDefaultAsync(cancellationToken);
         if (showtime is null)
         {
             return ServiceResult<ShowtimeResponse>.Fail(404, "Showtime was not found.", "SHOWTIME_NOT_FOUND");
         }
 
-        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(showtime), "Showtime retrieved successfully.");
+        return ServiceResult<ShowtimeResponse>.Ok(showtime, "Showtime retrieved successfully.");
     }
 
     public async Task<ServiceResult<ShowtimeResponse>> CreateShowtimeAsync(

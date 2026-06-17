@@ -1,15 +1,18 @@
 using System.Security.Claims;
 using System.Text;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -43,17 +46,20 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
     internal const string TestJwtSecret   = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM";
     internal const string TestJwtIssuer   = "CinemaSystem";
     internal const string TestJwtAudience = "CinemaSystem.Api";
+    internal const string TestSepayWebhookSecret = "test-sepay-webhook-secret";
 
     public FakeEmailCapture EmailCapture { get; } = new();
     public string FixedOtp => "123456";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // "Testing" → Program.cs bỏ qua block IsDevelopment() (migration/seeding).
-        builder.UseEnvironment("Testing");
+        ConfigureRequiredSettings(builder);
 
         builder.ConfigureTestServices(services =>
         {
+            services.AddDataProtection()
+                .UseEphemeralDataProtectionProvider();
+
             // ── 1. Thay SQL Server DbContext bằng InMemory ────────────────────
             services.RemoveAll<DbContextOptions<CinemaDbContext>>();
             services.RemoveAll<CinemaDbContext>();
@@ -115,6 +121,39 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                     // GIỮ NGUYÊN MapInboundClaims = true (mặc định).
                     // Không set opts.MapInboundClaims = false.
                 });
+        });
+    }
+
+    internal static void ConfigureRequiredSettings(IWebHostBuilder builder)
+    {
+        // "Testing" → Program.cs bỏ qua block IsDevelopment() (migration/seeding).
+        builder.UseEnvironment("Testing");
+        builder.UseSetting(
+            "ConnectionStrings:DefaultConnection",
+            "Server=localhost;Database=CinemaSystemTests;User Id=test;Password=test;TrustServerCertificate=True");
+        builder.UseSetting("JwtSettings:Issuer", TestJwtIssuer);
+        builder.UseSetting("JwtSettings:Audience", TestJwtAudience);
+        builder.UseSetting("JwtSettings:Secret", TestJwtSecret);
+        builder.UseSetting("SepaySettings:WebhookSecret", TestSepayWebhookSecret);
+        builder.UseSetting("SepaySettings:BankName", "Test Bank");
+        builder.UseSetting("SepaySettings:BankAccount", "0000000000");
+        builder.UseSetting("Redis:ConnectionString", string.Empty);
+        builder.ConfigureAppConfiguration((_, configuration) =>
+        {
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] =
+                    "Server=localhost;Database=CinemaSystemTests;User Id=test;Password=test;TrustServerCertificate=True",
+                ["JwtSettings:Issuer"] = TestJwtIssuer,
+                ["JwtSettings:Audience"] = TestJwtAudience,
+                ["JwtSettings:Secret"] = TestJwtSecret,
+                ["JwtSettings:AccessTokenMinutes"] = "120",
+                ["JwtSettings:RefreshTokenDays"] = "7",
+                ["SepaySettings:WebhookSecret"] = TestSepayWebhookSecret,
+                ["SepaySettings:BankName"] = "Test Bank",
+                ["SepaySettings:BankAccount"] = "0000000000",
+                ["Redis:ConnectionString"] = string.Empty
+            });
         });
     }
 
@@ -185,16 +224,16 @@ public sealed class FixedOtpGenerator : IOtpGenerator
 public static class TestAuthTokens
 {
     public static string Customer(string userId = "USR_TEST_CUSTOMER")
-        => Generate(userId, "customer@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Customer);
+        => Generate(userId, "customer@test.com", AuthConstants.Roles.Customer);
 
     public static string Staff(string userId = "USR_TEST_STAFF")
-        => Generate(userId, "staff@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Staff);
+        => Generate(userId, "staff@test.com", AuthConstants.Roles.Staff);
 
     public static string Manager(string userId = "USR_TEST_MANAGER")
-        => Generate(userId, "manager@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Manager);
+        => Generate(userId, "manager@test.com", AuthConstants.Roles.Manager);
 
     public static string Admin(string userId = "USR_TEST_ADMIN")
-        => Generate(userId, "admin@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Admin);
+        => Generate(userId, "admin@test.com", AuthConstants.Roles.Admin);
 
     private static string Generate(string userId, string email, string role)
     {

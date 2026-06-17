@@ -38,6 +38,8 @@ public sealed class BookingService : IBookingService
 
         var showtime = await _dbContext.Showtimes
             .Include(s => s.Movie)
+            .Include(s => s.Room)
+                .ThenInclude(r => r.Cinema)
             .FirstOrDefaultAsync(s => s.ShowtimeId == request.ShowtimeId, cancellationToken);
 
         if (showtime == null)
@@ -122,7 +124,7 @@ public sealed class BookingService : IBookingService
             BookingStatus = "PENDING_PAYMENT",
             TotalAmount = totalAmount,
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(15), // 15 minutes to pay
+            ExpiredAt = now.AddMinutes(10),
             BookingChannel = "ONLINE",
             BookingSeats = bookingSeats,
             BookingFbItems = bookingFbItems
@@ -143,6 +145,10 @@ public sealed class BookingService : IBookingService
         {
             BookingId = booking.BookingId,
             ShowtimeId = booking.ShowtimeId,
+            MovieTitle = showtime.Movie.Title,
+            CinemaName = showtime.Room.Cinema.CinemaName,
+            RoomName = showtime.Room.RoomName,
+            StartTime = showtime.StartTime,
             TotalAmount = booking.TotalAmount,
             Status = booking.BookingStatus,
             CreatedAt = booking.CreatedAt,
@@ -165,6 +171,8 @@ public sealed class BookingService : IBookingService
                 .ThenInclude(bs => bs.ShowtimeSeat)
                     .ThenInclude(ss => ss.Seat)
                         .ThenInclude(s => s.SeatType)
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.Ticket)
             .Include(b => b.BookingFbItems)
                 .ThenInclude(bfi => bfi.FbItem)
             .Include(b => b.CustomerProfile)
@@ -197,7 +205,10 @@ public sealed class BookingService : IBookingService
                 SeatNumber = bs.ShowtimeSeat.Seat.SeatNumber.ToString(),
                 RowLabel = bs.ShowtimeSeat.Seat.RowLabel,
                 SeatType = bs.ShowtimeSeat.Seat.SeatType.TypeName,
-                Price = bs.SeatPrice
+                Price = bs.SeatPrice,
+                TicketId = bs.Ticket?.TicketId,
+                TicketQrCode = bs.Ticket?.QrCode,
+                TicketStatus = bs.Ticket?.TicketStatus
             }).ToList(),
             FoodAndBeverages = booking.BookingFbItems.Select(bfi => new BookedFbItemResponse
             {
@@ -214,12 +225,16 @@ public sealed class BookingService : IBookingService
     {
         var bookings = await _dbContext.Bookings
             .Include(b => b.CustomerProfile)
-            .Where(b => b.CustomerProfile.UserId == userId)
+            .Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId)
             .OrderByDescending(b => b.CreatedAt)
             .Select(b => new BookingResponse
             {
                 BookingId = b.BookingId,
                 ShowtimeId = b.ShowtimeId,
+                MovieTitle = b.Showtime.Movie.Title,
+                CinemaName = b.Showtime.Room.Cinema.CinemaName,
+                RoomName = b.Showtime.Room.RoomName,
+                StartTime = b.Showtime.StartTime,
                 TotalAmount = b.TotalAmount,
                 Status = b.BookingStatus,
                 CreatedAt = b.CreatedAt,

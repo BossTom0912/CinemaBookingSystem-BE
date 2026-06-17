@@ -26,6 +26,9 @@ public sealed class BookedSeatDetailsResponse
     public string RowLabel { get; init; } = string.Empty;
     public string SeatType { get; init; } = string.Empty;
     public decimal Price { get; init; }
+    public string? TicketId { get; init; }
+    public string? TicketQrCode { get; init; }
+    public string? TicketStatus { get; init; }
 }
 
 public sealed class BookedFbItemResponse
