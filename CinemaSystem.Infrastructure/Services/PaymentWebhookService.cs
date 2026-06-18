@@ -29,7 +29,7 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
             return ServiceResult<object>.Fail(
                 401,
                 "Missing SePay signature.",
-                "INVALID_WEBHOOK_SIGNATURE");
+                "INVALID_SIGNATURE");
         }
 
         if (string.IsNullOrWhiteSpace(timestampHeader))
@@ -37,7 +37,7 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
             return ServiceResult<object>.Fail(
                 401,
                 "Missing SePay timestamp.",
-                "INVALID_WEBHOOK_SIGNATURE");
+                "INVALID_SIGNATURE");
         }
 
         if (!_signatureVerifier.Verify(signatureHeader, timestampHeader, payload))
@@ -45,7 +45,7 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
             return ServiceResult<object>.Fail(
                 401,
                 "Invalid SePay signature.",
-                "INVALID_WEBHOOK_SIGNATURE");
+                "INVALID_SIGNATURE");
         }
 
         var webhook = JsonSerializer.Deserialize<SepayWebhookRequest>(payload);

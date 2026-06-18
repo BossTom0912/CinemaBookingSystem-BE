@@ -499,3 +499,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local build-check publish output
+build-check-current/

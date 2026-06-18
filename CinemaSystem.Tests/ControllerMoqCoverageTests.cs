@@ -253,6 +253,7 @@ public sealed class ControllerMoqCoverageTests
         payment
             .Setup(x => x.CreatePaymentAsync(
                 It.Is<CreatePaymentRequest>(r => r.BookingId == "BKG_1" && r.PaymentProviderId == "SEPAY"),
+                It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CreatePaymentResponse
             {
@@ -260,7 +261,9 @@ public sealed class ControllerMoqCoverageTests
                 Amount = 100000,
                 TransactionCode = "BKG_1"
             });
-        var controller = WithHttpContext(new PaymentController(payment.Object, webhook.Object));
+        var controller = WithUser(
+            new PaymentController(payment.Object, webhook.Object),
+            new Claim(ClaimTypes.NameIdentifier, "USR_1"));
 
         var result = await controller.CreatePayment(
             new CreatePaymentRequest { BookingId = "BKG_1", PaymentProviderId = "SEPAY" },
