@@ -1292,10 +1292,10 @@ public sealed class PaymentServiceMissingCoverageTests
         {
             BookingId = "BOOKING_TEST",
             PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        });
+        }, "TEST_USER_ID");
 
         // Gửi số tiền thấp hơn (60000 thay vì 120000)
-        var rawPayload = $$"""{{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}}""";
+        var rawPayload = $$"""{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}""";
         var exception = await Record.ExceptionAsync(() =>
             fixture.Service.ConfirmPaymentAsync(
                 $"Cinema {created.TransactionCode}",
@@ -1341,7 +1341,7 @@ public sealed class PaymentServiceMissingCoverageTests
             {
                 BookingId = "BOOKING_GHOST",
                 PaymentProviderId = "PAYPROV_TEST_SEPAY"
-            }));
+            }, "TEST_USER_ID"));
 
         // Service throw InvalidOperationException (không phải NullReferenceException)
         Assert.IsType<InvalidOperationException>(exception);

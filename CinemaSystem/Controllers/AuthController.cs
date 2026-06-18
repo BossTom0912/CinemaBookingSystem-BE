@@ -49,6 +49,16 @@ public sealed class AuthController : ControllerBase
         return ToActionResult(result.MapDataTo<Contracts.Auth.AuthResponse, AuthResponse>());
     }
 
+    [HttpPost("google-login")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GoogleLogin(GoogleLoginRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _authService.GoogleLoginAsync(
+            request.MapTo<Contracts.Auth.GoogleLoginRequest>(),
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Auth.AuthResponse, AuthResponse>());
+    }
+
     [HttpPost("refresh-token")]
     [AllowAnonymous]
     public async Task<IActionResult> RefreshToken(RefreshTokenRequest request, CancellationToken cancellationToken)

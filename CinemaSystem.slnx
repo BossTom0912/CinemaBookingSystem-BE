@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="CinemaSystem.Application/CinemaSystem.Application.csproj" />
+  <Project Path="CinemaSystem.Contracts/CinemaSystem.Contracts.csproj" />
+  <Project Path="CinemaSystem.Domain/CinemaSystem.Domain.csproj" />
+  <Project Path="CinemaSystem.Infrastructure/CinemaSystem.Infrastructure.csproj" />
+  <Project Path="CinemaSystem/CinemaSystem.csproj" />
+  <Project Path="CinemaSystem.Tests/CinemaSystem.Tests.csproj" />
+</Solution>

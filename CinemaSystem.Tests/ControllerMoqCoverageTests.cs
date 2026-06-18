@@ -253,6 +253,7 @@ public sealed class ControllerMoqCoverageTests
         payment
             .Setup(x => x.CreatePaymentAsync(
                 It.Is<CreatePaymentRequest>(r => r.BookingId == "BKG_1" && r.PaymentProviderId == "SEPAY"),
+                It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CreatePaymentResponse
             {
