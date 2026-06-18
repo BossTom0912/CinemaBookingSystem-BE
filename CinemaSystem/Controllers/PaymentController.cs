@@ -1,9 +1,12 @@
+using System.Security.Claims;
+using System.Text.Json;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Payments;
 using CinemaSystem.Mapping;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 
 namespace CinemaSystem.Controllers;
 
@@ -24,10 +27,18 @@ public class PaymentController : ControllerBase
 
     // POST /api/payment
     [HttpPost]
+    [Authorize(Policy = AuthConstants.Policies.CanPayOnline)]
     public async Task<IActionResult> CreatePayment([FromBody] CreatePaymentRequest request, CancellationToken cancellationToken)
     {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized(ApiResponse<object>.Fail("Unauthorized.", "UNAUTHORIZED"));
+        }
+
         var response = await _paymentService.CreatePaymentAsync(
             request.MapTo<Contracts.Payments.CreatePaymentRequest>(),
+            userId,
             cancellationToken);
         return Ok(ApiResponse<CreatePaymentResponse>.Ok(
             response.MapTo<CreatePaymentResponse>(),
@@ -53,5 +64,11 @@ public class PaymentController : ControllerBase
             : ApiResponse<object>.Fail(result.Message, result.ErrorCode, result.Errors);
 
         return StatusCode(result.StatusCode, response);
+    }
+
+    private string? GetUserId()
+    {
+        return User.FindFirst("userId")?.Value
+            ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
     }
 }

@@ -11,6 +11,7 @@ using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
 
 using CinemaSystem.Infrastructure.Time;
+using CinemaSystem.Tests.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -359,9 +360,9 @@ public sealed class SeatApiIntegrationTests
   {
     var jwtOptions = Options.Create(new JwtSettings
     {
-      Issuer = "CinemaSystem",
-      Audience = "CinemaSystem.Api",
-      Secret = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM",
+      Issuer = CinemaWebApplicationFactory.TestJwtIssuer,
+      Audience = CinemaWebApplicationFactory.TestJwtAudience,
+      Secret = CinemaWebApplicationFactory.TestJwtSecret,
       AccessTokenMinutes = 15,
       RefreshTokenDays = 7
     });
@@ -373,9 +374,9 @@ public sealed class SeatApiIntegrationTests
   {
     var jwtOptions = Options.Create(new JwtSettings
     {
-      Issuer = "CinemaSystem",
-      Audience = "CinemaSystem.Api",
-      Secret = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM",
+      Issuer = CinemaWebApplicationFactory.TestJwtIssuer,
+      Audience = CinemaWebApplicationFactory.TestJwtAudience,
+      Secret = CinemaWebApplicationFactory.TestJwtSecret,
       AccessTokenMinutes = 15,
       RefreshTokenDays = 7
     });
@@ -494,7 +495,7 @@ public sealed class SeatApiIntegrationTests
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-      builder.UseEnvironment("Testing");
+      CinemaWebApplicationFactory.ConfigureRequiredSettings(builder);
 
       builder.ConfigureTestServices(services =>
       {

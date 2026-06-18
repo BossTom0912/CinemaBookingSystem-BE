@@ -123,6 +123,18 @@ public sealed class RoomShowtimeApiIntegrationTests
   }
 
   [Fact]
+  public async Task GetShowtimes_WithoutToken_CanAccess()
+  {
+    await using var factory = new CinemaWebApplicationFactory();
+    await SeedBaseDataWithSeatsAsync(factory);
+    using var client = factory.CreateClient();
+
+    var response = await client.GetAsync("/api/showtimes");
+
+    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+  }
+
+  [Fact]
   public async Task GetShowtimes_CustomerRole_CanAccess()
   {
     // Luồng: Customer được xem danh sách suất chiếu.

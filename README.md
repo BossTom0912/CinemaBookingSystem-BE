@@ -1,147 +1,100 @@
-﻿# CinemaBookingSystem-BE
+# CinemaSystem Backend
 
-ASP.NET Core Web API backend for the Online Movie Ticket Booking and Management System.
+ASP.NET Core 8 Web API for an online movie ticket booking and cinema
+management system.
 
-## Project Structure
+## Features
 
-- `CinemaSystem`: API layer, controllers, middleware, Swagger, auth configuration, DI entry point
-- `CinemaSystem.Application`: use case contracts, service interfaces, application constants
-- `CinemaSystem.Contracts`: request/response DTOs and shared API response models
-- `CinemaSystem.Domain`: domain entities, enums, business rules, constants, exceptions
-- `CinemaSystem.Infrastructure`: EF Core, SQL Server, JWT, SMTP email, password/OTP hashing, external services
-- `CinemaSystem.Tests`: focused backend tests
-- `KhoBauG2`: project documents and database scripts
+- Customer registration and email OTP verification
+- JWT login, refresh-token rotation, logout, and role authorization
+- Forgot-password and password-reset flows
+- Staff account provisioning by administrators
+- Cinema, room, seat, and showtime management
+- Temporary seat locking with in-memory or Redis storage
+- SePay payment creation and webhook confirmation
 
-## After Cloning
+## Architecture
 
-Clone the repository:
+| Project | Responsibility |
+| --- | --- |
+| `CinemaSystem` | API controllers, middleware, authentication, Swagger, and DI entry point |
+| `CinemaSystem.Application` | Use-case interfaces, application constants, and service contracts |
+| `CinemaSystem.Contracts` | Request and response DTOs |
+| `CinemaSystem.Domain` | Domain entities and business concepts |
+| `CinemaSystem.Infrastructure` | EF Core, SQL Server, JWT, SMTP, Redis, and payment implementations |
+| `CinemaSystem.Tests` | Automated tests |
 
-```powershell
-git clone https://github.com/BossTom0912/CinemaBookingSystem-BE.git
-cd CinemaBookingSystem-BE
-```
+Project documents are indexed in [`docs/README.md`](docs/README.md).
 
-Create a local development settings file:
+## Requirements
 
-```powershell
-Copy-Item CinemaSystem/appsettings.Development.example.json CinemaSystem/appsettings.Development.json
-```
+- .NET 8 SDK
+- SQL Server
+- Redis is optional; the application can use the in-memory seat-lock store
+- Gmail SMTP credentials are optional when mock email mode is enabled
 
-Open this file:
+## Local Setup
 
-```text
-CinemaSystem/appsettings.Development.json
-```
+1. Clone the repository.
+2. Create the local settings file:
 
-Update the local SQL Server connection string:
+   ```powershell
+   Copy-Item CinemaSystem/appsettings.Development.example.json CinemaSystem/appsettings.Development.json
+   ```
 
-```json
-"ConnectionStrings": {
-  "DefaultConnection": "Server=localhost;Database=CinemaBookingDB;User Id=sa;Password=12345;TrustServerCertificate=True;"
-}
-```
+3. Add local credentials to `CinemaSystem/appsettings.Development.json`.
+4. Create the database using
+   [`docs/database/cinema-booking-schema.sql`](docs/database/cinema-booking-schema.sql).
+5. Restore, build, and test:
 
-Update Gmail SMTP settings if you need to test OTP email:
+   ```powershell
+   dotnet restore CinemaSystem.sln
+   dotnet build CinemaSystem.sln
+   dotnet test CinemaSystem.sln
+   ```
 
-```json
-"EmailSettings": {
-  "SmtpHost": "smtp.gmail.com",
-  "SmtpPort": 587,
-  "SenderEmail": "your-email@gmail.com",
-  "SenderName": "Cinema Booking System",
-  "Password": "your-gmail-app-password"
-}
-```
+6. Run the API:
 
-Do not commit real passwords, Gmail app passwords, JWT secrets, or production connection strings.
+   ```powershell
+   dotnet run --project CinemaSystem
+   ```
 
-## Database Setup
+Swagger is available at `/swagger` in the development environment.
 
-1. Open SQL Server.
-2. Run this script to create the database:
+## Configuration
 
-```text
-KhoBauG2/DB_CinemaBookingDB.txt
-```
+Keep credentials in `appsettings.Development.json`, .NET User Secrets, or
+environment variables. Never commit database passwords, JWT secrets, SMTP app
+passwords, webhook secrets, tokens, or production account details.
 
-3. Confirm your local connection string points to `CinemaBookingDB`.
+Important configuration sections:
 
-## Build And Test
+- `ConnectionStrings:DefaultConnection`
+- `JwtSettings`
+- `EmailSettings`
+- `SepaySettings`
+- `Redis:ConnectionString`
 
-Run from the repository root:
+Optional seed accounts are created only when their password variables are set:
 
-```powershell
-dotnet restore
-dotnet build CinemaSystem.slnx
-dotnet test CinemaSystem.slnx
-```
+- `ADMIN_PASSWORD` and optional `ADMIN_EMAIL`
+- `DEV_STAFF_PASSWORD`
+- `DEV_CUSTOMER_PASSWORD`
 
-## Run API
+## Git Workflow
 
-```powershell
-dotnet run --project CinemaSystem
-```
-
-Swagger will be available at:
-
-```text
-https://localhost:<port>/swagger
-```
-
-Health check:
-
-```text
-GET /api/health
-```
-
-Database connection test:
-
-```text
-GET /api/db-test/movies-count
-```
-
-## Team Git Workflow
-
-Use `main` for stable code only. Do not push directly to `main` unless the team agrees.
-
-Before starting work:
+Create feature branches from `main` and merge through a pull request or merge
+request:
 
 ```powershell
-git checkout main
-git pull origin main
+git switch main
+git pull
+git switch -c feature/short-description
 ```
 
-Create a feature branch:
+Before opening a PR/MR, run:
 
 ```powershell
-git checkout -b feature/your-feature-name
+dotnet build CinemaSystem.sln
+dotnet test CinemaSystem.sln
 ```
-
-After making changes:
-
-```powershell
-dotnet build CinemaSystem.slnx
-dotnet test CinemaSystem.slnx
-git status
-git add .
-git commit -m "Describe your change"
-git push -u origin feature/your-feature-name
-```
-
-Then create a Pull Request on GitHub to merge into `main`.
-
-## Files That Must Not Be Committed
-
-These should stay local only:
-
-- `CinemaSystem/appsettings.Development.json`
-- `.env`
-- `.env.*`
-- `bin/`
-- `obj/`
-- `.vs/`
-- real SMTP passwords
-- real JWT secrets
-- real production connection strings
-
-Use `appsettings.Development.example.json` as the template for local setup.

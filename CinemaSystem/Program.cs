@@ -6,6 +6,7 @@ using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Extensions;
+using CinemaSystem.Services;
 using CinemaSystem.Filters;
 using CinemaSystem.Middlewares;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -69,6 +70,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
 var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
 if (useMockEmail)
@@ -82,18 +84,20 @@ else
     builder.Services.AddScoped<IEmailService, SmtpEmailServiceAdapter>();
 }
 
-if (builder.Environment.IsDevelopment())
+builder.Services.AddCors(options =>
 {
-    builder.Services.AddCors(options =>
+    options.AddPolicy("FrontendCors", policy =>
     {
-        options.AddPolicy("DevCors", policy =>
-        {
-            policy.AllowAnyOrigin()
-                .AllowAnyHeader()
-                .AllowAnyMethod();
-        });
+        policy
+            .WithOrigins(
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:3000",
+                "http://127.0.0.1:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
     });
-}
+});
 
 var jwtSettings = new JwtSettings
 {
@@ -180,7 +184,6 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-    app.UseCors("DevCors");
 
     // ensure database migrations are applied in development to avoid missing tables (e.g. CHANGE_REQUEST)
     try
@@ -213,7 +216,16 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseWhen(
+        context => !context.Request.Path.StartsWithSegments(
+            "/api/payment/sepay-webhook",
+            StringComparison.OrdinalIgnoreCase),
+        branch => branch.UseHttpsRedirection());
+}
+
+app.UseCors("FrontendCors");
 
 app.UseAuthentication();
 app.UseAuthorization();
