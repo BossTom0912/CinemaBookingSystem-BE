@@ -77,6 +77,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICinemaScopeAuthorizationService, CinemaScopeAuthorizationService>();
         services.AddScoped<ICheckoutService, CheckoutService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<ICustomerService, CustomerService>();

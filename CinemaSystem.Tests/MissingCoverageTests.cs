@@ -786,6 +786,8 @@ public sealed class RoomMissingCoverageTests
             });
             await db.SaveChangesAsync();
         }
+
+        await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_RM_TEST");
     }
 
     private static async Task SeedSeatTypeAsync(CinemaWebApplicationFactory factory)
@@ -962,6 +964,7 @@ public sealed class ShowtimeMissingCoverageTests
         }
 
         await db.SaveChangesAsync();
+        await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_SHW_TEST");
     }
 
     private static async Task<T?> DeserializeAsync<T>(HttpResponseMessage response)

@@ -13,17 +13,28 @@ namespace CinemaSystem.Controllers;
 public sealed class RoomsController : ControllerBase
 {
     private readonly IRoomService _roomService;
+    private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
-    public RoomsController(IRoomService roomService)
+    public RoomsController(
+        IRoomService roomService,
+        ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
     {
         _roomService = roomService ?? throw new ArgumentNullException(nameof(roomService));
+        _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService
+            ?? throw new ArgumentNullException(nameof(cinemaScopeAuthorizationService));
     }
 
     [HttpGet("rooms")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
     public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
     {
-        var result = await _roomService.GetRoomsAsync(cancellationToken);
+        var scope = await _cinemaScopeAuthorizationService.GetUserCinemaScopeAsync(User, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
+        var result = await _roomService.GetRoomsAsync(scope.CinemaId, cancellationToken);
         return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Rooms.RoomResponse>, IReadOnlyList<RoomResponse>>());
     }
 
@@ -31,6 +42,12 @@ public sealed class RoomsController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
     public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
@@ -42,6 +59,12 @@ public sealed class RoomsController : ControllerBase
         CreateRoomRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeCinemaAsync(User, cinemaId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.CreateRoomAsync(
             cinemaId,
             request.MapTo<Contracts.Rooms.CreateRoomRequest>(),
@@ -56,6 +79,12 @@ public sealed class RoomsController : ControllerBase
         UpdateRoomRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.UpdateRoomAsync(
             roomId,
             request.MapTo<Contracts.Rooms.UpdateRoomRequest>(),
@@ -67,6 +96,12 @@ public sealed class RoomsController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> DeleteRoom(string roomId, CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.DeleteRoomAsync(roomId, cancellationToken);
         return ToActionResult(result);
     }
@@ -86,6 +121,12 @@ public sealed class RoomsController : ControllerBase
         [FromBody] GenerateSeatsRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.GenerateSeatsAsync(
             roomId,
             request.MapTo<Contracts.Rooms.GenerateSeatsRequest>(),
@@ -100,6 +141,12 @@ public sealed class RoomsController : ControllerBase
             ? ApiResponse<T>.Ok(result.Data, result.Message)
             : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
 
+        return StatusCode(result.StatusCode, response);
+    }
+
+    private ObjectResult ToActionResult(CinemaScopeAuthorizationResult result)
+    {
+        var response = ApiResponse<object>.Fail(result.Message, result.ErrorCode);
         return StatusCode(result.StatusCode, response);
     }
 }

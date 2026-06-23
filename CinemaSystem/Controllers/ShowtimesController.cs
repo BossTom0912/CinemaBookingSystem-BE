@@ -13,10 +13,15 @@ namespace CinemaSystem.Controllers;
 public sealed class ShowtimesController : ControllerBase
 {
     private readonly IShowtimeService _showtimeService;
+    private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
-    public ShowtimesController(IShowtimeService showtimeService)
+    public ShowtimesController(
+        IShowtimeService showtimeService,
+        ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
     {
         _showtimeService = showtimeService;
+        _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService
+            ?? throw new ArgumentNullException(nameof(cinemaScopeAuthorizationService));
     }
 
     [HttpGet]
@@ -41,6 +46,12 @@ public sealed class ShowtimesController : ControllerBase
         CreateShowtimeRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, request.RoomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _showtimeService.CreateShowtimeAsync(
             request.MapTo<Contracts.Showtimes.CreateShowtimeRequest>(),
             cancellationToken);
@@ -54,6 +65,18 @@ public sealed class ShowtimesController : ControllerBase
         UpdateShowtimeRequest request,
         CancellationToken cancellationToken)
     {
+        var currentScope = await _cinemaScopeAuthorizationService.AuthorizeShowtimeAsync(User, showtimeId, cancellationToken);
+        if (!currentScope.Allowed)
+        {
+            return ToActionResult(currentScope);
+        }
+
+        var targetRoomScope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, request.RoomId, cancellationToken);
+        if (!targetRoomScope.Allowed)
+        {
+            return ToActionResult(targetRoomScope);
+        }
+
         var result = await _showtimeService.UpdateShowtimeAsync(
             showtimeId,
             request.MapTo<Contracts.Showtimes.UpdateShowtimeRequest>(),
@@ -65,6 +88,12 @@ public sealed class ShowtimesController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> DeleteShowtime(string showtimeId, CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeShowtimeAsync(User, showtimeId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _showtimeService.DeleteShowtimeAsync(showtimeId, cancellationToken);
         return ToActionResult(result);
     }
@@ -75,6 +104,12 @@ public sealed class ShowtimesController : ControllerBase
             ? ApiResponse<T>.Ok(result.Data, result.Message)
             : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
 
+        return StatusCode(result.StatusCode, response);
+    }
+
+    private ObjectResult ToActionResult(CinemaScopeAuthorizationResult result)
+    {
+        var response = ApiResponse<object>.Fail(result.Message, result.ErrorCode);
         return StatusCode(result.StatusCode, response);
     }
 }
