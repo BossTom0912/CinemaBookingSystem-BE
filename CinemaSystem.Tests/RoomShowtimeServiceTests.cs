@@ -63,7 +63,7 @@ public sealed class RoomShowtimeServiceTests
     }
 
     [Fact]
-    public async Task CreateShowtime_OverlappingSameRoom_ReturnsBadRequest()
+    public async Task CreateShowtime_OverlappingSameRoom_ReturnsConflict()
     {
         var fixture = Fixture.Create();
         await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
@@ -90,7 +90,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.True(first.Success);
         Assert.False(overlapping.Success);
-        Assert.Equal(400, overlapping.StatusCode);
+        Assert.Equal(409, overlapping.StatusCode);
         Assert.Equal("SHOWTIME_OVERLAP", overlapping.ErrorCode);
         Assert.Single(await fixture.DbContext.Showtimes.ToListAsync());
         Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
