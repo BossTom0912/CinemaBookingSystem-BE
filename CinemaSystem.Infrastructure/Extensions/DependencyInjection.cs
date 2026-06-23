@@ -1,6 +1,5 @@
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Auth;
-using CinemaSystem.Infrastructure.Bookings;
 using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
@@ -77,7 +76,6 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
-        services.AddScoped<ICheckoutService, CheckoutService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ICinemaService, CinemaService>();
@@ -98,6 +96,7 @@ public static class DependencyInjection
         services.AddScoped<SeatService>();
         services.AddScoped<IRoomService, RoomService>();
         services.AddScoped<RoomService>();
+        services.AddScoped<IFileStorageService, LocalFileStorageService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
         services.AddScoped<ShowtimeService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
@@ -137,6 +136,10 @@ public static class DependencyInjection
             options.ApiKey = configuration["GeminiSettings:ApiKey"] ?? string.Empty;
         });
         services.AddScoped<IChatbotService, GeminiChatbotService>();
+        services.AddScoped<IReviewService, ReviewService>();
+        services.AddScoped<IAiModerationService, GeminiModerationService>();
+
+        services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieHighlightClassificationJob>();
 
         return services;
     }

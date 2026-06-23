@@ -15,15 +15,18 @@ public class GeminiChatbotService : IChatbotService
     private readonly IMovieService _movieService;
     private readonly IShowtimeService _showtimeService;
     private readonly GeminiSettings _settings;
+    private readonly CinemaSystem.Infrastructure.Persistence.CinemaDbContext _dbContext;
 
     public GeminiChatbotService(
         IMovieService movieService,
         IShowtimeService showtimeService,
-        IOptions<GeminiSettings> settings)
+        IOptions<GeminiSettings> settings,
+        CinemaSystem.Infrastructure.Persistence.CinemaDbContext dbContext)
     {
         _movieService = movieService;
         _showtimeService = showtimeService;
         _settings = settings.Value;
+        _dbContext = dbContext;
     }
 
     public async Task<ServiceResult<ChatbotResponse>> AskAsync(ChatbotRequest request, CancellationToken cancellationToken)
@@ -34,16 +37,16 @@ public class GeminiChatbotService : IChatbotService
         }
 
         // Get context from DB
-        var moviesResult = await _movieService.GetMoviesAsync(null, cancellationToken);
+        var moviesResult = await _movieService.GetMoviesAsync(null, 1, 100, false, cancellationToken);
         var showtimesResult = await _showtimeService.GetShowtimesAsync(cancellationToken);
 
         var contextBuilder = new StringBuilder("Movie Theater Context:\n");
         if (moviesResult.Success && moviesResult.Data != null)
         {
             contextBuilder.AppendLine("Available Movies:");
-            foreach (var m in moviesResult.Data)
+            foreach (var m in moviesResult.Data.Items)
             {
-                contextBuilder.AppendLine($"- {m.MovieNameVn} (Genre: {m.Genre}, Duration: {m.Duration}m, Age Rating: {m.AgeRating}, Highlight: {m.Highlight})");
+                contextBuilder.AppendLine($"- {m.MovieNameVn} (Genre: {m.Genre}, Duration: {m.Duration}m, Avg Rating: {m.AvgRating}, Highlight: {m.Highlight})");
             }
         }
         
@@ -93,6 +96,18 @@ Context:
                                .GetProperty("text").GetString();
         }
         catch { }
+
+        // Save to ChatHistory
+        var history = new CinemaSystem.Domain.Entities.ChatHistory
+        {
+            ChatHistoryId = Guid.NewGuid().ToString(),
+            UserId = null, // Since ChatbotRequest doesn't currently supply UserId in this contract
+            UserMessage = request.Message,
+            AiReplyMessage = replyText ?? string.Empty,
+            CreatedAt = DateTime.UtcNow
+        };
+        _dbContext.ChatHistories.Add(history);
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ChatbotResponse>.Ok(new ChatbotResponse { Reply = replyText ?? string.Empty });
     }

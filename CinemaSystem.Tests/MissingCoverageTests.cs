@@ -448,28 +448,7 @@ public sealed class BookingMissingCoverageTests
         Assert.Empty(body.Data!);
     }
 
-    [Fact]
-    public async Task Checkout_InvalidShowtimeId_ReturnsError()
-    {
-        // ShowtimeId không tồn tại trong DB → 404 hoặc 409.
-        await using var factory = new CinemaWebApplicationFactory();
-        using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
 
-        var response = await client.PostAsJsonAsync("/api/bookings/checkout", new CheckoutRequest
-        {
-            ShowtimeId = "SHW_NONEXISTENT",
-            ShowtimeSeatIds = ["STS_01"]
-        });
-
-        Assert.True(
-            response.StatusCode is HttpStatusCode.NotFound
-                or HttpStatusCode.BadRequest
-                or HttpStatusCode.Conflict
-                or HttpStatusCode.Unauthorized,
-            $"Expected 4xx, got {response.StatusCode}");
-    }
 
     private static async Task<(string showtimeId, List<string> showtimeSeatIds)> SeedBookingDataAsync(
         CinemaWebApplicationFactory factory)
@@ -855,9 +834,9 @@ public sealed class ShowtimeMissingCoverageTests
     }
 
     [Fact]
-    public async Task CreateShowtime_OverlappingTime_SameRoom_ReturnsBadRequest()
+    public async Task CreateShowtime_OverlappingTime_SameRoom_ReturnsConflict()
     {
-        // Tạo 2 suất chiếu trùng giờ trong cùng phòng → 400 SHOWTIME_OVERLAP.
+        // Tạo 2 suất chiếu trùng giờ trong cùng phòng → 409 SHOWTIME_OVERLAP.
         await using var factory = new CinemaWebApplicationFactory();
         await SeedBaseDataAsync(factory);
         using var client = factory.CreateClient();
@@ -885,7 +864,7 @@ public sealed class ShowtimeMissingCoverageTests
             BasePrice = 90000
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, overlapping.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, overlapping.StatusCode);
         var body = await DeserializeAsync<ApiResponse<object>>(overlapping);
         Assert.Equal("SHOWTIME_OVERLAP", body!.ErrorCode);
     }

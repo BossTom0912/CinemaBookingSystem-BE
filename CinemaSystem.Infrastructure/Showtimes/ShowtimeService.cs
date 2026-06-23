@@ -343,7 +343,7 @@ public sealed class ShowtimeService : IShowtimeService
         if (hasOverlap)
         {
             return ShowtimeValidationResult.Fail(
-                400,
+                409,
                 "Showtime overlaps with an existing showtime in the same room.",
                 "SHOWTIME_OVERLAP",
                 endTime);

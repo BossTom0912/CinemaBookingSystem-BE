@@ -1,0 +1,30 @@
+  ### 1. Các cột được bổ sung vào các bảng hiện có:
+
+  Bảng  USER :
+
+  •  SpamViolationCount  (Số lần vi phạm spam)
+  •  IsBlocked  (Trạng thái bị khóa)
+  •  BlockedUntil  (Thời hạn mở khóa)
+
+  Bảng  MOVIE :
+
+  •  ViewCount  (Lượt xem)
+  •  AverageRating  (Điểm đánh giá trung bình)
+  •  TotalReviews  (Tổng số lượt đánh giá)
+  •  TotalViews  (Tổng số lượt truy cập/xem)
+  •  DailyViews  (Lượt xem trong ngày)
+
+  Bảng  REVIEW :
+
+  •  Status  (Trạng thái đánh giá: Phê duyệt, Từ chối, Đánh dấu, ...)
+  •  EditCount  (Số lần đã chỉnh sửa bình luận)
+  •  RejectedReason  (Lý do từ chối nếu bị AI đánh dấu)
+  •  ModeratedBy  (Người hoặc AI đã kiểm duyệt)
+  ──────
+  ### 2. Các bảng (Tables/Entities) hoàn toàn mới được thêm vào:
+
+  •  ChatHistory : Bảng lưu trữ lịch sử trò chuyện của chatbot AI.
+  •  MovieViewLog : Bảng ghi lại chi tiết các lượt xem của mỗi phim.
+  •  MovieDailyView : Bảng tổng hợp số lượng lượt xem của phim theo từng ngày.
+  •  ReviewEditHistory : Bảng lưu lại các lần chỉnh sửa bình luận để đối chiếu.
+  •  ReviewModerationHistory : Bảng ghi lại lịch sử kiểm duyệt (Moderation) các bài đánh giá.

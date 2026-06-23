@@ -29,7 +29,21 @@ public partial class Movie
 
     public string MovieStatus { get; set; } = null!;
 
+    public int ViewCount { get; set; }
+
+    public decimal AverageRating { get; set; }
+
+    public int TotalReviews { get; set; }
+
+    public int TotalViews { get; set; }
+
+    public int DailyViews { get; set; }
+
     public virtual ICollection<Review> Reviews { get; set; } = new List<Review>();
 
     public virtual ICollection<Showtime> Showtimes { get; set; } = new List<Showtime>();
+
+    public virtual ICollection<MovieViewLog> MovieViewLogs { get; set; } = new List<MovieViewLog>();
+
+    public virtual ICollection<MovieDailyView> MovieDailyViews { get; set; } = new List<MovieDailyView>();
 }

@@ -96,9 +96,11 @@ CREATE TABLE [MOVIE] (
     [posterUrl] NVARCHAR(1000) NULL,
     [trailerUrl] NVARCHAR(1000) NULL,
     [highlight] NVARCHAR(30) NULL,
+    [viewCount] INT NOT NULL DEFAULT 0,
     [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
 
     CONSTRAINT [CK_MOVIE_DURATION] CHECK ([durationMinutes] > 0),
+    CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK ([highlight] IS NULL OR [highlight] IN ('HOT', 'NEW', 'TRENDING')),
     CONSTRAINT [CK_MOVIE_STATUS]
         CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE'))
 );
@@ -613,6 +615,18 @@ CREATE TABLE [REVIEW] (
         FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
     CONSTRAINT [FK_REVIEW_BOOKING]
         FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
+);
+GO
+
+CREATE TABLE [MOVIE_VIEW_LOG] (
+    [movieViewLogId] NVARCHAR(50) PRIMARY KEY,
+    [movieId] NVARCHAR(50) NOT NULL,
+    [userId] NVARCHAR(50) NULL,
+    [viewedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [ipAddress] NVARCHAR(100) NULL,
+
+    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
+        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
 );
 GO
 
