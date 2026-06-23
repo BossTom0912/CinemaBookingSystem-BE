@@ -109,5 +109,15 @@ public static class BookingConstants
         public const string VoucherUsageLimitReached = "VOUCHER_USAGE_LIMIT_REACHED";
         public const string VoucherCustomerLimitReached = "VOUCHER_CUSTOMER_LIMIT_REACHED";
         public const string CheckoutConcurrencyConflict = "CHECKOUT_CONCURRENCY_CONFLICT";
+        public const string StaffProfileRequired = "STAFF_PROFILE_REQUIRED";
+        public const string TicketNotFound = "TICKET_NOT_FOUND";
+        public const string TicketAlreadyCheckedIn = "TICKET_ALREADY_CHECKED_IN";
+        public const string TicketCancelled = "TICKET_CANCELLED";
+        public const string TicketRefunded = "TICKET_REFUNDED";
+        public const string TicketNotUsable = "TICKET_NOT_USABLE";
+        public const string TicketStatusChanged = "TICKET_STATUS_CHANGED";
+        public const string BookingNotPaid = "BOOKING_NOT_PAID";
+        public const string ShowtimeCancelled = "SHOWTIME_CANCELLED";
+        public const string CheckInTimeNotAllowed = "CHECKIN_TIME_NOT_ALLOWED";
     }
 }

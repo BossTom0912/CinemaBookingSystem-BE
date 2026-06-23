@@ -14,6 +14,7 @@ using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Services;
 using CinemaSystem.Infrastructure.Showtimes;
+using CinemaSystem.Infrastructure.Tickets;
 using CinemaSystem.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -57,6 +58,12 @@ public static class DependencyInjection
             options.PendingPaymentCleanupIntervalSeconds = ReadInt(
                 configuration["BookingSettings:PendingPaymentCleanupIntervalSeconds"],
                 60);
+        });
+        services.Configure<TicketSettings>(options =>
+        {
+            options.CheckInLeadMinutes = ReadInt(
+                configuration["TicketSettings:CheckInLeadMinutes"],
+                30);
         });
 
         // Read connection string and fail fast with clear error if missing
@@ -104,6 +111,7 @@ public static class DependencyInjection
         services.AddScoped<IShowtimeService, ShowtimeService>();
         services.AddScoped<ShowtimeService>();
         services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
+        services.AddScoped<ITicketScanService, TicketScanService>();
         services.AddScoped<IRefundService, RefundService>();
         services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
