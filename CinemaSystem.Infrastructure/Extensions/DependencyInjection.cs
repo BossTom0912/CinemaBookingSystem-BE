@@ -9,6 +9,7 @@ using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Refunds;
+using CinemaSystem.Infrastructure.Reports;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Services;
@@ -104,6 +105,7 @@ public static class DependencyInjection
         services.AddScoped<ShowtimeService>();
         services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
         services.AddScoped<IRefundService, RefundService>();
+        services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
