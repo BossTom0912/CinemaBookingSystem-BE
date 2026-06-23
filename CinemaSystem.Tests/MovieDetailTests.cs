@@ -45,7 +45,7 @@ public sealed class MovieDetailTests
         Assert.Equal("Sci-Fi, Adventure", movie.Genre);
         Assert.Equal("English", movie.Language);
         Assert.Equal(new DateOnly(2026, 6, 15), movie.ReleaseDate);
-        Assert.Equal(0m, movie.AvgRating);
+        Assert.Equal("T13", movie.AgeRating);
         Assert.Equal("Movie description", movie.Description);
         Assert.Equal("https://example.com/poster.jpg", movie.PosterUrl);
         Assert.Equal("https://youtube.com/watch?v=test", movie.TrailerUrl);
@@ -166,7 +166,7 @@ public sealed class MovieDetailTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var service = new MovieService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IFileStorageService>().Object);
+            var service = new MovieService(dbContext);
             var controller = new MoviesController(service);
 
             return new TestFixture(dbContext, controller);

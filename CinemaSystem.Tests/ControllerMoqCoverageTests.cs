@@ -253,7 +253,6 @@ public sealed class ControllerMoqCoverageTests
         payment
             .Setup(x => x.CreatePaymentAsync(
                 It.Is<CreatePaymentRequest>(r => r.BookingId == "BKG_1" && r.PaymentProviderId == "SEPAY"),
-                It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CreatePaymentResponse
             {
@@ -261,7 +260,7 @@ public sealed class ControllerMoqCoverageTests
                 Amount = 100000,
                 TransactionCode = "BKG_1"
             });
-        var controller = WithUser(new PaymentController(payment.Object, webhook.Object), new Claim(ClaimTypes.NameIdentifier, "USER_1"));
+        var controller = WithHttpContext(new PaymentController(payment.Object, webhook.Object));
 
         var result = await controller.CreatePayment(
             new CreatePaymentRequest { BookingId = "BKG_1", PaymentProviderId = "SEPAY" },
@@ -345,15 +344,15 @@ public sealed class ControllerMoqCoverageTests
     public async Task Movies_GetMoviesAndDetail_ReturnSuccessAndNotFound()
     {
         var service = new Mock<IMovieService>(MockBehavior.Strict);
-        service.Setup(x => x.GetMoviesAsync("NOW_SHOWING", 1, 10, false, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ServiceResult<PagedList<MovieResponse>>.Ok(
-                new PagedList<MovieResponse>([new MovieResponse { Id = "MOV_1", MovieNameVn = "Movie" }], 1, 1, 10)));
+        service.Setup(x => x.GetMoviesAsync("NOW_SHOWING", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ServiceResult<IReadOnlyList<MovieResponse>>.Ok(
+                [new MovieResponse { Id = "MOV_1", MovieNameVn = "Movie" }]));
         service.Setup(x => x.GetMovieByIdAsync("missing", It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<MovieDetailResponse>.Fail(StatusCodes.Status404NotFound, "Movie not found.", "MOVIE_NOT_FOUND"));
         var controller = new MoviesController(service.Object);
 
-        var movies = AssertApiResponse<PagedList<MovieResponse>>(await controller.GetMovies("NOW_SHOWING", 1, 10, CancellationToken.None), StatusCodes.Status200OK, true);
-        Assert.Single(movies.Data!.Items);
+        var movies = AssertApiResponse<IReadOnlyList<MovieResponse>>(await controller.GetMovies("NOW_SHOWING", CancellationToken.None), StatusCodes.Status200OK, true);
+        Assert.Single(movies.Data!);
         var missing = AssertApiResponse<MovieDetailResponse>(await controller.GetMovieById("missing", CancellationToken.None), StatusCodes.Status404NotFound, false);
         Assert.Equal("MOVIE_NOT_FOUND", missing.ErrorCode);
         service.VerifyAll();
@@ -461,30 +460,38 @@ public sealed class ControllerMoqCoverageTests
     public async Task Bookings_MissingUserClaim_ReturnsUnauthorizedWithoutCallingServices()
     {
         var booking = new Mock<IBookingService>(MockBehavior.Strict);
-        var controller = WithUser(new BookingsController(booking.Object));
+        var checkout = new Mock<ICheckoutService>(MockBehavior.Strict);
+        var controller = WithUser(new BookingsController(booking.Object, checkout.Object));
 
         Assert.IsType<UnauthorizedResult>(await controller.CreateBooking(new CreateBookingRequest(), CancellationToken.None));
         Assert.IsType<UnauthorizedResult>(await controller.GetBookingDetails("BKG_1", CancellationToken.None));
         Assert.IsType<UnauthorizedResult>(await controller.GetMyBookings(CancellationToken.None));
+        Assert.IsType<UnauthorizedObjectResult>(await controller.Checkout(new CheckoutRequest(), CancellationToken.None));
         booking.VerifyNoOtherCalls();
+        checkout.VerifyNoOtherCalls();
     }
 
     [Fact]
     public async Task Bookings_AllEndpoints_WithUserClaim_MapSuccessAndFailures()
     {
         var booking = new Mock<IBookingService>(MockBehavior.Strict);
+        var checkout = new Mock<ICheckoutService>(MockBehavior.Strict);
         booking.Setup(x => x.CreateBookingAsync(It.IsAny<CreateBookingRequest>(), "USR_1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<BookingResponse>.Ok(new BookingResponse { BookingId = "BKG_1" }, "Created.", StatusCodes.Status201Created));
         booking.Setup(x => x.GetBookingDetailsAsync("missing", "USR_1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<BookingDetailsResponse>.Fail(StatusCodes.Status404NotFound, "Booking not found.", "BOOKING_NOT_FOUND"));
         booking.Setup(x => x.GetMyBookingsAsync("USR_1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<IReadOnlyList<BookingResponse>>.Ok([new BookingResponse { BookingId = "BKG_1" }]));
-        var controller = WithUser(new BookingsController(booking.Object), new Claim("userId", "USR_1"));
+        checkout.Setup(x => x.CheckoutAsync("USR_1", It.Is<CheckoutRequest>(r => r.ShowtimeId == "ST_1"), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ServiceResult<CheckoutResponse>.Fail(StatusCodes.Status409Conflict, "Seat unavailable.", "SEAT_UNAVAILABLE"));
+        var controller = WithUser(new BookingsController(booking.Object, checkout.Object), new Claim("userId", "USR_1"));
 
         AssertApiResponse<BookingResponse>(await controller.CreateBooking(new CreateBookingRequest { ShowtimeId = "ST_1", ShowtimeSeatIds = ["STS_1"] }, CancellationToken.None), StatusCodes.Status201Created, true);
         AssertApiResponse<BookingDetailsResponse>(await controller.GetBookingDetails("missing", CancellationToken.None), StatusCodes.Status404NotFound, false);
         Assert.Single(AssertApiResponse<IReadOnlyList<BookingResponse>>(await controller.GetMyBookings(CancellationToken.None), StatusCodes.Status200OK, true).Data!);
+        AssertApiResponse<CheckoutResponse>(await controller.Checkout(new CheckoutRequest { ShowtimeId = "ST_1", ShowtimeSeatIds = ["STS_1"] }, CancellationToken.None), StatusCodes.Status409Conflict, false);
         booking.VerifyAll();
+        checkout.VerifyAll();
     }
 
     [Fact]
