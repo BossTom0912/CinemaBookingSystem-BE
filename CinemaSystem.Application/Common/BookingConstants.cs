@@ -4,7 +4,13 @@ public static class BookingConstants
 {
     public static class BookingStatus
     {
+        public const string Created = "CREATED";
         public const string PendingPayment = "PENDING_PAYMENT";
+        public const string Paid = "PAID";
+        public const string Cancelled = "CANCELLED";
+        public const string RefundPending = "REFUND_PENDING";
+        public const string Refunded = "REFUNDED";
+        public const string Completed = "COMPLETED";
     }
 
     public static class BookingChannel
@@ -15,12 +21,44 @@ public static class BookingConstants
     public static class ShowtimeStatus
     {
         public const string Open = "OPEN";
+        public const string Closed = "CLOSED";
+        public const string Cancelled = "CANCELLED";
+        public const string Completed = "COMPLETED";
     }
 
     public static class ShowtimeSeatStatus
     {
         public const string Locked = "LOCKED";
         public const string Available = "AVAILABLE";
+        public const string Booked = "BOOKED";
+        public const string Released = "RELEASED";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class PaymentStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+        public const string Cancelled = "CANCELLED";
+        public const string Expired = "EXPIRED";
+    }
+
+    public static class RefundStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+        public const string ManualRequired = "MANUAL_REQUIRED";
+    }
+
+    public static class TicketStatus
+    {
+        public const string Generated = "GENERATED";
+        public const string Unused = "UNUSED";
+        public const string CheckedIn = "CHECKED_IN";
+        public const string Cancelled = "CANCELLED";
+        public const string Refunded = "REFUNDED";
     }
 
     public static class ResourceStatus

@@ -33,6 +33,7 @@ public sealed class ShowtimeService : IShowtimeService
     {
         var showtimes = await _dbContext.Showtimes
             .AsNoTracking()
+            .Where(item => item.Status == BookingConstants.ShowtimeStatus.Open)
             .OrderBy(item => item.StartTime)
             .Select(item => new ShowtimeResponse
             {

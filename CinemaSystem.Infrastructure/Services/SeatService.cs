@@ -183,6 +183,7 @@ public sealed class SeatService : ISeatService
         }
 
         var showtimeSeat = await _dbContext.ShowtimeSeats
+            .Include(item => item.Showtime)
             .Include(item => item.BookingSeat)
             .FirstOrDefaultAsync(
                 item =>
@@ -195,6 +196,17 @@ public sealed class SeatService : ISeatService
                 404,
                 "Showtime seat not found.",
                 "SHOWTIME_SEAT_NOT_FOUND");
+        }
+
+        if (!string.Equals(
+                showtimeSeat.Showtime.Status,
+                BookingConstants.ShowtimeStatus.Open,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<LockSeatResponse>.Fail(
+                409,
+                "Showtime is not open for seat selection.",
+                BookingConstants.ErrorCodes.ShowtimeNotOpen);
         }
 
         var now = DateTime.UtcNow;
@@ -344,6 +356,17 @@ public sealed class SeatService : ISeatService
                 404,
                 "Showtime not found.",
                 "SHOWTIME_NOT_FOUND");
+        }
+
+        if (!string.Equals(
+                showtime.Status,
+                BookingConstants.ShowtimeStatus.Open,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<SeatMapResponse>.Fail(
+                409,
+                "Showtime is not open for seat selection.",
+                BookingConstants.ErrorCodes.ShowtimeNotOpen);
         }
 
         await ReleaseExpiredLocksAsync(showtimeId, cancellationToken);

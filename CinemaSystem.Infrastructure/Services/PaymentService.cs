@@ -149,6 +149,7 @@ public class PaymentService : IPaymentService
 
         // Find payment by exact transaction code
         var payment = await _db.Payments
+            .Include(p => p.Refunds)
             .Include(p => p.Booking)
                 .ThenInclude(b => b.BookingSeats)
                     .ThenInclude(bs => bs.ShowtimeSeat)
@@ -187,6 +188,48 @@ public class PaymentService : IPaymentService
             if (booking == null)
                 throw new InvalidOperationException($"Booking {payment.BookingId} not found.");
 
+            var showtime = await _db.Showtimes
+                .Include(item => item.ShowtimeCancellation)
+                .FirstOrDefaultAsync(item => item.ShowtimeId == booking.ShowtimeId, cancellationToken);
+
+            if (IsCancelledOrRefundFlow(booking, showtime))
+            {
+                booking.BookingStatus = BookingConstants.BookingStatus.RefundPending;
+
+                foreach (var bookingSeat in booking.BookingSeats)
+                {
+                    bookingSeat.ShowtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Unavailable;
+                    bookingSeat.ShowtimeSeat.LockedUntil = null;
+                    bookingSeat.ShowtimeSeat.LockedByUserId = null;
+
+                    if (bookingSeat.Ticket is not null
+                        && !IsStatus(bookingSeat.Ticket.TicketStatus, BookingConstants.TicketStatus.Refunded))
+                    {
+                        bookingSeat.Ticket.TicketStatus = BookingConstants.TicketStatus.Cancelled;
+                    }
+                }
+
+                if (!payment.Refunds.Any(IsActiveRefund))
+                {
+                    _db.Refunds.Add(new Refund
+                    {
+                        RefundId = GenerateId("REF"),
+                        BookingId = booking.BookingId,
+                        PaymentId = payment.PaymentId,
+                        PaymentProviderId = payment.PaymentProviderId,
+                        ShowtimeCancellationId = showtime?.ShowtimeCancellation?.ShowtimeCancellationId,
+                        RefundAmount = payment.Amount,
+                        RefundStatus = BookingConstants.RefundStatus.Pending,
+                        RefundReason = "Payment succeeded after booking or showtime cancellation.",
+                        RequestedAt = DateTime.UtcNow
+                    });
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                return;
+            }
+
             if (string.Equals(booking.BookingStatus, "PENDING_PAYMENT", StringComparison.OrdinalIgnoreCase))
             {
                 booking.BookingStatus = "PAID";
@@ -222,6 +265,26 @@ public class PaymentService : IPaymentService
     }
 
     private static string GenerateId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+
+    private static bool IsCancelledOrRefundFlow(Booking booking, Showtime? showtime)
+    {
+        return IsStatus(showtime?.Status, BookingConstants.ShowtimeStatus.Cancelled)
+            || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Cancelled)
+            || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.RefundPending)
+            || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Refunded);
+    }
+
+    private static bool IsActiveRefund(Refund refund)
+    {
+        return IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.Pending)
+            || IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.Success)
+            || IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.ManualRequired);
+    }
+
+    private static bool IsStatus(string? actual, string expected)
+    {
+        return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
         $"G2C|{bookingId}|{bookingSeatId}|{Guid.NewGuid():N}";
