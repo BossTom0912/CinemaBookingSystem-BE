@@ -590,7 +590,7 @@ public sealed class PaymentMissingCoverageTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal("INVALID_SIGNATURE", body!.ErrorCode);
+        Assert.Equal("INVALID_WEBHOOK_SIGNATURE", body!.ErrorCode);
     }
 
     [Fact]
@@ -618,7 +618,7 @@ public sealed class PaymentMissingCoverageTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal("INVALID_SIGNATURE", body!.ErrorCode);
+        Assert.Equal("INVALID_WEBHOOK_SIGNATURE", body!.ErrorCode);
     }
 
     [Fact]
@@ -1318,15 +1318,15 @@ public sealed class PaymentServiceMissingCoverageTests
         // Không tạo payment, gọi confirm với mã không tồn tại
         var exception = await Record.ExceptionAsync(() =>
             fixture.Service.ConfirmPaymentAsync(
-                "Cinema TX_NONEXISTENT",
+                "Cinema T1234567890",
                 120000m,
                 "SEP_GHOST",
-                """{"content":"Cinema TX_NONEXISTENT","transferAmount":120000}"""));
+                """{"content":"Cinema T1234567890","transferAmount":120000}"""));
 
         // Service phải throw InvalidOperationException (không phải NullReferenceException)
         Assert.NotNull(exception);
         Assert.IsType<InvalidOperationException>(exception);
-        Assert.Contains("TX_NONEXISTENT", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("T1234567890", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1388,9 +1388,35 @@ public sealed class PaymentServiceMissingCoverageTests
                 ProviderName = "SEPAY_TEST",
                 ProviderStatus = "ACTIVE"
             });
+            DbContext.Roles.Add(new Role
+            {
+                RoleId = "ROLE_CUSTOMER",
+                RoleName = "CUSTOMER",
+                Description = "Customer"
+            });
+            DbContext.Users.Add(new User
+            {
+                UserId = "TEST_USER_ID",
+                RoleId = "ROLE_CUSTOMER",
+                Email = "customer@test.com",
+                PasswordHash = "HASH",
+                FullName = "Customer Test",
+                PhoneNumber = "0900000000",
+                Status = "ACTIVE",
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            DbContext.CustomerProfiles.Add(new CustomerProfile
+            {
+                CustomerProfileId = "CUS_TEST",
+                UserId = "TEST_USER_ID",
+                MemberLevel = "BRONZE",
+                RewardPoints = 0
+            });
             DbContext.Bookings.Add(new Booking
             {
                 BookingId = "BOOKING_TEST",
+                CustomerProfileId = "CUS_TEST",
                 ShowtimeId = "SHOWTIME_TEST",
                 BookingStatus = "PENDING_PAYMENT",
                 TotalAmount = 120000m,

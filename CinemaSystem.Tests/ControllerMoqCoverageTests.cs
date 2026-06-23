@@ -261,7 +261,7 @@ public sealed class ControllerMoqCoverageTests
                 Amount = 100000,
                 TransactionCode = "BKG_1"
             });
-        var controller = WithHttpContext(new PaymentController(payment.Object, webhook.Object));
+        var controller = WithUser(new PaymentController(payment.Object, webhook.Object), new Claim(ClaimTypes.NameIdentifier, "USER_1"));
 
         var result = await controller.CreatePayment(
             new CreatePaymentRequest { BookingId = "BKG_1", PaymentProviderId = "SEPAY" },
