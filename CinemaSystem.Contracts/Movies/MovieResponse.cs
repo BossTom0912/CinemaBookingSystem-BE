@@ -19,4 +19,6 @@ public sealed class MovieResponse
     public string? Highlight { get; init; }
 
     public int ViewCount { get; init; }
+
+    public string? AgeRating { get; init; }
 }

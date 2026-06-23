@@ -66,7 +66,8 @@ public sealed class MovieService : IMovieService
                 ImagePoster = movie.PosterUrl,
                 AvgRating = movie.AverageRating,
                 Highlight = movie.Highlight,
-                ViewCount = movie.ViewCount
+                ViewCount = movie.ViewCount,
+                AgeRating = movie.AgeRating
             })
             .ToListAsync(cancellationToken);
 
@@ -139,7 +140,8 @@ public sealed class MovieService : IMovieService
             PosterUrl = movie.PosterUrl,
             TrailerUrl = movie.TrailerUrl,
             MovieStatus = movie.MovieStatus,
-            ViewCount = movie.ViewCount
+            ViewCount = movie.ViewCount,
+            AgeRating = movie.AgeRating
         };
 
         return ServiceResult<MovieDetailResponse>.Ok(

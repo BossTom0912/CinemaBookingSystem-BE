@@ -25,4 +25,6 @@ public sealed class MovieDetailResponse
     public string MovieStatus { get; init; } = string.Empty;
 
     public int ViewCount { get; init; }
+
+    public string? AgeRating { get; init; }
 }
