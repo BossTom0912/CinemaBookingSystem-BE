@@ -71,11 +71,16 @@ public sealed class RoomService : IRoomService
         var response = ToResponse(room);
         return ServiceResult<RoomResponse>.Ok(response, "Room created successfully.", 201);
     }
-    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(CancellationToken cancellationToken)
+    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(bool includeInactive, CancellationToken cancellationToken)
     {
-        var rooms = await _dbContext.Rooms
-            .AsNoTracking()
-            .Where(room => room.RoomStatus != "INACTIVE")
+        var query = _dbContext.Rooms.AsNoTracking();
+
+        if (!includeInactive)
+        {
+            query = query.Where(room => room.RoomStatus != "INACTIVE");
+        }
+
+        var rooms = await query
             .Include(room => room.Cinema)
             .Include(room => room.Seats)
             .OrderBy(room => room.Cinema.CinemaName)
@@ -88,6 +93,7 @@ public sealed class RoomService : IRoomService
 
     public async Task<ServiceResult<RoomResponse>> GetRoomByIdAsync(
     string roomId,
+    bool includeInactive,
     CancellationToken cancellationToken)
     {
         var room = await _dbContext.Rooms
@@ -104,7 +110,7 @@ public sealed class RoomService : IRoomService
                 "ROOM_NOT_FOUND");
         }
 
-        if (string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive && string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<RoomResponse>.Fail(
                 404,

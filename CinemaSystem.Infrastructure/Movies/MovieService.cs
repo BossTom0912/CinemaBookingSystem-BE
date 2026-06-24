@@ -17,7 +17,6 @@ namespace CinemaSystem.Infrastructure.Movies;
 public sealed class MovieService : IMovieService
 {
     private const string InactiveStatus = "INACTIVE";
-    private const string DeletedStatus = "DELETED";
     private const string ProhibitedAgeRating = "C";
 
     private readonly CinemaDbContext _dbContext;
@@ -36,13 +35,11 @@ public sealed class MovieService : IMovieService
         bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var query = _dbContext.Movies
-            .AsNoTracking()
-            .Where(movie => movie.AgeRating != ProhibitedAgeRating);
+        var query = _dbContext.Movies.AsNoTracking();
 
         if (!includeDeleted)
         {
-            query = query.Where(movie => movie.MovieStatus != DeletedStatus && movie.MovieStatus != InactiveStatus);
+            query = query.Where(movie => movie.MovieStatus != InactiveStatus && movie.AgeRating != ProhibitedAgeRating);
         }
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -80,13 +77,17 @@ public sealed class MovieService : IMovieService
 
     public async Task<ServiceResult<MovieDetailResponse>> GetMovieByIdAsync(
         string movieId,
+        bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var movie = await _dbContext.Movies
-            .Where(item =>
-                item.MovieId == movieId &&
-                item.AgeRating != ProhibitedAgeRating)
-            .FirstOrDefaultAsync(cancellationToken);
+        var query = _dbContext.Movies.Where(item => item.MovieId == movieId);
+        
+        if (!isAdmin)
+        {
+            query = query.Where(item => item.MovieStatus != InactiveStatus && item.AgeRating != ProhibitedAgeRating);
+        }
+
+        var movie = await query.FirstOrDefaultAsync(cancellationToken);
 
         if (movie is null)
         {
@@ -94,6 +95,23 @@ public sealed class MovieService : IMovieService
                 404,
                 "Movie was not found.",
                 "MOVIE_NOT_FOUND");
+        }
+
+        var response = ToDetailResponse(movie);
+
+        return ServiceResult<MovieDetailResponse>.Ok(
+            response,
+            "Movie retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<object>> IncrementMovieViewAsync(
+        string movieId,
+        CancellationToken cancellationToken)
+    {
+        var movie = await _dbContext.Movies.FirstOrDefaultAsync(item => item.MovieId == movieId, cancellationToken);
+        if (movie is null)
+        {
+            return ServiceResult<object>.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
 
         movie.ViewCount += 1;
@@ -127,7 +145,12 @@ public sealed class MovieService : IMovieService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var response = new MovieDetailResponse
+        return ServiceResult<object>.Ok(new { MovieId = movieId, ViewCount = movie.ViewCount }, "Movie view incremented.");
+    }
+
+    private static MovieDetailResponse ToDetailResponse(Movie movie)
+    {
+        return new MovieDetailResponse
         {
             MovieId = movie.MovieId,
             Title = movie.Title,
@@ -143,10 +166,6 @@ public sealed class MovieService : IMovieService
             ViewCount = movie.ViewCount,
             AgeRating = movie.AgeRating
         };
-
-        return ServiceResult<MovieDetailResponse>.Ok(
-            response,
-            "Movie retrieved successfully.");
     }
 
     public async Task<ServiceResult<MovieDetailResponse>> CreateMovieAsync(
@@ -188,7 +207,7 @@ public sealed class MovieService : IMovieService
         _dbContext.Movies.Add(movie);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return (await GetMovieByIdAsync(movieId, cancellationToken))!;
+        return ServiceResult<MovieDetailResponse>.Ok(ToDetailResponse(movie), "Movie created successfully.");
     }
 
     public async Task<ServiceResult<MovieDetailResponse>> UpdateMovieAsync(
@@ -233,7 +252,7 @@ public sealed class MovieService : IMovieService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return (await GetMovieByIdAsync(movieId, cancellationToken))!;
+        return ServiceResult<MovieDetailResponse>.Ok(ToDetailResponse(movie), "Movie updated successfully.");
     }
 
     public async Task<ServiceResult<object>> DeleteMovieAsync(
@@ -246,7 +265,7 @@ public sealed class MovieService : IMovieService
             return ServiceResult<object>.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
 
-        movie.MovieStatus = DeletedStatus;
+        movie.MovieStatus = InactiveStatus;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<object>.Ok(new { MovieId = movieId, Deleted = true }, "Movie deleted successfully.");

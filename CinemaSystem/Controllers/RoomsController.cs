@@ -21,17 +21,17 @@ public sealed class RoomsController : ControllerBase
 
     [HttpGet("rooms")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
-    public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRooms([FromQuery] bool includeInactive = false, CancellationToken cancellationToken = default)
     {
-        var result = await _roomService.GetRoomsAsync(cancellationToken);
+        var result = await _roomService.GetRoomsAsync(includeInactive, cancellationToken);
         return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Rooms.RoomResponse>, IReadOnlyList<RoomResponse>>());
     }
 
     [HttpGet("rooms/{roomId}")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
-    public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRoomById(string roomId, [FromQuery] bool includeInactive = false, CancellationToken cancellationToken = default)
     {
-        var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
+        var result = await _roomService.GetRoomByIdAsync(roomId, includeInactive, cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 

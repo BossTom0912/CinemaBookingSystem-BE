@@ -92,9 +92,9 @@ public sealed class ShowtimeService : IShowtimeService
         CancellationToken cancellationToken)
     {
         var status = NormalizeStatus(request.Status);
-        if (!ValidShowtimeStatuses.Contains(status))
+        if (status != "OPEN" && status != "CLOSED")
         {
-            return ServiceResult<ShowtimeResponse>.Fail(400, "Showtime status is invalid.", "INVALID_SHOWTIME_STATUS");
+            return ServiceResult<ShowtimeResponse>.Fail(400, "Showtime status must be OPEN or CLOSED when creating.", "INVALID_SHOWTIME_STATUS");
         }
 
         var validation = await ValidateMovieRoomAndOverlapAsync(
@@ -102,6 +102,7 @@ public sealed class ShowtimeService : IShowtimeService
             request.RoomId,
             request.StartTime,
             excludeShowtimeId: null,
+            existingStartTime: null,
             cancellationToken);
         if (!validation.Success)
         {
@@ -152,6 +153,7 @@ public sealed class ShowtimeService : IShowtimeService
     public async Task<ServiceResult<ShowtimeResponse>> UpdateShowtimeAsync(
         string showtimeId,
         UpdateShowtimeRequest request,
+        bool force,
         CancellationToken cancellationToken)
     {
         var showtime = await LoadShowtimeAsync(showtimeId, tracking: true, cancellationToken);
@@ -162,10 +164,21 @@ public sealed class ShowtimeService : IShowtimeService
 
         if (showtime.Bookings.Any())
         {
-            return ServiceResult<ShowtimeResponse>.Fail(
-                409,
-                "Showtime has bookings and cannot be updated directly.",
-                "RESOURCE_HAS_BOOKINGS");
+            if (showtime.RoomId != request.RoomId || EnsureUtc(request.StartTime) != showtime.StartTime)
+            {
+                return ServiceResult<ShowtimeResponse>.Fail(
+                    409,
+                    "Cannot change time or room of a showtime that has bookings. Please cancel the showtime instead.",
+                    "RESOURCE_HAS_BOOKINGS");
+            }
+
+            if (!force)
+            {
+                return ServiceResult<ShowtimeResponse>.Fail(
+                    409,
+                    "Showtime has bookings. Use force=true to update non-critical information.",
+                    "RESOURCE_HAS_BOOKINGS");
+            }
         }
 
         var status = NormalizeStatus(request.Status);
@@ -186,6 +199,7 @@ public sealed class ShowtimeService : IShowtimeService
             request.RoomId,
             request.StartTime,
             showtimeId,
+            showtime.StartTime,
             cancellationToken);
         if (!validation.Success)
         {
@@ -214,11 +228,24 @@ public sealed class ShowtimeService : IShowtimeService
                 return ServiceResult<ShowtimeResponse>.Fail(400, "Room has no active seats.", "ROOM_HAS_NO_SEATS");
             }
 
-            _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
-            await _dbContext.ShowtimeSeats.AddRangeAsync(activeSeats2.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)), cancellationToken);
+            using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
+                await _dbContext.ShowtimeSeats.AddRangeAsync(activeSeats2.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)), cancellationToken);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
         }
-
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        else
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
         return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime updated successfully.", 200);
@@ -288,6 +315,7 @@ public sealed class ShowtimeService : IShowtimeService
         string roomId,
         DateTime startTime,
         string? excludeShowtimeId,
+        DateTime? existingStartTime,
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.FirstOrDefaultAsync(
@@ -298,10 +326,8 @@ public sealed class ShowtimeService : IShowtimeService
             return ShowtimeValidationResult.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
 
-        if (!string.Equals(
-        movie.MovieStatus,
-        "NOW_SHOWING",
-        StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(movie.MovieStatus, "NOW_SHOWING", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(movie.MovieStatus, "COMING_SOON", StringComparison.OrdinalIgnoreCase))
         {
             return ShowtimeValidationResult.Fail(
                 400,
@@ -324,12 +350,15 @@ public sealed class ShowtimeService : IShowtimeService
         }
 
         var normalizedStartTime = EnsureUtc(startTime);
-        if (normalizedStartTime <= _clock.UtcNow)
+        if (existingStartTime == null || normalizedStartTime != EnsureUtc(existingStartTime.Value))
         {
-            return ShowtimeValidationResult.Fail(
-                400,
-                "Start time must be in the future.",
-                "INVALID_START_TIME");
+            if (normalizedStartTime <= _clock.UtcNow)
+            {
+                return ShowtimeValidationResult.Fail(
+                    400,
+                    "Start time must be in the future.",
+                    "INVALID_START_TIME");
+            }
         }
         var endTime = normalizedStartTime.AddMinutes(movie.DurationMinutes + BufferMinutes);
         var hasOverlap = await _dbContext.Showtimes.AnyAsync(

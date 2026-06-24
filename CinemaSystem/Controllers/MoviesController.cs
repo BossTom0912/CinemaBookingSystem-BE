@@ -47,7 +47,19 @@ public sealed class MoviesController : ControllerBase
         string movieId,
         CancellationToken cancellationToken)
     {
-        var result = await _movieService.GetMovieByIdAsync(movieId, cancellationToken);
+        bool isAdmin = User?.IsInRole(AuthConstants.Roles.Admin) == true || User?.IsInRole(AuthConstants.Roles.Manager) == true;
+        var result = await _movieService.GetMovieByIdAsync(movieId, isAdmin, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("{movieId}/view")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> IncrementMovieView(
+        string movieId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _movieService.IncrementMovieViewAsync(movieId, cancellationToken);
         return ToActionResult(result);
     }
 

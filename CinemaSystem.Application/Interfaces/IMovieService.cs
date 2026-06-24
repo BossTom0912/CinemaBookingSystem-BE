@@ -18,6 +18,11 @@ public interface IMovieService
 
     Task<ServiceResult<MovieDetailResponse>> GetMovieByIdAsync(
         string movieId,
+        bool isAdmin,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<object>> IncrementMovieViewAsync(
+        string movieId,
         CancellationToken cancellationToken);
 
     Task<ServiceResult<MovieDetailResponse>> CreateMovieAsync(

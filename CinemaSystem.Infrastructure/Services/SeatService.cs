@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Seats;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
@@ -55,6 +56,59 @@ public sealed class SeatService : ISeatService
         return ServiceResult<IEnumerable<SeatResponse>>.Ok(
             seats,
             $"Retrieved {seats.Count} seat(s) for room {roomId}.");
+    }
+
+    public async Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
+        string? roomId,
+        bool? isActive,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Seats.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(roomId))
+        {
+            query = query.Where(s => s.RoomId == roomId);
+        }
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(s => s.IsActive == isActive.Value);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var seats = await query
+            .OrderBy(s => s.RoomId)
+            .ThenBy(s => s.RowLabel)
+            .ThenBy(s => s.SeatNumber)
+            .Skip((pageIndex - 1) * pageSize)
+            .Take(pageSize)
+            .Select(seat => ToSeatResponse(seat))
+            .ToListAsync(cancellationToken);
+
+        var pagedList = new PagedList<SeatResponse>(seats, totalCount, pageIndex, pageSize);
+
+        return ServiceResult<PagedList<SeatResponse>>.Ok(
+            pagedList,
+            "Seats retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<SeatResponse>> GetSeatByIdAsync(
+        string seatId,
+        CancellationToken cancellationToken)
+    {
+        var seat = await _dbContext.Seats
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SeatId == seatId, cancellationToken);
+
+        if (seat == null)
+        {
+            return ServiceResult<SeatResponse>.Fail(404, "Seat not found.", "SEAT_NOT_FOUND");
+        }
+
+        return ServiceResult<SeatResponse>.Ok(ToSeatResponse(seat), "Seat retrieved successfully.");
     }
 
     public async Task<ServiceResult<bool>> CreateSeatAsync(
@@ -155,12 +209,7 @@ public sealed class SeatService : ISeatService
             return ServiceResult<bool>.Fail(404, "Seat not found.", "SEAT_NOT_FOUND");
         }
 
-        var hasFutureShowtime = await _dbContext.ShowtimeSeats
-            .AnyAsync(item => item.SeatId == seatId && item.Showtime.Status == "OPEN" && item.Showtime.StartTime > DateTime.UtcNow, cancellationToken);
-        if (hasFutureShowtime)
-        {
-            return ServiceResult<bool>.Fail(409, "Seat is being used by future showtimes.", "SEAT_IN_ACTIVE_SHOWTIME");
-        }
+
 
         seat.IsActive = false;
         await _dbContext.SaveChangesAsync(cancellationToken);
