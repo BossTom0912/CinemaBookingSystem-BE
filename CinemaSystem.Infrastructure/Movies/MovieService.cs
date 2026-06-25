@@ -1,7 +1,8 @@
-using CinemaSystem.Application.Common;
+﻿using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Movies;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -16,15 +17,16 @@ namespace CinemaSystem.Infrastructure.Movies;
 
 public sealed class MovieService : IMovieService
 {
-    private const string InactiveStatus = "INACTIVE";
     private const string ProhibitedAgeRating = "C";
 
     private readonly CinemaDbContext _dbContext;
+    private readonly IAdminRefundService _refundService;
     private readonly IFileStorageService _fileStorageService;
 
-    public MovieService(CinemaDbContext dbContext, IFileStorageService fileStorageService)
+    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService fileStorageService)
     {
         _dbContext = dbContext;
+        _refundService = refundService;
         _fileStorageService = fileStorageService;
     }
 
@@ -39,7 +41,7 @@ public sealed class MovieService : IMovieService
 
         if (!includeDeleted)
         {
-            query = query.Where(movie => movie.MovieStatus != InactiveStatus && movie.AgeRating != ProhibitedAgeRating);
+            query = query.Where(movie => movie.MovieStatus != DomainConstants.EntityStatus.Inactive && movie.AgeRating != ProhibitedAgeRating);
         }
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -84,7 +86,7 @@ public sealed class MovieService : IMovieService
         
         if (!isAdmin)
         {
-            query = query.Where(item => item.MovieStatus != InactiveStatus && item.AgeRating != ProhibitedAgeRating);
+            query = query.Where(item => item.MovieStatus != DomainConstants.EntityStatus.Inactive && item.AgeRating != ProhibitedAgeRating);
         }
 
         var movie = await query.FirstOrDefaultAsync(cancellationToken);
@@ -201,7 +203,7 @@ public sealed class MovieService : IMovieService
             TrailerUrl = request.TrailerUrl,
             Highlight = request.Highlight,
             PosterUrl = posterUrl,
-            MovieStatus = "ACTIVE"
+            MovieStatus = DomainConstants.EntityStatus.Active
         };
 
         _dbContext.Movies.Add(movie);
@@ -218,25 +220,45 @@ public sealed class MovieService : IMovieService
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
-        if (movie == null)
+        if (movie == null || movie.MovieStatus == DomainConstants.EntityStatus.Inactive)
         {
             return ServiceResult<MovieDetailResponse>.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
 
+        if (movie.DurationMinutes != request.DurationMinutes)
+        {
+            var openShowtimes = await _dbContext.Showtimes
+                .Where(s => s.MovieId == movieId && s.Status == DomainConstants.EntityStatus.Open)
+                .Select(s => s.ShowtimeId)
+                .ToArrayAsync(cancellationToken);
+
+            if (openShowtimes.Any())
+            {
+                var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, "Movie " + movie.Title + " duration changed.", cancellationToken);
+                if (!refundResult.Success)
+                {
+                    return ServiceResult<MovieDetailResponse>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+                }
+            }
+        }
+
         if (posterStream != null && !string.IsNullOrWhiteSpace(posterFileName))
         {
-            // Delete old poster if exists
             if (!string.IsNullOrEmpty(movie.PosterUrl))
             {
                 await _fileStorageService.DeleteFileAsync(movie.PosterUrl, cancellationToken);
             }
             movie.PosterUrl = await _fileStorageService.SaveFileAsync(posterStream, posterFileName, "posters", cancellationToken);
         }
+        else if (request.PosterUrl != null) 
+        {
+             movie.PosterUrl = request.PosterUrl;
+        }
 
         DateOnly? releaseDate = null;
-        if (DateOnly.TryParse(request.ReleaseDate, out var pd))
+        if (request.ReleaseDate.HasValue) 
         {
-            releaseDate = pd;
+            releaseDate = request.ReleaseDate.Value;
         }
 
         movie.Title = request.Title;
@@ -260,15 +282,29 @@ public sealed class MovieService : IMovieService
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
-        if (movie == null)
+        if (movie == null || movie.MovieStatus == DomainConstants.EntityStatus.Inactive)
         {
-            return ServiceResult<object>.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
+            return ServiceResult<object>.Fail(404, "Movie not found.", "MOVIE_NOT_FOUND");
         }
 
-        movie.MovieStatus = InactiveStatus;
+        var openShowtimes = await _dbContext.Showtimes
+            .Where(s => s.MovieId == movieId && s.Status == DomainConstants.EntityStatus.Open)
+            .Select(s => s.ShowtimeId)
+            .ToArrayAsync(cancellationToken);
+
+        if (openShowtimes.Any())
+        {
+            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, "Movie " + movie.Title + " was deleted.", cancellationToken);
+            if (!refundResult.Success)
+            {
+                return ServiceResult<object>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+            }
+        }
+
+        movie.MovieStatus = DomainConstants.EntityStatus.Inactive;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return ServiceResult<object>.Ok(new { MovieId = movieId, Deleted = true }, "Movie deleted successfully.");
+        return ServiceResult<object>.Ok(new { MovieId = movieId, Status = movie.MovieStatus }, "Movie softly deleted successfully.");
     }
 
 

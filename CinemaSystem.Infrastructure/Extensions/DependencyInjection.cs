@@ -138,6 +138,9 @@ public static class DependencyInjection
         services.AddScoped<IChatbotService, GeminiChatbotService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAiModerationService, GeminiModerationService>();
+        services.AddScoped<IAdminRefundService, AdminRefundService>();
+        services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
+        
 
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieHighlightClassificationJob>();
 

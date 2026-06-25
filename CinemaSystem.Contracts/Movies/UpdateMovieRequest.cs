@@ -1,4 +1,5 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
+using System;
 
 namespace CinemaSystem.Contracts.Movies;
 
@@ -18,13 +19,16 @@ public class UpdateMovieRequest
     [MaxLength(50)]
     public string? Language { get; set; }
 
-    public string? ReleaseDate { get; set; }
+    public DateOnly? ReleaseDate { get; set; }
 
     [MaxLength(10)]
     public string? AgeRating { get; set; }
 
     [MaxLength(2000)]
     public string? Description { get; set; }
+
+    [MaxLength(2000)]
+    public string? PosterUrl { get; set; }
 
     [MaxLength(2000)]
     public string? TrailerUrl { get; set; }

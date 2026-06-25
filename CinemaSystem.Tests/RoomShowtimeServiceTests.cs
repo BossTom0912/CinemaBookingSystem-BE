@@ -63,7 +63,7 @@ public sealed class RoomShowtimeServiceTests
     }
 
     [Fact]
-    public async Task CreateShowtime_OverlappingSameRoom_ReturnsConflict()
+    public async Task CreateShowtime_OverlappingSameRoom_ReturnsBadRequest()
     {
         var fixture = Fixture.Create();
         await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
@@ -90,7 +90,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.True(first.Success);
         Assert.False(overlapping.Success);
-        Assert.Equal(409, overlapping.StatusCode);
+        Assert.Equal(400, overlapping.StatusCode);
         Assert.Equal("SHOWTIME_OVERLAP", overlapping.ErrorCode);
         Assert.Single(await fixture.DbContext.Showtimes.ToListAsync());
         Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
@@ -361,11 +361,11 @@ public sealed class RoomShowtimeServiceTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var clock = new FakeClock(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
-            return new Fixture(
-                dbContext,
-                new RoomService(dbContext),
-                new ShowtimeService(dbContext, clock));
+            var mockClock = new Moq.Mock<IClock>();
+            mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var roomService = new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object);
+            var showtimeService = new ShowtimeService(dbContext, mockClock.Object, Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings()), new Moq.Mock<Hangfire.IBackgroundJobClient>().Object);
+            return new Fixture(dbContext, roomService, showtimeService);
         }
 
         public async Task SeedCinemaAsync()

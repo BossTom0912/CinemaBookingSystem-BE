@@ -5,7 +5,11 @@ using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Seats;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Domain.Events;
 using Microsoft.EntityFrameworkCore;
+using Hangfire;
+using MediatR;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -24,12 +28,15 @@ public sealed class SeatService : ISeatService
 
     private readonly CinemaDbContext _dbContext;
     private readonly ISeatLockStore _seatLockStore;
+    private readonly IBackgroundJobClient _backgroundJobClient;
 
     public SeatService(
         CinemaDbContext dbContext,
+        IBackgroundJobClient backgroundJobClient,
         ISeatLockStore? seatLockStore = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _backgroundJobClient = backgroundJobClient;
         _seatLockStore = seatLockStore ?? new InMemorySeatLockStore();
     }
 
@@ -209,7 +216,22 @@ public sealed class SeatService : ISeatService
             return ServiceResult<bool>.Fail(404, "Seat not found.", "SEAT_NOT_FOUND");
         }
 
-
+        var futureShowtimeSeats = await _dbContext.ShowtimeSeats
+            .Include(item => item.Showtime)
+            .Where(item => item.SeatId == seatId && item.Showtime.Status == DomainConstants.EntityStatus.Open && item.Showtime.StartTime > DateTime.UtcNow)
+            .ToListAsync(cancellationToken);
+            
+        foreach (var sts in futureShowtimeSeats)
+        {
+            if (sts.SeatStatus == DomainConstants.EntityStatus.Available)
+            {
+                sts.SeatStatus = DomainConstants.EntityStatus.Maintenance;
+            }
+            else if (sts.SeatStatus == DomainConstants.EntityStatus.Locked || sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
+            {
+                _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new SeatMaintainedEvent { SeatId = seatId, RoomId = seat.RoomId }, CancellationToken.None));
+            }
+        }
 
         seat.IsActive = false;
         await _dbContext.SaveChangesAsync(cancellationToken);
