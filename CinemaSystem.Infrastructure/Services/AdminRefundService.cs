@@ -64,7 +64,10 @@ public class AdminRefundService : IAdminRefundService
         // Lấy thời gian hiện tại chuẩn UTC
         var now = DateTime.UtcNow;
 
-        // Duyệt qua từng suất chiếu cần hủy
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Duyệt qua từng suất chiếu cần hủy
         foreach (var showtime in showtimes)
         {
             // Kiểm tra xem suất chiếu này đã có khách hàng đặt vé chưa
@@ -203,11 +206,18 @@ public class AdminRefundService : IAdminRefundService
             }
         }
 
-        // Lưu toàn bộ thay đổi ở cấp Database (Transaction Commit)
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        
-        // Trả về thành công
-        return ServiceResult<bool>.Ok(true, "Showtimes cancelled and refunds prepared successfully.");
+            // Lưu toàn bộ thay đổi ở cấp Database (Transaction Commit)
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            
+            // Trả về thành công
+            return ServiceResult<bool>.Ok(true, "Showtimes cancelled and refunds prepared successfully.");
+        }
+        catch (Exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<ServiceResult<PagedList<RefundDto>>> GetRefundsAsync(string status, int pageIndex, int pageSize, CancellationToken cancellationToken)

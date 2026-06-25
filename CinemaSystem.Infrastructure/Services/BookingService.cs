@@ -60,6 +60,11 @@ public sealed class BookingService : IBookingService
 
         var now = _clock.UtcNow;
 
+        if (now >= showtime.StartTime)
+        {
+            return ServiceResult<BookingResponse>.Fail(400, "Cannot book tickets for a showtime that has already started.", "SHOWTIME_STARTED");
+        }
+
         foreach (var ss in showtimeSeats)
         {
             if (ss.SeatStatus == "BOOKED")
