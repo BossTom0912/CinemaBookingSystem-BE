@@ -23,6 +23,7 @@ builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>

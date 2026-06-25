@@ -36,10 +36,12 @@ public interface IMovieService
         UpdateMovieRequest request,
         Stream? posterStream,
         string? posterFileName,
+        string actionUserId,
         CancellationToken cancellationToken);
 
     Task<ServiceResult<object>> DeleteMovieAsync(
         string movieId,
+        string actionUserId,
         CancellationToken cancellationToken);
 
     Task UpdateMovieRatingAsync(

@@ -18,9 +18,10 @@ public interface IRoomService
     Task<ServiceResult<RoomResponse>> UpdateRoomAsync(
         string roomId,
         UpdateRoomRequest request,
+        string actionUserId,
         CancellationToken cancellationToken);
 
-    Task<ServiceResult<object>> DeleteRoomAsync(string roomId, CancellationToken cancellationToken);
+    Task<ServiceResult<object>> DeleteRoomAsync(string roomId, string actionUserId, CancellationToken cancellationToken);
     Task<ServiceResult<object>> GenerateSeatsAsync(
     string roomId,
     GenerateSeatsRequest request,

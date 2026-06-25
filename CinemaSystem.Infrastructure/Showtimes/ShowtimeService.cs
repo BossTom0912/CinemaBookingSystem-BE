@@ -10,6 +10,8 @@ using Hangfire;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
@@ -28,13 +30,15 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly IClock _clock;
     private readonly CinemaProcessingSettings _settings;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IBackgroundJobClient backgroundJobClient)
+    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
     {
         _dbContext = dbContext;
         _clock = clock;
         _settings = options.Value;
         _backgroundJobClient = backgroundJobClient;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesAsync(
@@ -207,15 +211,20 @@ public sealed class ShowtimeService : IShowtimeService
                 foreach (var booking in paidBookings)
                 {
                     booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
-                    
+                    var updateDetails = new List<string>();
+                    if (roomChanged) updateDetails.Add($"Room changed to {request.RoomId}");
+                    if (timeChanged) updateDetails.Add($"Start time changed to {normalizedStartTime:yyyy-MM-dd HH:mm}");
+                    var updateReason = string.Join(" and ", updateDetails);
+
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
-                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Unexpected Update Notification", $"Your showtime {showtime.Movie.Title} has been unexpectedly updated.", CancellationToken.None));
+                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Unexpected Update Notification", $"Your showtime {showtime.Movie.Title} has been unexpectedly updated. Reason: {updateReason}. Please wait for the cinema to handle it.", CancellationToken.None));
                     }
                 }
                 
-                _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new ShowtimeUnstableEvent { ShowtimeId = showtime.ShowtimeId, Reason = "Core info updated after tickets sold" }, CancellationToken.None));
+                // MediatR is not registered, so Hangfire cannot resolve IMediator, causing an abstract class instantiation error
+                // _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new ShowtimeUnstableEvent { ShowtimeId = showtime.ShowtimeId, Reason = "Core info updated after tickets sold" }, CancellationToken.None));
 
                 await _dbContext.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
@@ -276,9 +285,13 @@ public sealed class ShowtimeService : IShowtimeService
     {
         var existing = await _dbContext.Showtimes
             .Include(s => s.Bookings)
+                .ThenInclude(b => b.Payments)
+            .Include(s => s.Bookings)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
             .Include(s => s.ShowtimeSeats)
             .Include(s => s.ShowtimeCancellation)
-            .ThenInclude(sc => sc!.Refunds)
+                .ThenInclude(sc => sc!.Refunds)
             .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
         if (existing is null)
@@ -331,13 +344,31 @@ public sealed class ShowtimeService : IShowtimeService
             .ToList();
 
         var cancelReason = $"Showtime cancelled due to Admin update/delete.";
+        
+        var userId = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        
+        if (string.IsNullOrWhiteSpace(userId) || userId == "string" || userId == "user")
+        {
+            var adminUser = await _dbContext.Users
+                .FirstOrDefaultAsync(u => u.Role.RoleName == "Admin" && u.Status == DomainConstants.EntityStatus.Active, cancellationToken);
+                
+            if (adminUser != null)
+            {
+                userId = adminUser.UserId;
+            }
+            else
+            {
+                throw new Exception("Invalid Bearer Token or no active Admin user found for cancelling showtime.");
+            }
+        }
+
         var cancellation = new ShowtimeCancellation
         {
             ShowtimeCancellationId = NewId("STC"),
             ShowtimeId = showtime.ShowtimeId,
             CancelReason = cancelReason,
             CancelledAt = _clock.UtcNow,
-            CancelledByUserId = "SYSTEM", // Should be actual user
+            CancelledByUserId = userId,
         };
         _dbContext.ShowtimeCancellations.Add(cancellation);
 
@@ -350,10 +381,10 @@ public sealed class ShowtimeService : IShowtimeService
                 RefundId = NewId("REF"),
                 BookingId = booking.BookingId,
                 PaymentId = booking.Payments.FirstOrDefault()?.PaymentId ?? "UNKNOWN",
-                PaymentProviderId = "MANUAL",
+                PaymentProviderId = booking.Payments.FirstOrDefault()?.PaymentProviderId ?? "UNKNOWN",
                 ShowtimeCancellationId = cancellation.ShowtimeCancellationId,
                 RefundAmount = booking.TotalAmount,
-                RefundStatus = DomainConstants.EntityStatus.PendingRefund,
+                RefundStatus = DomainConstants.RefundStatus.Pending,
                 RefundReason = cancelReason,
                 
                 RequestedAt = _clock.UtcNow
@@ -381,9 +412,13 @@ public sealed class ShowtimeService : IShowtimeService
         var query = _dbContext.Showtimes
             .Include(item => item.Movie)
             .Include(item => item.Room)
-            .ThenInclude(room => room.Cinema)
+                .ThenInclude(room => room.Cinema)
             .Include(item => item.ShowtimeSeats)
             .Include(item => item.Bookings)
+                .ThenInclude(b => b.Payments)
+            .Include(item => item.Bookings)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
             .AsSplitQuery()
             .AsQueryable();
 

@@ -7,9 +7,11 @@ using System.Threading.Tasks;
 
 namespace CinemaSystem.Controllers;
 
+using CinemaSystem.Application.Common;
+
 [Route("api/admin/refunds")]
 [ApiController]
-[Authorize(Roles = "Admin,Manager,Staff")] // Based on common accounting permissions, but Admin is requested
+[Authorize(Roles = AuthConstants.Roles.Admin)] // Restrict refund operations to Admin only
 public class AdminRefundsController : ControllerBase
 {
     private readonly IAdminRefundService _adminRefundService;
@@ -20,8 +22,9 @@ public class AdminRefundsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetRefunds(
-        [FromQuery] string status = "PENDING_REFUND",
+    [ProducesResponseType(typeof(CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>), 200)]
+    public async Task<ActionResult<CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>>> GetRefunds(
+        [FromQuery] string status = "PENDING",
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 10,
         CancellationToken cancellationToken = default)
@@ -32,16 +35,17 @@ public class AdminRefundsController : ControllerBase
             return StatusCode(result.StatusCode, new { message = result.Message, errorCode = result.ErrorCode });
         }
 
-        return Ok(new
+        return Ok(new CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>
         {
-            success = true,
-            message = result.Message,
-            data = result.Data
+            Success = true,
+            Message = result.Message,
+            Data = result.Data
         });
     }
 
     [HttpPost("{bookingId}/confirm")]
-    public async Task<IActionResult> ConfirmRefund(
+    [ProducesResponseType(typeof(CinemaSystem.Contracts.Common.ApiResponse<object>), 200)]
+    public async Task<ActionResult<CinemaSystem.Contracts.Common.ApiResponse<object>>> ConfirmRefund(
         [FromRoute] string bookingId,
         CancellationToken cancellationToken)
     {
@@ -53,10 +57,10 @@ public class AdminRefundsController : ControllerBase
             return StatusCode(result.StatusCode, new { message = result.Message, errorCode = result.ErrorCode });
         }
 
-        return Ok(new
+        return Ok(new CinemaSystem.Contracts.Common.ApiResponse<object>
         {
-            success = true,
-            message = result.Message
+            Success = true,
+            Message = result.Message
         });
     }
 }

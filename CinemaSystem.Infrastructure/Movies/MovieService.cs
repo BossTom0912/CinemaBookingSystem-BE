@@ -1,4 +1,4 @@
-﻿using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Movies;
@@ -217,6 +217,7 @@ public sealed class MovieService : IMovieService
         UpdateMovieRequest request,
         Stream? posterStream,
         string? posterFileName,
+        string actionUserId,
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
@@ -234,7 +235,7 @@ public sealed class MovieService : IMovieService
 
             if (openShowtimes.Any())
             {
-                var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, "Movie " + movie.Title + " duration changed.", cancellationToken);
+                var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, "Movie " + movie.Title + " duration changed.", false, actionUserId, cancellationToken);
                 if (!refundResult.Success)
                 {
                     return ServiceResult<MovieDetailResponse>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
@@ -279,6 +280,7 @@ public sealed class MovieService : IMovieService
 
     public async Task<ServiceResult<object>> DeleteMovieAsync(
         string movieId,
+        string actionUserId,
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
@@ -294,7 +296,7 @@ public sealed class MovieService : IMovieService
 
         if (openShowtimes.Any())
         {
-            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, "Movie " + movie.Title + " was deleted.", cancellationToken);
+            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, "Movie " + movie.Title + " was deleted.", true, actionUserId, cancellationToken);
             if (!refundResult.Success)
             {
                 return ServiceResult<object>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);

@@ -29,14 +29,17 @@ public sealed class SeatService : ISeatService
     private readonly CinemaDbContext _dbContext;
     private readonly ISeatLockStore _seatLockStore;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IAdminRefundService _refundService;
 
     public SeatService(
         CinemaDbContext dbContext,
         IBackgroundJobClient backgroundJobClient,
+        IAdminRefundService refundService,
         ISeatLockStore? seatLockStore = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _backgroundJobClient = backgroundJobClient;
+        _refundService = refundService;
         _seatLockStore = seatLockStore ?? new InMemorySeatLockStore();
     }
 
@@ -221,6 +224,8 @@ public sealed class SeatService : ISeatService
             .Where(item => item.SeatId == seatId && item.Showtime.Status == DomainConstants.EntityStatus.Open && item.Showtime.StartTime > DateTime.UtcNow)
             .ToListAsync(cancellationToken);
             
+        var affectedShowtimeIds = new HashSet<string>();
+
         foreach (var sts in futureShowtimeSeats)
         {
             if (sts.SeatStatus == DomainConstants.EntityStatus.Available)
@@ -229,7 +234,16 @@ public sealed class SeatService : ISeatService
             }
             else if (sts.SeatStatus == DomainConstants.EntityStatus.Locked || sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
             {
-                _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new SeatMaintainedEvent { SeatId = seatId, RoomId = seat.RoomId }, CancellationToken.None));
+                affectedShowtimeIds.Add(sts.ShowtimeId);
+            }
+        }
+
+        if (affectedShowtimeIds.Any())
+        {
+            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(affectedShowtimeIds.ToArray(), $"Seat {seat.SeatCode} was set to maintenance/deleted.", false, userId, cancellationToken);
+            if (!refundResult.Success)
+            {
+                return ServiceResult<bool>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
             }
         }
 

@@ -92,7 +92,7 @@ public sealed class MoviesController : ControllerBase
         CancellationToken cancellationToken)
     {
         using var stream = posterFile?.OpenReadStream();
-        var result = await _movieService.UpdateMovieAsync(movieId, request, stream, posterFile?.FileName, cancellationToken);
+        var result = await _movieService.UpdateMovieAsync(movieId, request, stream, posterFile?.FileName, GetUserId(), cancellationToken);
         return ToActionResult(result);
     }
 
@@ -103,7 +103,7 @@ public sealed class MoviesController : ControllerBase
         string movieId,
         CancellationToken cancellationToken)
     {
-        var result = await _movieService.DeleteMovieAsync(movieId, cancellationToken);
+        var result = await _movieService.DeleteMovieAsync(movieId, GetUserId(), cancellationToken);
         return ToActionResult(result);
     }
 
@@ -116,5 +116,12 @@ public sealed class MoviesController : ControllerBase
             : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
 
         return StatusCode(result.StatusCode, response);
+    }
+
+    private string GetUserId()
+    {
+        return User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("userId")?.Value
+            ?? string.Empty;
     }
 }
