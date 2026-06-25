@@ -16,6 +16,7 @@ public static class BookingConstants
     public static class BookingChannel
     {
         public const string Online = "ONLINE";
+        public const string Counter = "COUNTER";
     }
 
     public static class ShowtimeStatus
