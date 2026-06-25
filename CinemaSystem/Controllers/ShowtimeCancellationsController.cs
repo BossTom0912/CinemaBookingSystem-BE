@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CinemaSystem.Controllers;
 
 [ApiController]
-[Route("api/showtimes")]
+[Route("api/manager/showtimes")]
 public sealed class ShowtimeCancellationsController : ControllerBase
 {
     private readonly IShowtimeCancellationService _showtimeCancellationService;
