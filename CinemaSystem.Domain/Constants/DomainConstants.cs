@@ -20,8 +20,9 @@ public static class DomainConstants
         public const string Closed = "CLOSED";
         public const string Completed = "COMPLETED";
         public const string ProcessingUnstable = "PROCESSING_UNSTABLE";
-        public const string Archived = "ARCHIVED";
-        public const string Showing = "SHOWING";
+        public const string Archived = "ARCHIVED"; // Consider using INACTIVE for MOVIE
+        public const string Suspended = "SUSPENDED";
+        public const string NowShowing = "NOW_SHOWING";
         public const string ComingSoon = "COMING_SOON";
         public const string Booked = "BOOKED";
     }

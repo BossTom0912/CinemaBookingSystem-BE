@@ -9,6 +9,7 @@ using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -248,6 +249,60 @@ public sealed class BookingService : IBookingService
             .ToListAsync(cancellationToken);
 
         return ServiceResult<IReadOnlyList<BookingResponse>>.Ok(bookings, "My bookings retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<bool>> ConfirmTimeChangeAsync(
+        string bookingId,
+        bool accept,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        // 1. Verify token
+        var secret = "TIME_CHANGE_SECRET_KEY_1234567890"; // In real app, get from config
+        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(bookingId));
+        var expectedToken = Convert.ToBase64String(hash);
+
+        // Make it URL safe if needed, but standard Base64 should match if unescaped
+        if (token.Replace(" ", "+") != expectedToken)
+        {
+            return ServiceResult<bool>.Fail(400, "Invalid or expired token.", "INVALID_TOKEN");
+        }
+
+        var booking = await _dbContext.Bookings
+            .Include(b => b.Payments)
+            .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
+
+        if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
+        if (booking.BookingStatus != DomainConstants.EntityStatus.ProcessingUnstable) 
+            return ServiceResult<bool>.Fail(400, "Booking is not pending a time change confirmation.", "INVALID_STATUS");
+
+        if (accept)
+        {
+            booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return ServiceResult<bool>.Ok(true, "Time change accepted successfully.");
+        }
+        else
+        {
+            booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
+            var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.RefundStatus.Success) ?? booking.Payments.FirstOrDefault();
+            
+            var refund = new Refund
+            {
+                RefundId = NewId("REF"),
+                BookingId = booking.BookingId,
+                PaymentId = payment?.PaymentId ?? "UNKNOWN",
+                PaymentProviderId = payment?.PaymentProviderId ?? "UNKNOWN",
+                RefundAmount = booking.TotalAmount,
+                RefundStatus = DomainConstants.RefundStatus.Pending,
+                RefundReason = "User rejected time change",
+                RequestedAt = _clock.UtcNow
+            };
+            _dbContext.Refunds.Add(refund);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund initiated.");
+        }
     }
 
     private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";

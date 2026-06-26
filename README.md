@@ -98,3 +98,29 @@ Before opening a PR/MR, run:
 dotnet build CinemaSystem.sln
 dotnet test CinemaSystem.sln
 ```
+
+## Recent Architecture & Business Logic Updates
+
+Dưới đây là tổng hợp các ý tưởng nghiệp vụ và kiến trúc hệ thống đã được tích hợp gần đây (Đổi giờ chiếu, Đổi phòng, và Quản lý bảo trì):
+
+### 1. Quản lý trạng thái liên đới (Cascading Maintenance)
+*   **Ghế & Phòng chiếu:** Khi một Ghế bị Xóa hoặc Vô hiệu hóa (`IsActive = false`), Phòng chiếu (`Room`) chứa ghế đó sẽ tự động chuyển sang trạng thái `MAINTENANCE` (Bảo trì).
+*   **Phòng chiếu & Suất chiếu:** Khi một Phòng chiếu bị Bảo trì hoặc Xóa, tất cả các Suất chiếu (`Showtime`) thuộc phòng đó đang mở bán (`OPEN`) sẽ tự động chuyển sang trạng thái `SUSPENDED` (Đình chỉ).
+*   *Lưu ý:* Hệ thống **không tự động hoàn tiền (refund)** lúc này để Admin có cơ hội xử lý (chuyển phòng khác).
+
+### 2. Nghiệp vụ Đổi Phòng Chiếu (Re-seat / Change Room)
+*   Được thiết kế để giải quyết các Suất chiếu bị `SUSPENDED`. Admin gọi API `POST /api/showtimes/{showtimeId}/change-room`.
+*   **Ánh xạ ghế (Seat Mapping):** Cho phép truyền `SeatMapping` tự định nghĩa (Ghế cũ -> Ghế mới). Nếu rỗng, hệ thống sẽ tự động ghép dựa trên mã ghế (`SeatCode`).
+*   **Tự động hóa:** Sau khi đổi phòng và chuyển ghế cho các vé đã mua thành công, Suất chiếu sẽ tự động trở lại trạng thái `OPEN`. Đồng thời hệ thống gửi Email thông báo đổi phòng cho tất cả các khách hàng đã thanh toán.
+
+### 3. Nghiệp vụ Đổi Giờ Chiếu & Token Xác Nhận (Time Change Approval)
+*   **Lệch giờ $\ge$ 15 phút:** Khi Admin cập nhật giờ chiếu lệch quá 15 phút so với giờ cũ, vé của khách sẽ bị đưa vào trạng thái chờ `ProcessingUnstable`. 
+*   **Mã hóa Token không cần DB:** Backend tạo bảo mật `HMACSHA256` dựa trên `BookingId` để sinh ra link xác nhận mà không cần tạo thêm bảng trong Database.
+*   **Quyền quyết định của User:** Hệ thống tự gửi mail song ngữ (Anh-Việt) kèm 2 lựa chọn (Links):
+    1.  *Chấp nhận:* Gọi API `GET /api/bookings/{id}/confirm-time-change?accept=true` $\rightarrow$ Vé về lại `PAID`.
+    2.  *Không chấp nhận & Hủy vé:* Truyền `accept=false` $\rightarrow$ Vé chuyển thành `PendingRefund` và sinh ra bản ghi `Refund`.
+*   **Lệch giờ < 15 phút:** Chỉ gửi Email thông báo song ngữ cho khách hàng mà không làm gián đoạn trạng thái vé.
+
+### 4. Quy trình Xóa Phim / Xóa Suất Chiếu
+*   Khi Admin xóa hẳn một bộ Phim hoặc Suất chiếu, các vé đã thanh toán sẽ tự động chuyển trạng thái từ `PAID` sang `PendingRefund`.
+*   Hệ thống gửi Email thông báo Hủy Suất Chiếu (Song ngữ) yêu cầu người dùng chờ hệ thống xử lý lệnh hoàn tiền ví điện tử/ngân hàng.

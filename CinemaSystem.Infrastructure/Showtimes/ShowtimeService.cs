@@ -219,7 +219,33 @@ public sealed class ShowtimeService : IShowtimeService
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
-                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Unexpected Update Notification", $"Your showtime {showtime.Movie.Title} has been unexpectedly updated. Reason: {updateReason}. Please wait for the cinema to handle it.", CancellationToken.None));
+                        var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
+                        if (timeChanged && timeDiff >= 15)
+                        {
+                            var secret = "TIME_CHANGE_SECRET_KEY_1234567890";
+                            using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                            var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                            var token = Convert.ToBase64String(hash);
+                            var encodedToken = System.Uri.EscapeDataString(token);
+                            
+                            string subject = "Xác nhận điều chỉnh lịch chiếu / Showtime Update Confirmation";
+                            string message = $"[VI] Phim {showtime.Movie.Title} của bạn được điều chỉnh sang giờ: {normalizedStartTime:dd/MM/yyyy HH:mm}. Sự chênh lệch lớn hơn 15 phút.\n" +
+                                             $"Vui lòng chọn 1 trong 2 lựa chọn:\n" +
+                                             $"1. Chấp nhận giờ mới: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=true&token={encodedToken}\n" +
+                                             $"2. Không chấp nhận & Hủy vé hoàn tiền: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=false&token={encodedToken}\n\n" +
+                                             $"[EN] Your movie {showtime.Movie.Title} has been rescheduled to: {normalizedStartTime:dd/MM/yyyy HH:mm}.\n" +
+                                             $"Please click a link below to accept or reject (refund):\n" +
+                                             $"1. Accept: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=true&token={encodedToken}\n" +
+                                             $"2. Reject & Refund: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=false&token={encodedToken}";
+                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                        }
+                        else
+                        {
+                            string subject = "Thông báo điều chỉnh lịch chiếu / Showtime Update Notice";
+                            string message = $"[VI] Phim {showtime.Movie.Title} của bạn được điều chỉnh sang giờ: {normalizedStartTime:dd/MM/yyyy HH:mm}. Lý do: {updateReason}.\n\n" +
+                                             $"[EN] Your movie {showtime.Movie.Title} has been rescheduled to: {normalizedStartTime:dd/MM/yyyy HH:mm}. Reason: {updateReason}.";
+                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                        }
                     }
                 }
                 
@@ -279,6 +305,116 @@ public sealed class ShowtimeService : IShowtimeService
 
         var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
         return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime updated successfully.", 200);
+    }
+
+    public async Task<ServiceResult<ShowtimeResponse>> ChangeRoomAsync(
+        string showtimeId,
+        ChangeRoomRequest request,
+        CancellationToken cancellationToken)
+    {
+        var showtime = await _dbContext.Showtimes
+            .Include(s => s.ShowtimeSeats)
+                .ThenInclude(sts => sts.Seat)
+            .Include(s => s.Bookings)
+            .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
+
+        if (showtime == null)
+            return ServiceResult<ShowtimeResponse>.Fail(404, "Showtime not found.", "NOT_FOUND");
+
+        var newRoom = await _dbContext.Rooms
+            .Include(r => r.Seats)
+            .FirstOrDefaultAsync(r => r.RoomId == request.NewRoomId, cancellationToken);
+
+        if (newRoom == null)
+            return ServiceResult<ShowtimeResponse>.Fail(404, "New room not found.", "NOT_FOUND");
+
+        if (newRoom.RoomStatus != DomainConstants.EntityStatus.Active)
+            return ServiceResult<ShowtimeResponse>.Fail(400, "New room is not active.", "ROOM_INACTIVE");
+
+        var activeNewSeats = newRoom.Seats.Where(s => s.IsActive).ToList();
+
+        var seatMapping = request.SeatMapping ?? new Dictionary<string, string>();
+
+        foreach (var oldSts in showtime.ShowtimeSeats)
+        {
+            if (oldSts.SeatStatus == DomainConstants.EntityStatus.Booked || oldSts.SeatStatus == DomainConstants.EntityStatus.Paid || oldSts.BookingSeat != null)
+            {
+                string? newSeatId = null;
+                if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId))
+                {
+                    newSeatId = mappedId;
+                }
+                else
+                {
+                    var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == oldSts.Seat.SeatCode);
+                    if (equivalentSeat != null)
+                    {
+                        newSeatId = equivalentSeat.SeatId;
+                    }
+                }
+
+                if (newSeatId == null)
+                {
+                    return ServiceResult<ShowtimeResponse>.Fail(400, $"Cannot map seat {oldSts.Seat.SeatCode} to new room.", "MAPPING_FAILED");
+                }
+            }
+        }
+
+        _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
+        
+        var newShowtimeSeats = new List<ShowtimeSeat>();
+        foreach (var newSeat in activeNewSeats)
+        {
+            newShowtimeSeats.Add(CreateShowtimeSeat(showtime.ShowtimeId, newSeat.SeatId));
+        }
+        await _dbContext.ShowtimeSeats.AddRangeAsync(newShowtimeSeats, cancellationToken);
+        
+        // Cần gán lại SeatId cho các vé đã đặt (BookingSeat)
+        // Note: do EF Core theo dõi, ta chỉ cần update thẳng BookingSeat.ShowtimeSeatId
+        var bookingSeats = await _dbContext.BookingSeats
+            .Where(bs => showtime.Bookings.Select(b => b.BookingId).Contains(bs.BookingId))
+            .Include(bs => bs.ShowtimeSeat)
+                .ThenInclude(sts => sts.Seat)
+            .ToListAsync(cancellationToken);
+
+        foreach (var bs in bookingSeats)
+        {
+            string? newSeatId = null;
+            if (seatMapping.TryGetValue(bs.ShowtimeSeat.SeatId, out var mappedId))
+            {
+                newSeatId = mappedId;
+            }
+            else
+            {
+                var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == bs.ShowtimeSeat.Seat.SeatCode);
+                if (equivalentSeat != null) newSeatId = equivalentSeat.SeatId;
+            }
+            if (newSeatId != null)
+            {
+                var newSts = newShowtimeSeats.FirstOrDefault(sts => sts.SeatId == newSeatId);
+                if (newSts != null)
+                {
+                    bs.ShowtimeSeatId = newSts.ShowtimeSeatId;
+                    newSts.SeatStatus = DomainConstants.EntityStatus.Booked;
+                }
+            }
+        }
+
+        showtime.RoomId = request.NewRoomId;
+        showtime.Status = DomainConstants.EntityStatus.Open;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        
+        // Gửi email thông báo sơ đồ ghế mới cho khách
+        var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
+        foreach(var booking in paidBookings)
+        {
+            var email = booking.GuestEmail ?? "customer@example.com";
+            _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, "Thay đổi phòng chiếu / Room Change", $"Phòng chiếu của bạn đã được thay đổi sang {newRoom.RoomName}. Vui lòng kiểm tra lại vé để xem vị trí ghế mới.", CancellationToken.None));
+        }
+
+        var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Room changed successfully.", 200);
     }
 
     public async Task<ServiceResult<object>> DeleteShowtimeAsync(string showtimeId, CancellationToken cancellationToken)
@@ -394,7 +530,10 @@ public sealed class ShowtimeService : IShowtimeService
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
             if (!string.IsNullOrEmpty(customerEmail))
             {
-                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Showtime Cancelled - Refund Initiated", "Your showtime has been cancelled. A refund has been initiated.", CancellationToken.None));
+                string subject = "Thông báo hủy suất chiếu / Showtime Cancellation Notice";
+                string message = $"[VI] Xuất chiếu của bạn đã được hủy do sự cố. Quý khách vui lòng chờ hệ thống hoàn tiền.\n\n" +
+                                 $"[EN] Your showtime has been cancelled due to an issue. Please wait for your refund to be processed.";
+                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
             }
         }
 

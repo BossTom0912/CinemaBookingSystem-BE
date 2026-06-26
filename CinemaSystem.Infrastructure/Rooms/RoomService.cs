@@ -294,16 +294,11 @@ public sealed class RoomService : IRoomService
         {
             var openShowtimes = await _dbContext.Showtimes
                 .Where(s => s.RoomId == roomId && s.Status == DomainConstants.EntityStatus.Open)
-                .Select(s => s.ShowtimeId)
-                .ToArrayAsync(cancellationToken);
+                .ToListAsync(cancellationToken);
 
-            if (openShowtimes.Any())
+            foreach (var st in openShowtimes)
             {
-                var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, $"Room {room.RoomName} status changed to {roomStatus}.", false, actionUserId, cancellationToken);
-                if (!refundResult.Success)
-                {
-                    return ServiceResult<RoomResponse>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
-                }
+                st.Status = "SUSPENDED";
             }
         }
 
@@ -334,19 +329,13 @@ public sealed class RoomService : IRoomService
                 "ROOM_NOT_FOUND");
         }
 
-        // Check for active showtimes
         var openShowtimes = await _dbContext.Showtimes
             .Where(s => s.RoomId == roomId && s.Status == DomainConstants.EntityStatus.Open)
-            .Select(s => s.ShowtimeId)
-            .ToArrayAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        if (openShowtimes.Any())
+        foreach (var st in openShowtimes)
         {
-            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, $"Room {room.RoomName} was deleted.", true, actionUserId, cancellationToken);
-            if (!refundResult.Success)
-            {
-                return ServiceResult<object>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
-            }
+            st.Status = "SUSPENDED";
         }
 
         // delete (soft-delete) immediately

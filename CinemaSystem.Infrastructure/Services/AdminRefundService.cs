@@ -176,6 +176,16 @@ public class AdminRefundService : IAdminRefundService
                         // Ghi đè lý do hoàn tiền mới nhất
                         existingRefund.RefundReason = reason;
                     }
+
+                    // Send cancellation email
+                    var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                    if (!string.IsNullOrEmpty(customerEmail))
+                    {
+                        string subject = "Thông báo hủy suất chiếu / Showtime Cancellation Notice";
+                        string message = $"[VI] Xuất chiếu của bạn đã được hủy do sự cố: {reason}. Quý khách vui lòng chờ hệ thống hoàn tiền.\n\n" +
+                                         $"[EN] Your showtime has been cancelled due to: {reason}. Please wait for your refund to be processed.";
+                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                    }
                 }
             }
 

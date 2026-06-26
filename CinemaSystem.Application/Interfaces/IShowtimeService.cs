@@ -20,4 +20,9 @@ public interface IShowtimeService
         CancellationToken cancellationToken);
 
     Task<ServiceResult<object>> DeleteShowtimeAsync(string showtimeId, CancellationToken cancellationToken);
+
+    Task<ServiceResult<ShowtimeResponse>> ChangeRoomAsync(
+        string showtimeId,
+        ChangeRoomRequest request,
+        CancellationToken cancellationToken);
 }

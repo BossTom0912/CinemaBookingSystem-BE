@@ -197,6 +197,30 @@ public sealed class SeatService : ISeatService
         seat.SeatNumber = request.SeatNumber;
         seat.SeatCode = newSeatCode;
         seat.SeatTypeId = request.SeatTypeId;
+        
+        bool isMaintenanceTriggered = false;
+        if (!request.IsActive && seat.IsActive)
+        {
+            isMaintenanceTriggered = true;
+        }
+        seat.IsActive = request.IsActive;
+
+        if (isMaintenanceTriggered)
+        {
+            var room = await _dbContext.Rooms.FirstOrDefaultAsync(r => r.RoomId == seat.RoomId, cancellationToken);
+            if (room != null)
+            {
+                room.RoomStatus = "MAINTENANCE";
+                var openShowtimes = await _dbContext.Showtimes
+                    .Where(s => s.RoomId == room.RoomId && s.Status == DomainConstants.EntityStatus.Open)
+                    .ToListAsync(cancellationToken);
+                
+                foreach (var st in openShowtimes)
+                {
+                    st.Status = "SUSPENDED";
+                }
+            }
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -224,26 +248,25 @@ public sealed class SeatService : ISeatService
             .Where(item => item.SeatId == seatId && item.Showtime.Status == DomainConstants.EntityStatus.Open && item.Showtime.StartTime > DateTime.UtcNow)
             .ToListAsync(cancellationToken);
             
-        var affectedShowtimeIds = new HashSet<string>();
-
         foreach (var sts in futureShowtimeSeats)
         {
             if (sts.SeatStatus == DomainConstants.EntityStatus.Available)
             {
                 sts.SeatStatus = DomainConstants.EntityStatus.Maintenance;
             }
-            else if (sts.SeatStatus == DomainConstants.EntityStatus.Locked || sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
-            {
-                affectedShowtimeIds.Add(sts.ShowtimeId);
-            }
         }
 
-        if (affectedShowtimeIds.Any())
+        var room = await _dbContext.Rooms.FirstOrDefaultAsync(r => r.RoomId == seat.RoomId, cancellationToken);
+        if (room != null)
         {
-            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(affectedShowtimeIds.ToArray(), $"Seat {seat.SeatCode} was set to maintenance/deleted.", false, userId, cancellationToken);
-            if (!refundResult.Success)
+            room.RoomStatus = "MAINTENANCE";
+            var openShowtimes = await _dbContext.Showtimes
+                .Where(s => s.RoomId == room.RoomId && s.Status == DomainConstants.EntityStatus.Open)
+                .ToListAsync(cancellationToken);
+            
+            foreach (var st in openShowtimes)
             {
-                return ServiceResult<bool>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+                st.Status = "SUSPENDED";
             }
         }
 
