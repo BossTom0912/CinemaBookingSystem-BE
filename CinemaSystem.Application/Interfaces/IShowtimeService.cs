@@ -16,6 +16,7 @@ public interface IShowtimeService
     Task<ServiceResult<ShowtimeResponse>> UpdateShowtimeAsync(
         string showtimeId,
         UpdateShowtimeRequest request,
+        bool force,
         CancellationToken cancellationToken);
 
     Task<ServiceResult<object>> DeleteShowtimeAsync(string showtimeId, CancellationToken cancellationToken);

@@ -14,14 +14,9 @@ namespace CinemaSystem.Controllers;
 public sealed class BookingsController : ControllerBase
 {
     private readonly IBookingService _bookingService;
-    private readonly ICheckoutService _checkoutService;
-
-    public BookingsController(
-        IBookingService bookingService,
-        ICheckoutService checkoutService)
+    public BookingsController(IBookingService bookingService)
     {
         _bookingService = bookingService;
-        _checkoutService = checkoutService;
     }
 
     [HttpPost]
@@ -102,51 +97,7 @@ public sealed class BookingsController : ControllerBase
         return StatusCode(result.StatusCode, response);
     }
 
-    [HttpPost("checkout")]
-    [ProducesResponseType(
-        typeof(ApiResponse<CheckoutResponse>),
-        StatusCodes.Status201Created)]
-    [ProducesResponseType(
-        typeof(ApiResponse<object>),
-        StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(
-        typeof(ApiResponse<object>),
-        StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(
-        typeof(ApiResponse<object>),
-        StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(
-        typeof(ApiResponse<object>),
-        StatusCodes.Status404NotFound)]
-    [ProducesResponseType(
-        typeof(ApiResponse<object>),
-        StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Checkout(
-        CheckoutRequest request,
-        CancellationToken cancellationToken)
-    {
-        var userId = GetUserId();
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return Unauthorized(ApiResponse<object>.Fail(
-                "Unauthorized.",
-                BookingConstants.ErrorCodes.Unauthorized));
-        }
 
-        var result = await _checkoutService.CheckoutAsync(
-            userId,
-            request,
-            cancellationToken);
-
-        var response = result.Success
-            ? ApiResponse<CheckoutResponse>.Ok(result.Data, result.Message)
-            : ApiResponse<CheckoutResponse>.Fail(
-                result.Message,
-                result.ErrorCode,
-                result.Errors);
-
-        return StatusCode(result.StatusCode, response);
-    }
 
     private string? GetUserId()
     {

@@ -63,7 +63,8 @@ public sealed class ShowtimesController : ControllerBase
     public async Task<IActionResult> UpdateShowtime(
         string showtimeId,
         UpdateShowtimeRequest request,
-        CancellationToken cancellationToken)
+        [FromQuery] bool force = false,
+        CancellationToken cancellationToken = default)
     {
         var currentScope = await _cinemaScopeAuthorizationService.AuthorizeShowtimeAsync(User, showtimeId, cancellationToken);
         if (!currentScope.Allowed)
@@ -80,6 +81,7 @@ public sealed class ShowtimesController : ControllerBase
         var result = await _showtimeService.UpdateShowtimeAsync(
             showtimeId,
             request.MapTo<Contracts.Showtimes.UpdateShowtimeRequest>(),
+            force,
             cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Showtimes.ShowtimeResponse, ShowtimeResponse>());
     }

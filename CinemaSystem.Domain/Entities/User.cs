@@ -25,6 +25,12 @@ public partial class User
 
     public DateTime? UpdatedAt { get; set; }
 
+    public int SpamViolationCount { get; set; }
+
+    public bool IsBlocked { get; set; }
+
+    public DateTime? BlockedUntil { get; set; }
+
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
     public virtual CustomerProfile? CustomerProfile { get; set; }

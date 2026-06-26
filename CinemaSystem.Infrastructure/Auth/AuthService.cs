@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
+using Google.Apis.Auth;
 
 namespace CinemaSystem.Infrastructure.Auth;
 
@@ -253,6 +254,83 @@ public sealed class AuthService : IAuthService
                 Role = AuthConstants.Roles.Normalize(user.Role.RoleName)
             },
             "Login successful.");
+    }
+
+    public async Task<ServiceResult<AuthResponse>> GoogleLoginAsync(GoogleLoginRequest request, CancellationToken cancellationToken)
+    {
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken);
+        }
+        catch (InvalidJwtException)
+        {
+            return ServiceResult<AuthResponse>.Fail(401, "Invalid Google ID token.", "INVALID_GOOGLE_TOKEN");
+        }
+
+        var normalizedEmail = NormalizeEmail(payload.Email);
+        var user = await _dbContext.Users
+            .Include(item => item.Role)
+            .FirstOrDefaultAsync(item => item.Email == normalizedEmail, cancellationToken);
+
+        if (user is null)
+        {
+            var customerRole = await GetOrCreateRoleAsync(
+                AuthConstants.RoleIds.Customer,
+                AuthConstants.Roles.Customer,
+                "Customer account",
+                cancellationToken);
+
+            user = new User
+            {
+                UserId = NewId("USR"),
+                RoleId = customerRole.RoleId,
+                Email = normalizedEmail,
+                PasswordHash = _passwordHasher.HashSecret(Guid.NewGuid().ToString()),
+                FullName = payload.Name?.Trim() ?? "Google User",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = _clock.UtcNow
+            };
+
+            var customerProfile = new CustomerProfile
+            {
+                CustomerProfileId = NewId("CUS"),
+                UserId = user.UserId,
+                MemberLevel = "STANDARD",
+                RewardPoints = 0
+            };
+
+            _dbContext.Users.Add(user);
+            _dbContext.CustomerProfiles.Add(customerProfile);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            user.Role = customerRole;
+        }
+
+        if (user.Status != AuthConstants.UserStatus.Active)
+        {
+            return ServiceResult<AuthResponse>.Fail(403, "Account is not active.", "ACCOUNT_NOT_ACTIVE");
+        }
+
+        var accessToken = _jwtTokenService.GenerateAccessToken(user.UserId, user.Email, user.Role.RoleName);
+        var refreshTokenValue = _jwtTokenService.GenerateRefreshToken();
+        var refreshToken = CreateRefreshToken(user.UserId, refreshTokenValue);
+
+        _dbContext.RefreshTokens.Add(refreshToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<AuthResponse>.Ok(
+            new AuthResponse
+            {
+                AccessToken = accessToken.AccessToken,
+                RefreshToken = refreshTokenValue,
+                ExpiresAt = accessToken.ExpiresAt,
+                UserId = user.UserId,
+                Email = user.Email,
+                FullName = user.FullName,
+                Role = AuthConstants.Roles.Normalize(user.Role.RoleName)
+            },
+            "Google login successful.");
     }
 
     public async Task<ServiceResult<TokenResponse>> RefreshTokenAsync(RefreshTokenRequest request, CancellationToken cancellationToken)

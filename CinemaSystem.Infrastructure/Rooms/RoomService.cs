@@ -3,6 +3,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Rooms;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,10 +22,12 @@ public sealed class RoomService : IRoomService
     };
 
     private readonly CinemaDbContext _dbContext;
+    private readonly IAdminRefundService _refundService;
 
-    public RoomService(CinemaDbContext dbContext)
+    public RoomService(CinemaDbContext dbContext, IAdminRefundService refundService)
     {
         _dbContext = dbContext;
+        _refundService = refundService;
     }
     public async Task<ServiceResult<RoomResponse>> CreateRoomAsync(
     string cinemaId,
@@ -73,11 +76,17 @@ public sealed class RoomService : IRoomService
     }
     public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(
         string? cinemaScopeId,
+        bool includeInactive,
         CancellationToken cancellationToken)
     {
-        IQueryable<Room> query = _dbContext.Rooms
-            .AsNoTracking()
-            .Where(room => room.RoomStatus != "INACTIVE")
+        IQueryable<Room> query = _dbContext.Rooms.AsNoTracking();
+
+        if (!includeInactive)
+        {
+            query = query.Where(room => room.RoomStatus != "INACTIVE");
+        }
+
+        query = query
             .Include(room => room.Cinema)
             .Include(room => room.Seats);
 
@@ -97,6 +106,7 @@ public sealed class RoomService : IRoomService
 
     public async Task<ServiceResult<RoomResponse>> GetRoomByIdAsync(
     string roomId,
+    bool includeInactive,
     CancellationToken cancellationToken)
     {
         var room = await _dbContext.Rooms
@@ -113,7 +123,7 @@ public sealed class RoomService : IRoomService
                 "ROOM_NOT_FOUND");
         }
 
-        if (string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive && string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<RoomResponse>.Fail(
                 404,
@@ -218,6 +228,7 @@ public sealed class RoomService : IRoomService
     public async Task<ServiceResult<RoomResponse>> UpdateRoomAsync(
         string roomId,
         UpdateRoomRequest request,
+        string actionUserId,
         CancellationToken cancellationToken)
     {
         var roomStatus = NormalizeStatus(request.RoomStatus);
@@ -289,6 +300,23 @@ public sealed class RoomService : IRoomService
                 "INVALID_CAPACITY");
         }
 
+        if (room.RoomStatus != roomStatus && (roomStatus == "MAINTENANCE" || roomStatus == "INACTIVE"))
+        {
+            var openShowtimes = await _dbContext.Showtimes
+                .Where(s => s.RoomId == roomId && s.Status == DomainConstants.EntityStatus.Open)
+                .Select(s => s.ShowtimeId)
+                .ToArrayAsync(cancellationToken);
+
+            if (openShowtimes.Any())
+            {
+                var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, $"Room {room.RoomName} status changed to {roomStatus}.", false, actionUserId, cancellationToken);
+                if (!refundResult.Success)
+                {
+                    return ServiceResult<RoomResponse>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+                }
+            }
+        }
+
         // apply update immediately
         room.RoomName = normalizedRoomName;
         room.Capacity = request.Capacity;
@@ -302,6 +330,7 @@ public sealed class RoomService : IRoomService
 
     public async Task<ServiceResult<object>> DeleteRoomAsync(
     string roomId,
+    string actionUserId,
     CancellationToken cancellationToken)
     {
         var room = await _dbContext.Rooms
@@ -313,6 +342,21 @@ public sealed class RoomService : IRoomService
                 404,
                 "Room was not found.",
                 "ROOM_NOT_FOUND");
+        }
+
+        // Check for active showtimes
+        var openShowtimes = await _dbContext.Showtimes
+            .Where(s => s.RoomId == roomId && s.Status == DomainConstants.EntityStatus.Open)
+            .Select(s => s.ShowtimeId)
+            .ToArrayAsync(cancellationToken);
+
+        if (openShowtimes.Any())
+        {
+            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(openShowtimes, $"Room {room.RoomName} was deleted.", true, actionUserId, cancellationToken);
+            if (!refundResult.Success)
+            {
+                return ServiceResult<object>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+            }
         }
 
         // delete (soft-delete) immediately

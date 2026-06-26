@@ -224,16 +224,16 @@ public sealed class FixedOtpGenerator : IOtpGenerator
 public static class TestAuthTokens
 {
     public static string Customer(string userId = "USR_TEST_CUSTOMER")
-        => Generate(userId, "customer@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Customer);
+        => Generate(userId, "customer@test.com", AuthConstants.Roles.Customer);
 
     public static string Staff(string userId = "USR_TEST_STAFF")
-        => Generate(userId, "staff@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Staff);
+        => Generate(userId, "staff@test.com", AuthConstants.Roles.Staff);
 
     public static string Manager(string userId = "USR_TEST_MANAGER")
-        => Generate(userId, "manager@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Manager);
+        => Generate(userId, "manager@test.com", AuthConstants.Roles.Manager);
 
     public static string Admin(string userId = "USR_TEST_ADMIN")
-        => Generate(userId, "admin@test.com", CinemaSystem.Application.Common.AuthConstants.Roles.Admin);
+        => Generate(userId, "admin@test.com", AuthConstants.Roles.Admin);
 
     private static string Generate(string userId, string email, string role)
     {

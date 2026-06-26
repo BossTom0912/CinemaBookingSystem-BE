@@ -13,29 +13,49 @@ namespace CinemaSystem.Controllers;
 [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
 public sealed class AdminRefundsController : ControllerBase
 {
-    private readonly IManualRefundService _service;
+    private readonly IAdminRefundService _adminRefundService;
+    private readonly IManualRefundService _manualRefundService;
 
-    public AdminRefundsController(IManualRefundService service)
+    public AdminRefundsController(
+        IAdminRefundService adminRefundService,
+        IManualRefundService manualRefundService)
     {
-        _service = service;
+        _adminRefundService = adminRefundService;
+        _manualRefundService = manualRefundService;
     }
+
+    [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<PagedList<RefundDto>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetRefunds(
+        [FromQuery] string status = "PENDING",
+        [FromQuery] int pageIndex = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken cancellationToken = default)
+        => ToActionResult(await _adminRefundService.GetRefundsAsync(status, pageIndex, pageSize, cancellationToken));
+
+    [HttpPost("{bookingId}/confirm")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ConfirmRefund(
+        [FromRoute] string bookingId,
+        CancellationToken cancellationToken)
+        => await WithAdminId(userId => _adminRefundService.ConfirmRefundAsync(bookingId, userId, cancellationToken));
 
     [HttpGet("manual")]
     public async Task<IActionResult> GetManualRefunds(CancellationToken cancellationToken)
-        => ToActionResult(await _service.GetPendingAsync(cancellationToken));
+        => ToActionResult(await _manualRefundService.GetPendingAsync(cancellationToken));
 
     [HttpPost("{refundId}/assign")]
     public async Task<IActionResult> Assign(
         string refundId,
         CancellationToken cancellationToken)
-        => await WithAdminId(userId => _service.AssignAsync(refundId, userId, cancellationToken));
+        => await WithAdminId(userId => _manualRefundService.AssignAsync(refundId, userId, cancellationToken));
 
     [HttpPost("{refundId}/manual-confirm")]
     public async Task<IActionResult> Confirm(
         string refundId,
         ManualRefundConfirmationRequest request,
         CancellationToken cancellationToken)
-        => await WithAdminId(userId => _service.ConfirmAsync(refundId, userId, request, cancellationToken));
+        => await WithAdminId(userId => _manualRefundService.ConfirmAsync(refundId, userId, request, cancellationToken));
 
     private async Task<IActionResult> WithAdminId<T>(
         Func<string, Task<ServiceResult<T>>> operation)
@@ -45,6 +65,7 @@ public sealed class AdminRefundsController : ControllerBase
         {
             return Unauthorized(ApiResponse<object>.Fail("Unauthorized.", "UNAUTHORIZED"));
         }
+
         return ToActionResult(await operation(userId));
     }
 

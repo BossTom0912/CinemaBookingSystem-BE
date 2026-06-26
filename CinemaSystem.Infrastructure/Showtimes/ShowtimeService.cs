@@ -1,31 +1,44 @@
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Showtimes;
-using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Events;
+using CinemaSystem.Infrastructure.Persistence;
+using Hangfire;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
 public sealed class ShowtimeService : IShowtimeService
 {
-    private const int BufferMinutes = 15;
-
     private static readonly HashSet<string> ValidShowtimeStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "OPEN",
-        "CLOSED",
-        "CANCELLED",
-        "COMPLETED"
+        DomainConstants.EntityStatus.Open,
+        DomainConstants.EntityStatus.Closed,
+        DomainConstants.EntityStatus.Cancelled,
+        DomainConstants.EntityStatus.Completed,
+        DomainConstants.EntityStatus.ProcessingUnstable
     };
 
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
+    private readonly CinemaProcessingSettings _settings;
+    private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public ShowtimeService(CinemaDbContext dbContext, IClock clock)
+    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
     {
         _dbContext = dbContext;
         _clock = clock;
+        _settings = options.Value;
+        _backgroundJobClient = backgroundJobClient;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesAsync(
@@ -98,11 +111,19 @@ public sealed class ShowtimeService : IShowtimeService
             return ServiceResult<ShowtimeResponse>.Fail(400, "Showtime status is invalid.", "INVALID_SHOWTIME_STATUS");
         }
 
+        var normalizedStartTime = EnsureUtc(request.StartTime);
+        var minutesUntilShowtime = (normalizedStartTime - _clock.UtcNow).TotalMinutes;
+        if (minutesUntilShowtime < _settings.PreShowtimeBlockingMinutes)
+        {
+            return ServiceResult<ShowtimeResponse>.Fail(400, $"Cannot create showtime closer than {_settings.PreShowtimeBlockingMinutes} minutes to start.", "PRE_SHOWTIME_BLOCK");
+        }
+
         var validation = await ValidateMovieRoomAndOverlapAsync(
             request.MovieId,
             request.RoomId,
             request.StartTime,
             excludeShowtimeId: null,
+            existingStartTime: null,
             cancellationToken);
         if (!validation.Success)
         {
@@ -129,7 +150,7 @@ public sealed class ShowtimeService : IShowtimeService
             ShowtimeId = showtimeId,
             MovieId = request.MovieId,
             RoomId = request.RoomId,
-            StartTime = EnsureUtc(request.StartTime),
+            StartTime = normalizedStartTime,
             EndTime = validation.EndTime,
             BasePrice = request.BasePrice,
             Status = status,
@@ -153,20 +174,13 @@ public sealed class ShowtimeService : IShowtimeService
     public async Task<ServiceResult<ShowtimeResponse>> UpdateShowtimeAsync(
         string showtimeId,
         UpdateShowtimeRequest request,
+        bool force,
         CancellationToken cancellationToken)
     {
         var showtime = await LoadShowtimeAsync(showtimeId, tracking: true, cancellationToken);
         if (showtime is null)
         {
             return ServiceResult<ShowtimeResponse>.Fail(404, "Showtime was not found.", "SHOWTIME_NOT_FOUND");
-        }
-
-        if (showtime.Bookings.Any())
-        {
-            return ServiceResult<ShowtimeResponse>.Fail(
-                409,
-                "Showtime has bookings and cannot be updated directly.",
-                "RESOURCE_HAS_BOOKINGS");
         }
 
         var status = NormalizeStatus(request.Status);
@@ -182,11 +196,56 @@ public sealed class ShowtimeService : IShowtimeService
             return ServiceResult<ShowtimeResponse>.Fail(400, "Showtime status is invalid.", "INVALID_SHOWTIME_STATUS");
         }
 
+        var normalizedStartTime = EnsureUtc(request.StartTime);
+        var roomChanged = !string.Equals(showtime.RoomId, request.RoomId, StringComparison.Ordinal);
+        var timeChanged = showtime.StartTime != normalizedStartTime;
+        var coreInfoChanged = roomChanged || timeChanged;
+
+        if (coreInfoChanged && showtime.Bookings.Any(b => b.BookingStatus == DomainConstants.EntityStatus.Paid))
+        {
+            using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                showtime.Status = DomainConstants.EntityStatus.ProcessingUnstable;
+
+                var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
+                foreach (var booking in paidBookings)
+                {
+                    booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
+                    var updateDetails = new List<string>();
+                    if (roomChanged) updateDetails.Add($"Room changed to {request.RoomId}");
+                    if (timeChanged) updateDetails.Add($"Start time changed to {normalizedStartTime:yyyy-MM-dd HH:mm}");
+                    var updateReason = string.Join(" and ", updateDetails);
+
+                    var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                    if (!string.IsNullOrEmpty(customerEmail))
+                    {
+                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Unexpected Update Notification", $"Your showtime {showtime.Movie.Title} has been unexpectedly updated. Reason: {updateReason}. Please wait for the cinema to handle it.", CancellationToken.None));
+                    }
+                }
+
+                // MediatR is not registered, so Hangfire cannot resolve IMediator, causing an abstract class instantiation error
+                // _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new ShowtimeUnstableEvent { ShowtimeId = showtime.ShowtimeId, Reason = "Core info updated after tickets sold" }, CancellationToken.None));
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+
+                var unstable = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+                return ServiceResult<ShowtimeResponse>.Ok(ToResponse(unstable!), "Showtime unstable. Manual processing required.", 200);
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+        }
+
         var validation = await ValidateMovieRoomAndOverlapAsync(
             request.MovieId,
             request.RoomId,
             request.StartTime,
-            showtimeId,
+            showtime.ShowtimeId,
+            showtime.StartTime,
             cancellationToken);
         if (!validation.Success)
         {
@@ -196,11 +255,9 @@ public sealed class ShowtimeService : IShowtimeService
                 validation.ErrorCode!);
         }
 
-        var roomChanged = !string.Equals(showtime.RoomId, request.RoomId, StringComparison.Ordinal);
-
         showtime.MovieId = request.MovieId;
         showtime.RoomId = request.RoomId;
-        showtime.StartTime = EnsureUtc(request.StartTime);
+        showtime.StartTime = normalizedStartTime;
         showtime.EndTime = validation.EndTime;
         showtime.BasePrice = request.BasePrice;
         showtime.Status = status;
@@ -229,18 +286,29 @@ public sealed class ShowtimeService : IShowtimeService
     {
         var existing = await _dbContext.Showtimes
             .Include(s => s.Bookings)
+                .ThenInclude(b => b.Payments)
+            .Include(s => s.Bookings)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
             .Include(s => s.ShowtimeSeats)
             .Include(s => s.ShowtimeCancellation)
-            .ThenInclude(sc => sc!.Refunds)
+                .ThenInclude(sc => sc!.Refunds)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
         if (existing is null)
         {
             return ServiceResult<object>.Fail(404, "Showtime was not found.", "SHOWTIME_NOT_FOUND");
         }
 
+        if (existing.Status == DomainConstants.EntityStatus.Completed || existing.StartTime < _clock.UtcNow)
+        {
+            return ServiceResult<object>.Fail(409, "Cannot cancel a showtime that has already been completed or is in the past.", "PAST_SHOWTIME");
+        }
+
         if (existing.Bookings.Any())
         {
-            return ServiceResult<object>.Fail(409, "Showtime has bookings and cannot be permanently deleted.", "RESOURCE_HAS_BOOKINGS");
+             await CancelShowtimeAndTriggerRefundsAsync(existing, cancellationToken);
+             return ServiceResult<object>.Ok(new { showtimeId = showtimeId, deleted = true }, "Showtime softly deleted and refunds initiated.");
         }
 
         if (existing.ShowtimeCancellation?.Refunds.Any() == true)
@@ -267,7 +335,81 @@ public sealed class ShowtimeService : IShowtimeService
         return ServiceResult<object>.Ok(new { showtimeId = showtimeId, deleted = true }, "Showtime permanently deleted successfully.");
     }
 
-    // ChangeRequest based apply methods removed - CRUD operates directly
+    private async Task<ServiceResult<ShowtimeResponse>> CancelShowtimeAndTriggerRefundsAsync(Showtime showtime, CancellationToken cancellationToken)
+    {
+        showtime.Status = DomainConstants.EntityStatus.Cancelled;
+
+        foreach (var seat in showtime.ShowtimeSeats)
+        {
+            seat.SeatStatus = DomainConstants.EntityStatus.Available;
+            seat.LockedByUserId = null;
+            seat.LockedUntil = null;
+        }
+
+        var paidBookings = showtime.Bookings
+            .Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid || b.BookingStatus == DomainConstants.EntityStatus.Completed)
+            .ToList();
+
+        var cancelReason = $"Showtime cancelled due to Admin update/delete.";
+
+        var userId = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(userId) || userId == "string" || userId == "user")
+        {
+            var adminUser = await _dbContext.Users
+                .FirstOrDefaultAsync(u => u.Role.RoleName == "Admin" && u.Status == DomainConstants.EntityStatus.Active, cancellationToken);
+
+            if (adminUser != null)
+            {
+                userId = adminUser.UserId;
+            }
+            else
+            {
+                throw new Exception("Invalid Bearer Token or no active Admin user found for cancelling showtime.");
+            }
+        }
+
+        var cancellation = new ShowtimeCancellation
+        {
+            ShowtimeCancellationId = NewId("STC"),
+            ShowtimeId = showtime.ShowtimeId,
+            CancelReason = cancelReason,
+            CancelledAt = _clock.UtcNow,
+            CancelledByUserId = userId,
+        };
+        _dbContext.ShowtimeCancellations.Add(cancellation);
+
+        foreach (var booking in paidBookings)
+        {
+            booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
+
+            var refund = new Refund
+            {
+                RefundId = NewId("REF"),
+                BookingId = booking.BookingId,
+                PaymentId = booking.Payments.FirstOrDefault()?.PaymentId ?? "UNKNOWN",
+                PaymentProviderId = booking.Payments.FirstOrDefault()?.PaymentProviderId ?? "UNKNOWN",
+                ShowtimeCancellationId = cancellation.ShowtimeCancellationId,
+                RefundAmount = booking.TotalAmount,
+                RefundStatus = DomainConstants.RefundStatus.Pending,
+                RefundReason = cancelReason,
+
+                RequestedAt = _clock.UtcNow
+            };
+            _dbContext.Refunds.Add(refund);
+
+            var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            if (!string.IsNullOrEmpty(customerEmail))
+            {
+                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Showtime Cancelled - Refund Initiated", "Your showtime has been cancelled. A refund has been initiated.", CancellationToken.None));
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime cancelled softly and refunds initiated.", 200);
+    }
 
     private async Task<Showtime?> LoadShowtimeAsync(
         string showtimeId,
@@ -277,9 +419,14 @@ public sealed class ShowtimeService : IShowtimeService
         var query = _dbContext.Showtimes
             .Include(item => item.Movie)
             .Include(item => item.Room)
-            .ThenInclude(room => room.Cinema)
+                .ThenInclude(room => room.Cinema)
             .Include(item => item.ShowtimeSeats)
             .Include(item => item.Bookings)
+                .ThenInclude(b => b.Payments)
+            .Include(item => item.Bookings)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
+            .AsSplitQuery()
             .AsQueryable();
 
         if (!tracking)
@@ -295,6 +442,7 @@ public sealed class ShowtimeService : IShowtimeService
         string roomId,
         DateTime startTime,
         string? excludeShowtimeId,
+        DateTime? existingStartTime,
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.FirstOrDefaultAsync(
@@ -305,10 +453,7 @@ public sealed class ShowtimeService : IShowtimeService
             return ShowtimeValidationResult.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
 
-        if (!string.Equals(
-        movie.MovieStatus,
-        "NOW_SHOWING",
-        StringComparison.OrdinalIgnoreCase))
+        if (movie.MovieStatus == DomainConstants.EntityStatus.Archived || movie.MovieStatus == DomainConstants.EntityStatus.Inactive)
         {
             return ShowtimeValidationResult.Fail(
                 400,
@@ -324,33 +469,35 @@ public sealed class ShowtimeService : IShowtimeService
             return ShowtimeValidationResult.Fail(404, "Room was not found.", "ROOM_NOT_FOUND");
         }
 
-        if (!string.Equals(room.RoomStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(room.Cinema.CinemaStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (room.RoomStatus != DomainConstants.EntityStatus.Active || room.Cinema.CinemaStatus != DomainConstants.EntityStatus.Active)
         {
             return ShowtimeValidationResult.Fail(400, "Room or cinema is not active.", "ROOM_NOT_AVAILABLE");
         }
 
         var normalizedStartTime = EnsureUtc(startTime);
-        if (normalizedStartTime <= _clock.UtcNow)
+        if (existingStartTime == null || normalizedStartTime != EnsureUtc(existingStartTime.Value))
         {
-            return ShowtimeValidationResult.Fail(
-                400,
-                "Start time must be in the future.",
-                "INVALID_START_TIME");
+            if (normalizedStartTime <= _clock.UtcNow)
+            {
+                return ShowtimeValidationResult.Fail(
+                    400,
+                    "Start time must be in the future.",
+                    "INVALID_START_TIME");
+            }
         }
-        var endTime = normalizedStartTime.AddMinutes(movie.DurationMinutes + BufferMinutes);
+        var endTime = normalizedStartTime.AddMinutes(movie.DurationMinutes + _settings.ScreeningRoomCleaningMinutes);
         var hasOverlap = await _dbContext.Showtimes.AnyAsync(
             item => item.RoomId == roomId
                 && item.ShowtimeId != excludeShowtimeId
-                && item.Status != "CANCELLED"
-                && normalizedStartTime < item.EndTime
+                && item.Status != DomainConstants.EntityStatus.Cancelled
+                && normalizedStartTime < item.EndTime // strict inequality allows touching ends
                 && endTime > item.StartTime,
             cancellationToken);
 
         if (hasOverlap)
         {
             return ShowtimeValidationResult.Fail(
-                400,
+                409,
                 "Showtime overlaps with an existing showtime in the same room.",
                 "SHOWTIME_OVERLAP",
                 endTime);
@@ -406,7 +553,7 @@ public sealed class ShowtimeService : IShowtimeService
             ShowtimeSeatId = NewId("STS"),
             ShowtimeId = showtimeId,
             SeatId = seatId,
-            SeatStatus = "AVAILABLE"
+            SeatStatus = DomainConstants.EntityStatus.Available
         };
 
         if (!_dbContext.Database.IsRelational())

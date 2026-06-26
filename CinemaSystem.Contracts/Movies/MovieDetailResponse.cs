@@ -14,7 +14,7 @@ public sealed class MovieDetailResponse
 
     public DateOnly? ReleaseDate { get; init; }
 
-    public string? AgeRating { get; init; }
+    public decimal AvgRating { get; init; }
 
     public string? Description { get; init; }
 
@@ -23,4 +23,8 @@ public sealed class MovieDetailResponse
     public string? TrailerUrl { get; init; }
 
     public string MovieStatus { get; init; } = string.Empty;
+
+    public int ViewCount { get; init; }
+
+    public string? AgeRating { get; init; }
 }

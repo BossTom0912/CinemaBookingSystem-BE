@@ -1,10 +1,15 @@
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Seats;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Domain.Events;
 using Microsoft.EntityFrameworkCore;
+using Hangfire;
+using MediatR;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -23,12 +28,18 @@ public sealed class SeatService : ISeatService
 
     private readonly CinemaDbContext _dbContext;
     private readonly ISeatLockStore _seatLockStore;
+    private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IAdminRefundService _refundService;
 
     public SeatService(
         CinemaDbContext dbContext,
+        IBackgroundJobClient backgroundJobClient,
+        IAdminRefundService refundService,
         ISeatLockStore? seatLockStore = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _backgroundJobClient = backgroundJobClient;
+        _refundService = refundService;
         _seatLockStore = seatLockStore ?? new InMemorySeatLockStore();
     }
 
@@ -55,6 +66,59 @@ public sealed class SeatService : ISeatService
         return ServiceResult<IEnumerable<SeatResponse>>.Ok(
             seats,
             $"Retrieved {seats.Count} seat(s) for room {roomId}.");
+    }
+
+    public async Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
+        string? roomId,
+        bool? isActive,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Seats.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(roomId))
+        {
+            query = query.Where(s => s.RoomId == roomId);
+        }
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(s => s.IsActive == isActive.Value);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var seats = await query
+            .OrderBy(s => s.RoomId)
+            .ThenBy(s => s.RowLabel)
+            .ThenBy(s => s.SeatNumber)
+            .Skip((pageIndex - 1) * pageSize)
+            .Take(pageSize)
+            .Select(seat => ToSeatResponse(seat))
+            .ToListAsync(cancellationToken);
+
+        var pagedList = new PagedList<SeatResponse>(seats, totalCount, pageIndex, pageSize);
+
+        return ServiceResult<PagedList<SeatResponse>>.Ok(
+            pagedList,
+            "Seats retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<SeatResponse>> GetSeatByIdAsync(
+        string seatId,
+        CancellationToken cancellationToken)
+    {
+        var seat = await _dbContext.Seats
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.SeatId == seatId, cancellationToken);
+
+        if (seat == null)
+        {
+            return ServiceResult<SeatResponse>.Fail(404, "Seat not found.", "SEAT_NOT_FOUND");
+        }
+
+        return ServiceResult<SeatResponse>.Ok(ToSeatResponse(seat), "Seat retrieved successfully.");
     }
 
     public async Task<ServiceResult<bool>> CreateSeatAsync(
@@ -155,11 +219,32 @@ public sealed class SeatService : ISeatService
             return ServiceResult<bool>.Fail(404, "Seat not found.", "SEAT_NOT_FOUND");
         }
 
-        var hasFutureShowtime = await _dbContext.ShowtimeSeats
-            .AnyAsync(item => item.SeatId == seatId && item.Showtime.Status == "OPEN" && item.Showtime.StartTime > DateTime.UtcNow, cancellationToken);
-        if (hasFutureShowtime)
+        var futureShowtimeSeats = await _dbContext.ShowtimeSeats
+            .Include(item => item.Showtime)
+            .Where(item => item.SeatId == seatId && item.Showtime.Status == DomainConstants.EntityStatus.Open && item.Showtime.StartTime > DateTime.UtcNow)
+            .ToListAsync(cancellationToken);
+
+        var affectedShowtimeIds = new HashSet<string>();
+
+        foreach (var sts in futureShowtimeSeats)
         {
-            return ServiceResult<bool>.Fail(409, "Seat is being used by future showtimes.", "SEAT_IN_ACTIVE_SHOWTIME");
+            if (sts.SeatStatus == DomainConstants.EntityStatus.Available)
+            {
+                sts.SeatStatus = DomainConstants.EntityStatus.Maintenance;
+            }
+            else if (sts.SeatStatus == DomainConstants.EntityStatus.Locked || sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
+            {
+                affectedShowtimeIds.Add(sts.ShowtimeId);
+            }
+        }
+
+        if (affectedShowtimeIds.Any())
+        {
+            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(affectedShowtimeIds.ToArray(), $"Seat {seat.SeatCode} was set to maintenance/deleted.", false, userId, cancellationToken);
+            if (!refundResult.Success)
+            {
+                return ServiceResult<bool>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+            }
         }
 
         seat.IsActive = false;

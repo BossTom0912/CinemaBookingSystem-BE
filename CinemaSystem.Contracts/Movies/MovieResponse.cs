@@ -14,7 +14,11 @@ public sealed class MovieResponse
 
     public string? ImagePoster { get; init; }
 
-    public string? AgeRating { get; init; }
+    public decimal AvgRating { get; init; }
 
     public string? Highlight { get; init; }
+
+    public int ViewCount { get; init; }
+
+    public string? AgeRating { get; init; }
 }

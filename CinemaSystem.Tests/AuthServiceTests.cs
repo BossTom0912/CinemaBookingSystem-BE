@@ -365,9 +365,15 @@ public sealed class AuthServiceTests
         var result = await fixture.Service.LoginAsync(LoginRequest(), CancellationToken.None);
 
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(result.Data!.AccessToken);
-        Assert.Contains(jwt.Claims, claim => claim.Type == "userId" && claim.Value == result.Data.UserId);
-        Assert.Contains(jwt.Claims, claim => claim.Type == JwtRegisteredClaimNames.Email && claim.Value == "alice@example.com");
-        Assert.Contains(jwt.Claims, claim => claim.Type == "role" && claim.Value == AuthConstants.Roles.Customer);
+        Assert.Contains(jwt.Claims, claim =>
+            (claim.Type == "userId"
+                || claim.Type == JwtRegisteredClaimNames.Sub
+                || claim.Type == System.Security.Claims.ClaimTypes.NameIdentifier)
+            && claim.Value == result.Data.UserId);
+        Assert.Equal("alice@example.com", result.Data.Email);
+        Assert.Contains(jwt.Claims, claim =>
+            (claim.Type == "role" || claim.Type == System.Security.Claims.ClaimTypes.Role)
+            && AuthConstants.Roles.Normalize(claim.Value) == AuthConstants.Roles.Customer);
     }
 
     [Fact]

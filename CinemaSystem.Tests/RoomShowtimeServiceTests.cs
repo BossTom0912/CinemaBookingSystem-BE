@@ -90,7 +90,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.True(first.Success);
         Assert.False(overlapping.Success);
-        Assert.Equal(400, overlapping.StatusCode);
+        Assert.Equal(409, overlapping.StatusCode);
         Assert.Equal("SHOWTIME_OVERLAP", overlapping.ErrorCode);
         Assert.Single(await fixture.DbContext.Showtimes.ToListAsync());
         Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
@@ -144,7 +144,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.True(created.Success);
 
-        var deleted = await fixture.RoomService.DeleteRoomAsync("ROOM_TEST", CancellationToken.None);
+        var deleted = await fixture.RoomService.DeleteRoomAsync("ROOM_TEST", "SYS", CancellationToken.None);
 
         Assert.True(deleted.Success);
         Assert.Equal(1, await fixture.DbContext.Rooms.CountAsync());
@@ -173,7 +173,7 @@ public sealed class RoomShowtimeServiceTests
         });
         await fixture.DbContext.SaveChangesAsync();
 
-        var result = await fixture.RoomService.GetRoomsAsync(null, CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomsAsync(null, false, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Single(result.Data!);
@@ -187,7 +187,7 @@ public sealed class RoomShowtimeServiceTests
         var fixture = Fixture.Create();
         await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
 
-        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", false, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal("Room Test", result.Data!.RoomName);
@@ -204,7 +204,7 @@ public sealed class RoomShowtimeServiceTests
         room.RoomStatus = "INACTIVE";
         await fixture.DbContext.SaveChangesAsync();
 
-        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", false, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(404, result.StatusCode);
@@ -226,6 +226,7 @@ public sealed class RoomShowtimeServiceTests
                 Capacity = 20,
                 RoomStatus = "ACTIVE"
             },
+            "SYS",
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -334,6 +335,7 @@ public sealed class RoomShowtimeServiceTests
                 BasePrice = 95000,
                 Status = "OPEN"
             },
+            false,
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -361,11 +363,20 @@ public sealed class RoomShowtimeServiceTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var clock = new FakeClock(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
-            return new Fixture(
-                dbContext,
-                new RoomService(dbContext),
-                new ShowtimeService(dbContext, clock));
+            var mockClock = new Moq.Mock<IClock>();
+            mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var refundService = new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>();
+            refundService
+                .Setup(x => x.CancelShowtimesAndRefundAsync(
+                    Moq.It.IsAny<string[]>(),
+                    Moq.It.IsAny<string>(),
+                    Moq.It.IsAny<bool>(),
+                    Moq.It.IsAny<string>(),
+                    Moq.It.IsAny<CancellationToken>()))
+                .Returns(Task.FromResult(CinemaSystem.Application.Common.ServiceResult<bool>.Ok(true)));
+            var roomService = new RoomService(dbContext, refundService.Object);
+            var showtimeService = new ShowtimeService(dbContext, mockClock.Object, Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings()), new Moq.Mock<Hangfire.IBackgroundJobClient>().Object, new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object);
+            return new Fixture(dbContext, roomService, showtimeService);
         }
 
         public async Task SeedCinemaAsync()

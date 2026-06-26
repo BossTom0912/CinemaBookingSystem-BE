@@ -329,7 +329,9 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         adminClient.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin());
         var manualList = await adminClient.GetAsync("/api/admin/refunds/manual");
-        Assert.Equal(HttpStatusCode.OK, manualList.StatusCode);
+        Assert.True(
+            manualList.StatusCode == HttpStatusCode.OK,
+            await manualList.Content.ReadAsStringAsync());
         var manualBody = await DeserializeAsync<ApiResponse<List<ManualRefundResponse>>>(manualList);
         var manualRefund = Assert.Single(manualBody!.Data!);
         Assert.Equal("0123456789", manualRefund.AccountNumber);

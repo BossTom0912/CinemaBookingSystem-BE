@@ -166,7 +166,10 @@ public sealed class MovieDetailTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var service = new MovieService(dbContext);
+            var service = new MovieService(
+                dbContext,
+                new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
+                new Moq.Mock<CinemaSystem.Application.Interfaces.IFileStorageService>().Object);
             var controller = new MoviesController(service);
 
             return new TestFixture(dbContext, controller);

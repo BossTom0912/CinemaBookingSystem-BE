@@ -26,7 +26,7 @@ public sealed class RoomsController : ControllerBase
 
     [HttpGet("rooms")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
-    public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRooms([FromQuery] bool includeInactive = false, CancellationToken cancellationToken = default)
     {
         var scope = await _cinemaScopeAuthorizationService.GetUserCinemaScopeAsync(User, cancellationToken);
         if (!scope.Allowed)
@@ -34,13 +34,13 @@ public sealed class RoomsController : ControllerBase
             return ToActionResult(scope);
         }
 
-        var result = await _roomService.GetRoomsAsync(scope.CinemaId, cancellationToken);
+        var result = await _roomService.GetRoomsAsync(scope.CinemaId, includeInactive, cancellationToken);
         return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Rooms.RoomResponse>, IReadOnlyList<RoomResponse>>());
     }
 
     [HttpGet("rooms/{roomId}")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
-    public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRoomById(string roomId, [FromQuery] bool includeInactive = false, CancellationToken cancellationToken = default)
     {
         var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
         if (!scope.Allowed)
@@ -48,7 +48,7 @@ public sealed class RoomsController : ControllerBase
             return ToActionResult(scope);
         }
 
-        var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
+        var result = await _roomService.GetRoomByIdAsync(roomId, includeInactive, cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -88,6 +88,7 @@ public sealed class RoomsController : ControllerBase
         var result = await _roomService.UpdateRoomAsync(
             roomId,
             request.MapTo<Contracts.Rooms.UpdateRoomRequest>(),
+            GetUserId(),
             cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
@@ -102,7 +103,7 @@ public sealed class RoomsController : ControllerBase
             return ToActionResult(scope);
         }
 
-        var result = await _roomService.DeleteRoomAsync(roomId, cancellationToken);
+        var result = await _roomService.DeleteRoomAsync(roomId, GetUserId(), cancellationToken);
         return ToActionResult(result);
     }
     [HttpPost("{roomId}/generate-seats")]
@@ -148,5 +149,12 @@ public sealed class RoomsController : ControllerBase
     {
         var response = ApiResponse<object>.Fail(result.Message, result.ErrorCode);
         return StatusCode(result.StatusCode, response);
+    }
+
+    private string GetUserId()
+    {
+        return User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User?.FindFirst("userId")?.Value
+            ?? string.Empty;
     }
 }

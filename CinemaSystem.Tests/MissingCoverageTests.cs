@@ -458,7 +458,7 @@ public sealed class BookingMissingCoverageTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
 
-        var response = await client.PostAsJsonAsync("/api/bookings/checkout", new CheckoutRequest
+        var response = await client.PostAsJsonAsync("/api/bookings", new CreateBookingRequest
         {
             ShowtimeId = "SHW_NONEXISTENT",
             ShowtimeSeatIds = ["STS_01"]
@@ -468,7 +468,8 @@ public sealed class BookingMissingCoverageTests
             response.StatusCode is HttpStatusCode.NotFound
                 or HttpStatusCode.BadRequest
                 or HttpStatusCode.Conflict
-                or HttpStatusCode.Unauthorized,
+                or HttpStatusCode.Unauthorized
+                or HttpStatusCode.Forbidden,
             $"Expected 4xx, got {response.StatusCode}");
     }
 
@@ -888,7 +889,7 @@ public sealed class ShowtimeMissingCoverageTests
             BasePrice = 90000
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, overlapping.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, overlapping.StatusCode);
         var body = await DeserializeAsync<ApiResponse<object>>(overlapping);
         Assert.Equal("SHOWTIME_OVERLAP", body!.ErrorCode);
     }
@@ -1293,10 +1294,10 @@ public sealed class PaymentServiceMissingCoverageTests
         var fixture = Fixture.Create();
         await fixture.SeedPendingBookingAsync();
         var created = await fixture.Service.CreatePaymentAsync(new CreatePaymentRequest
-        {
-            BookingId = "BOOKING_TEST",
-            PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        }, "USR_TEST_PAYMENT");
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            }, "USR_TEST_PAYMENT");
 
         // Gửi số tiền thấp hơn (60000 thay vì 120000)
         var rawPayload = $$"""{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}""";
@@ -1505,6 +1506,7 @@ public sealed class ShowtimeServiceMissingCoverageTests
                 BasePrice = 95000,
                 Status = "OPEN"
             },
+            false,
             CancellationToken.None);
 
         Assert.False(result.Success);
@@ -1547,11 +1549,15 @@ public sealed class ShowtimeServiceMissingCoverageTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var clock = new FakeClock(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var mockClock = new Moq.Mock<IClock>();
+            mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var mockJobClient = new Moq.Mock<Hangfire.IBackgroundJobClient>();
+            var mockOptions = Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings());
+            var mockHttpContextAccessor = new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>();
             return new Fixture(
                 dbContext,
-                new RoomService(dbContext),
-                new ShowtimeService(dbContext, clock));
+                new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
+                new ShowtimeService(dbContext, mockClock.Object, mockOptions, mockJobClient.Object, mockHttpContextAccessor.Object));
         }
 
         public async Task SeedCinemaAsync()

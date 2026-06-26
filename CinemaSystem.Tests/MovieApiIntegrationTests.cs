@@ -24,15 +24,15 @@ public sealed class MovieApiIntegrationTests
         var response = await client.GetAsync("/api/movies?status=now_showing");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = JsonSerializer.Deserialize<ApiResponse<List<MovieResponse>>>(
+        var body = JsonSerializer.Deserialize<ApiResponse<PagedList<MovieResponse>>>(
             await response.Content.ReadAsStringAsync(),
             JsonOptions);
             
         Assert.True(body!.Success);
-        Assert.Single(body.Data!);
-        Assert.Equal("Test Movie", body.Data[0].MovieNameVn);
-        Assert.Equal("Action", body.Data[0].Genre);
-        Assert.Equal("HOT", body.Data[0].Highlight);
+        Assert.Single(body.Data!.Items);
+        Assert.Equal("Test Movie", body.Data.Items[0].MovieNameVn);
+        Assert.Equal("Action", body.Data.Items[0].Genre);
+        Assert.Equal("HOT", body.Data.Items[0].Highlight);
     }
 
     [Fact]

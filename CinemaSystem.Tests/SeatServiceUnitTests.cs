@@ -394,7 +394,11 @@ public sealed class SeatServiceUnitTests
       .Returns(Task.CompletedTask);
 
     dbContext.ThrowOnNextSave = true;
-    var service = new SeatService(dbContext, lockStoreMock.Object);
+    var service = new SeatService(
+      dbContext,
+      new Mock<Hangfire.IBackgroundJobClient>().Object,
+      new Mock<IAdminRefundService>().Object,
+      lockStoreMock.Object);
 
     await Assert.ThrowsAsync<DbUpdateException>(() =>
       service.LockSeatAsync(
@@ -446,7 +450,11 @@ public sealed class SeatServiceUnitTests
     await UnitTestFixture.SeedShowtimeSeatAsync(dbContext);
 
     var lockStore = new InMemorySeatLockStore();
-    var service = new SeatService(dbContext, lockStore);
+    var service = new SeatService(
+      dbContext,
+      new Mock<Hangfire.IBackgroundJobClient>().Object,
+      new Mock<IAdminRefundService>().Object,
+      lockStore);
     var request = new LockSeatRequest { ShowtimeId = ShowtimeId, SeatId = SeatId };
 
     var tasks = Enumerable.Range(0, 8)
@@ -548,7 +556,11 @@ public sealed class SeatServiceUnitTests
       await SeedShowtimeSeatAsync(dbContext);
 
       var lockStoreMock = new Mock<ISeatLockStore>(MockBehavior.Strict);
-      var service = new SeatService(dbContext, lockStoreMock.Object);
+      var service = new SeatService(
+        dbContext,
+        new Mock<Hangfire.IBackgroundJobClient>().Object,
+        new Mock<IAdminRefundService>().Object,
+        lockStoreMock.Object);
 
       return new UnitTestFixture(dbContext, lockStoreMock, service);
     }
