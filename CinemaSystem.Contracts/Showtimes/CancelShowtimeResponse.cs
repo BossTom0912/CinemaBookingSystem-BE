@@ -15,4 +15,10 @@ public sealed class CancelShowtimeResponse
     public int RefundsCreated { get; init; }
 
     public decimal TotalRefundAmount { get; init; }
+
+    public int RefundsSucceeded { get; init; }
+
+    public int RefundsManualRequired { get; init; }
+
+    public int RefundsPending { get; init; }
 }

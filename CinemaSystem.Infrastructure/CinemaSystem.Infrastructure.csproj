@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Identity\" />
     <Folder Include="Email\" />
     <Folder Include="BackgroundJobs\" />

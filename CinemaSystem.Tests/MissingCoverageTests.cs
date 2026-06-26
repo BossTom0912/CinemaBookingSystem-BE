@@ -19,6 +19,7 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Services;
+using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Showtimes;
 using CinemaSystem.Tests.Infrastructure;
 using Microsoft.AspNetCore.Http;
@@ -1379,7 +1380,12 @@ public sealed class PaymentServiceMissingCoverageTests
                     WebhookSecret = "test-secret",
                     BankName = "Test Bank",
                     BankAccount = "123456789"
-                }));
+                }),
+                new RefundClaimIssuer(
+                    Microsoft.Extensions.Options.Options.Create(new RefundSettings())),
+                new FakeEmailCapture(),
+                Microsoft.Extensions.Options.Options.Create(new RefundSettings()),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentService>.Instance);
             return new Fixture(dbContext, service);
         }
 

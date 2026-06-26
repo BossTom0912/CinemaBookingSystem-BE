@@ -16,6 +16,7 @@ public static class BookingConstants
     public static class BookingChannel
     {
         public const string Online = "ONLINE";
+        public const string Counter = "COUNTER";
     }
 
     public static class ShowtimeStatus
@@ -84,6 +85,38 @@ public static class BookingConstants
     {
         public const string Amount = "AMOUNT";
         public const string Percent = "PERCENT";
+    }
+
+    public static class RefundClaimStatus
+    {
+        public const string PendingInfo = "PENDING_INFO";
+        public const string Submitted = "SUBMITTED";
+        public const string Completed = "COMPLETED";
+        public const string Expired = "EXPIRED";
+        public const string ManualRequired = "MANUAL_REQUIRED";
+        public const string Revoked = "REVOKED";
+    }
+
+    public static class AccountValidationStatus
+    {
+        public const string NotStarted = "NOT_STARTED";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class ManualRefundProcessStatus
+    {
+        public const string Open = "OPEN";
+        public const string InProgress = "IN_PROGRESS";
+        public const string Confirmed = "CONFIRMED";
+        public const string Rejected = "REJECTED";
+    }
+
+    public static class RewardPointTransactionType
+    {
+        public const string Earn = "EARN";
+        public const string Redeem = "REDEEM";
+        public const string Revert = "REVERT";
+        public const string Adjust = "ADJUST";
     }
 
     public static class ErrorCodes

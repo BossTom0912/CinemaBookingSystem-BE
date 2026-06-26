@@ -4,10 +4,13 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
@@ -16,16 +19,25 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     private const string ActiveEmploymentStatus = "ACTIVE";
 
     private readonly CinemaDbContext _dbContext;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
+    private readonly RefundSettings _refundSettings;
     private readonly ILogger<ShowtimeCancellationService> _logger;
 
     public ShowtimeCancellationService(
         CinemaDbContext dbContext,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
         IClock clock,
+        IOptions<RefundSettings> refundSettings,
         ILogger<ShowtimeCancellationService> logger)
     {
         _dbContext = dbContext;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
         _clock = clock;
+        _refundSettings = refundSettings.Value;
         _logger = logger;
     }
 
@@ -92,17 +104,17 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     cancellationToken);
             }
 
-            if (IsStatus(showtime.Status, BookingConstants.ShowtimeStatus.Completed))
+            var now = _clock.UtcNow;
+            if (showtime.StartTime <= now)
             {
                 return await RollbackAndFailAsync(
                     transaction,
                     409,
-                    "Completed showtime cannot be cancelled.",
-                    "SHOWTIME_NOT_CANCELLABLE",
+                    "A showtime that has already started cannot be cancelled.",
+                    "SHOWTIME_ALREADY_STARTED",
                     cancellationToken);
             }
 
-            var now = _clock.UtcNow;
             var oldStatus = showtime.Status;
             var cancellationId = NewId("SHC");
             var staffProfileId = await GetActiveStaffProfileIdAsync(userId, cancellationToken);
@@ -123,6 +135,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             var unpaidBookingsCancelled = 0;
             var refundsCreated = 0;
             var totalRefundAmount = 0m;
+            var cancellationEmails = new List<CancellationEmail>();
 
             foreach (var showtimeSeat in showtime.ShowtimeSeats)
             {
@@ -151,6 +164,29 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     paidBookingsMoved++;
                     refundsCreated += refundResult.RefundCreated ? 1 : 0;
                     totalRefundAmount += refundResult.RefundAmount;
+                    if (refundResult.RefundId is not null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+                        {
+                            var issue = _refundClaimIssuer.Create(
+                                refundResult.RefundId,
+                                booking.CustomerProfileId,
+                                now);
+                            _dbContext.RefundClaims.Add(issue.Claim);
+                            AddPaidCancellationEmail(
+                                cancellationEmails,
+                                booking,
+                                showtime,
+                                refundResult.RefundAmount,
+                                issue.RawToken,
+                                issue.Token.ExpiresAt);
+                        }
+                        else
+                        {
+                            AddCancellationEmail(cancellationEmails, booking, showtime);
+                        }
+                    }
+
                     AddCancellationNotification(booking, showtime, now);
                     continue;
                 }
@@ -161,6 +197,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     CancelUnpaidBooking(booking, now);
                     unpaidBookingsCancelled++;
                     AddCancellationNotification(booking, showtime, now);
+                    AddCancellationEmail(cancellationEmails, booking, showtime);
                 }
             }
 
@@ -179,6 +216,10 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
+            // Cancellation is committed before SMTP or payment-provider work. A failure
+            // outside the database must never reopen a showtime or allow new ticket sales.
+            await SendCancellationEmailsAsync(cancellationEmails, cancellationToken);
+
             _logger.LogInformation(
                 "Showtime {ShowtimeId} cancelled by user {UserId}; refunds created: {RefundCount}, amount: {RefundAmount}.",
                 showtime.ShowtimeId,
@@ -195,9 +236,28 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     PaidBookingsMovedToRefundPending = paidBookingsMoved,
                     UnpaidBookingsCancelled = unpaidBookingsCancelled,
                     RefundsCreated = refundsCreated,
-                    TotalRefundAmount = totalRefundAmount
+                    TotalRefundAmount = totalRefundAmount,
+                    RefundsSucceeded = 0,
+                    RefundsManualRequired = 0,
+                    RefundsPending = refundsCreated
                 },
                 "Showtime cancelled and refund data generated successfully.");
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            await RollbackSafelyAsync(transaction);
+            var alreadyCancelled = await _dbContext.ShowtimeCancellations
+                .AsNoTracking()
+                .AnyAsync(item => item.ShowtimeId == showtimeId, cancellationToken);
+            if (alreadyCancelled)
+            {
+                return Fail(
+                    409,
+                    "Showtime has already been cancelled.",
+                    "SHOWTIME_ALREADY_CANCELLED");
+            }
+
+            throw;
         }
         catch
         {
@@ -218,6 +278,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             .Include(item => item.ShowtimeSeats)
             .Include(item => item.Bookings)
                 .ThenInclude(item => item.CustomerProfile)
+                    .ThenInclude(item => item!.User)
             .Include(item => item.Bookings)
                 .ThenInclude(item => item.Payments)
                     .ThenInclude(item => item.Refunds)
@@ -276,7 +337,10 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         if (successfulPayment.Refunds.Any(IsActiveRefund))
         {
-            return RefundCreationResult.Ok(refundCreated: false, refundAmount: 0m);
+            return RefundCreationResult.Ok(
+                refundCreated: false,
+                refundAmount: 0m,
+                refundId: null);
         }
 
         var refund = new Refund
@@ -293,7 +357,10 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         };
         booking.Refunds.Add(refund);
 
-        return RefundCreationResult.Ok(refundCreated: true, refundAmount: refund.RefundAmount);
+        return RefundCreationResult.Ok(
+            refundCreated: true,
+            refundAmount: refund.RefundAmount,
+            refundId: refund.RefundId);
     }
 
     private static void CancelUnpaidBooking(Booking booking, DateTime now)
@@ -347,6 +414,69 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         });
     }
 
+    private static void AddCancellationEmail(
+        ICollection<CancellationEmail> emails,
+        Booking booking,
+        Showtime showtime)
+    {
+        var email = booking.CustomerProfile?.User.Email ?? booking.GuestEmail;
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        emails.Add(new CancellationEmail(
+            email,
+            "Showtime cancelled",
+            $"Showtime {showtime.Movie.Title} at {showtime.StartTime:O} has been cancelled. Booking status: {booking.BookingStatus}."));
+    }
+
+    private void AddPaidCancellationEmail(
+        ICollection<CancellationEmail> emails,
+        Booking booking,
+        Showtime showtime,
+        decimal amount,
+        string rawToken,
+        DateTime expiresAt)
+    {
+        var email = booking.CustomerProfile?.User.Email ?? booking.GuestEmail;
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}/refunds/claim?t={Uri.EscapeDataString(rawToken)}";
+        emails.Add(new CancellationEmail(
+            email,
+            "Showtime cancelled - refund information required",
+            $"Showtime {showtime.Movie.Title} at {showtime.StartTime:O} was cancelled. "
+            + $"Expected refund: {amount:N0}. Submit bank information before {expiresAt:O}: {link}"));
+    }
+
+    private async Task SendCancellationEmailsAsync(
+        IEnumerable<CancellationEmail> emails,
+        CancellationToken cancellationToken)
+    {
+        foreach (var email in emails)
+        {
+            try
+            {
+                await _emailSender.SendEmailAsync(
+                    email.ToEmail,
+                    email.Subject,
+                    email.Body,
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "Cancellation email could not be sent to {Email}.",
+                    email.ToEmail);
+            }
+        }
+    }
+
     private static AuditLog CreateAuditLog(
         string userId,
         string showtimeId,
@@ -393,6 +523,11 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is SqlException { Number: 2601 or 2627 };
+    }
+
     private static ServiceResult<CancelShowtimeResponse> Fail(
         int statusCode,
         string message,
@@ -433,17 +568,39 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         bool Success,
         bool RefundCreated,
         decimal RefundAmount,
+        string? RefundId,
         string Message,
         string ErrorCode)
     {
-        public static RefundCreationResult Ok(bool refundCreated, decimal refundAmount)
+        public static RefundCreationResult Ok(
+            bool refundCreated,
+            decimal refundAmount,
+            string? refundId)
         {
-            return new RefundCreationResult(true, refundCreated, refundAmount, string.Empty, string.Empty);
+            return new RefundCreationResult(
+                true,
+                refundCreated,
+                refundAmount,
+                refundId,
+                string.Empty,
+                string.Empty);
         }
 
         public static RefundCreationResult Fail(string message, string errorCode)
         {
-            return new RefundCreationResult(false, false, 0m, message, errorCode);
+            return new RefundCreationResult(
+                false,
+                false,
+                0m,
+                null,
+                message,
+                errorCode);
         }
     }
+
+    private sealed record CancellationEmail(
+        string ToEmail,
+        string Subject,
+        string Body);
+
 }

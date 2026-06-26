@@ -84,13 +84,31 @@ public sealed class RefundService : IRefundService
                 RefundId = item.RefundId,
                 BookingId = item.BookingId,
                 PaymentId = item.PaymentId,
+                PaymentProviderId = item.PaymentProviderId,
+                PaymentProviderName = item.PaymentProvider.ProviderName,
                 ShowtimeId = item.Booking.ShowtimeId,
                 MovieTitle = item.Booking.Showtime.Movie.Title,
                 CinemaId = item.Booking.Showtime.Room.CinemaId,
                 CinemaName = item.Booking.Showtime.Room.Cinema.CinemaName,
                 RefundAmount = item.RefundAmount,
                 RefundStatus = item.RefundStatus,
+                BookingStatus = item.Booking.BookingStatus,
+                ClaimStatus = item.RefundClaim == null ? null : item.RefundClaim.ClaimStatus,
+                BankCode = item.RefundClaim == null ? null : item.RefundClaim.BankCode,
+                MaskedAccountNumber = item.RefundClaim == null || item.RefundClaim.BankAccountLast4 == null
+                    ? null
+                    : "******" + item.RefundClaim.BankAccountLast4,
+                WorkflowStatus = item.RefundStatus == BookingConstants.RefundStatus.Success
+                    ? "SUCCESS"
+                    : item.RefundStatus == BookingConstants.RefundStatus.ManualRequired
+                        ? "MANUAL_REQUIRED"
+                        : item.RefundClaim == null
+                            ? "PENDING"
+                            : item.RefundClaim.ClaimStatus == BookingConstants.RefundClaimStatus.PendingInfo
+                                ? "AWAITING_CUSTOMER_INFO"
+                                : "PENDING",
                 RefundReason = item.RefundReason,
+                ProviderRefundCode = item.ProviderRefundCode,
                 FailureReason = item.FailureReason,
                 RequestedAt = item.RequestedAt,
                 RefundedAt = item.RefundedAt

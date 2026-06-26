@@ -17,6 +17,7 @@ using CinemaSystem.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace CinemaSystem.Infrastructure.Extensions;
 
@@ -57,6 +58,15 @@ public static class DependencyInjection
                 configuration["BookingSettings:PendingPaymentCleanupIntervalSeconds"],
                 60);
         });
+        services.Configure<RefundSettings>(options =>
+        {
+            options.FrontendBaseUrl = configuration["RefundSettings:FrontendBaseUrl"]
+                ?? "http://localhost:5173";
+            options.ClaimTokenMinutes = ReadInt(
+                configuration["RefundSettings:ClaimTokenMinutes"],
+                5);
+        });
+        services.AddDataProtection();
 
         // Read connection string and fail fast with clear error if missing
         var defaultConnection = configuration.GetConnectionString("DefaultConnection");
@@ -104,6 +114,12 @@ public static class DependencyInjection
         services.AddScoped<ShowtimeService>();
         services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
         services.AddScoped<IRefundService, RefundService>();
+        services.AddScoped<IRefundClaimService, RefundClaimService>();
+        services.AddScoped<IManualRefundService, ManualRefundService>();
+        services.AddSingleton<IRefundClaimIssuer, RefundClaimIssuer>();
+        services.AddSingleton<ISensitiveDataProtector, SensitiveDataProtector>();
+        services.AddScoped<IRefundProcessor, RefundProcessor>();
+        services.AddSingleton<IPaymentRefundGateway, UnsupportedPaymentRefundGateway>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();

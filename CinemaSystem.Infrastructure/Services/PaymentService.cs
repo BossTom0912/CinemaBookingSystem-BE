@@ -8,6 +8,7 @@ using CinemaSystem.Infrastructure.Configuration;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using CinemaSystem.Application.Common;
+using Microsoft.Extensions.Logging;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -15,13 +16,27 @@ public class PaymentService : IPaymentService
 {
     private readonly CinemaDbContext _db;
     private readonly SepaySettings _sepaySettings;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
+    private readonly RefundSettings _refundSettings;
+    private readonly ILogger<PaymentService> _logger;
     private const int PaymentExpiryMinutes = 10;
     private static readonly Regex TransactionCodeRegex = new(@"T[A-Z0-9]{10}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public PaymentService(CinemaDbContext db, IOptions<SepaySettings> sepayOptions)
+    public PaymentService(
+        CinemaDbContext db,
+        IOptions<SepaySettings> sepayOptions,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
+        IOptions<RefundSettings> refundSettings,
+        ILogger<PaymentService> logger)
     {
         _db = db;
         _sepaySettings = sepayOptions.Value;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
+        _refundSettings = refundSettings.Value;
+        _logger = logger;
     }
 
     // Create payment record for a booking and return bank info + transaction code
@@ -156,7 +171,13 @@ public class PaymentService : IPaymentService
             .Include(p => p.Booking)
                 .ThenInclude(b => b.BookingSeats)
                     .ThenInclude(bs => bs.Ticket)
-            .SingleOrDefaultAsync(p => p.TransactionCode == transactionCode, cancellationToken);
+            .Include(p => p.Booking)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
+            .SingleOrDefaultAsync(
+                p => p.TransactionCode != null
+                    && p.TransactionCode.ToUpper() == transactionCode,
+                cancellationToken);
 
         if (payment == null)
             throw new InvalidOperationException($"Payment with transaction code {transactionCode} not found.");
@@ -165,9 +186,10 @@ public class PaymentService : IPaymentService
         if (payment.Amount != amount)
             throw new InvalidOperationException($"Payment amount mismatch. Expected {payment.Amount} got {amount}.");
 
-        // If already success - idempotent
         if (string.Equals(payment.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase))
+        {
             return;
+        }
 
         // Persist changes inside a transaction
         await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
@@ -190,10 +212,12 @@ public class PaymentService : IPaymentService
 
             var showtime = await _db.Showtimes
                 .Include(item => item.ShowtimeCancellation)
+                .Include(item => item.Movie)
                 .FirstOrDefaultAsync(item => item.ShowtimeId == booking.ShowtimeId, cancellationToken);
 
             if (IsCancelledOrRefundFlow(booking, showtime))
             {
+                RefundClaimIssue? claimIssue = null;
                 booking.BookingStatus = BookingConstants.BookingStatus.RefundPending;
 
                 foreach (var bookingSeat in booking.BookingSeats)
@@ -211,7 +235,7 @@ public class PaymentService : IPaymentService
 
                 if (!payment.Refunds.Any(IsActiveRefund))
                 {
-                    _db.Refunds.Add(new Refund
+                    var refund = new Refund
                     {
                         RefundId = GenerateId("REF"),
                         BookingId = booking.BookingId,
@@ -222,11 +246,30 @@ public class PaymentService : IPaymentService
                         RefundStatus = BookingConstants.RefundStatus.Pending,
                         RefundReason = "Payment succeeded after booking or showtime cancellation.",
                         RequestedAt = DateTime.UtcNow
-                    });
+                    };
+                    _db.Refunds.Add(refund);
+                    if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+                    {
+                        claimIssue = _refundClaimIssuer.Create(
+                            refund.RefundId,
+                            booking.CustomerProfileId,
+                            DateTime.UtcNow);
+                        _db.RefundClaims.Add(claimIssue.Claim);
+                    }
                 }
 
                 await _db.SaveChangesAsync(cancellationToken);
                 await tx.CommitAsync(cancellationToken);
+                if (claimIssue is not null
+                    && booking.CustomerProfile?.User is not null)
+                {
+                    await TrySendLatePaymentClaimEmailAsync(
+                        booking.CustomerProfile.User.Email,
+                        showtime?.Movie.Title ?? "cancelled showtime",
+                        claimIssue,
+                        cancellationToken);
+                }
+
                 return;
             }
 
@@ -284,6 +327,30 @@ public class PaymentService : IPaymentService
     private static bool IsStatus(string? actual, string expected)
     {
         return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task TrySendLatePaymentClaimEmailAsync(
+        string email,
+        string movieTitle,
+        RefundClaimIssue issue,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}/refunds/claim?t={Uri.EscapeDataString(issue.RawToken)}";
+            await _emailSender.SendEmailAsync(
+                email,
+                "Refund information required",
+                $"A late payment was received for the cancelled showtime {movieTitle}. "
+                + $"Submit bank information before {issue.Token.ExpiresAt:O}: {link}",
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Late-payment refund claim email could not be sent.");
+        }
     }
 
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
