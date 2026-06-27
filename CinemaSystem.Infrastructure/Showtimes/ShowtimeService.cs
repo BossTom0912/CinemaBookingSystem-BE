@@ -31,12 +31,16 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaProcessingSettings _settings;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
+    private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
-    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
+    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions, IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplatesOptions, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
     {
         _dbContext = dbContext;
         _clock = clock;
         _settings = options.Value;
+        _securitySettings = securityOptions.Value;
+        _emailTemplates = emailTemplatesOptions.Value;
         _backgroundJobClient = backgroundJobClient;
         _httpContextAccessor = httpContextAccessor;
     }
@@ -222,28 +226,27 @@ public sealed class ShowtimeService : IShowtimeService
                         var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
                         if (timeChanged && timeDiff >= 15)
                         {
-                            var secret = "TIME_CHANGE_SECRET_KEY_1234567890";
+                            var secret = _securitySettings.ConfirmationTokenSecret;
                             using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
                             var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
                             var token = Convert.ToBase64String(hash);
                             var encodedToken = System.Uri.EscapeDataString(token);
                             
-                            string subject = "Xác nhận điều chỉnh lịch chiếu / Showtime Update Confirmation";
-                            string message = $"[VI] Phim {showtime.Movie.Title} của bạn được điều chỉnh sang giờ: {normalizedStartTime:dd/MM/yyyy HH:mm}. Sự chênh lệch lớn hơn 15 phút.\n" +
-                                             $"Vui lòng chọn 1 trong 2 lựa chọn:\n" +
-                                             $"1. Chấp nhận giờ mới: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=true&token={encodedToken}\n" +
-                                             $"2. Không chấp nhận & Hủy vé hoàn tiền: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=false&token={encodedToken}\n\n" +
-                                             $"[EN] Your movie {showtime.Movie.Title} has been rescheduled to: {normalizedStartTime:dd/MM/yyyy HH:mm}.\n" +
-                                             $"Please click a link below to accept or reject (refund):\n" +
-                                             $"1. Accept: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=true&token={encodedToken}\n" +
-                                             $"2. Reject & Refund: https://yourdomain.com/api/bookings/{booking.BookingId}/confirm-time-change?accept=false&token={encodedToken}";
+                            string subject = _emailTemplates.ShowtimeTimeChangeSubject;
+                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeBody,
+                                showtime.Movie.Title,
+                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
+                                booking.BookingId,
+                                encodedToken);
                             _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
                         }
                         else
                         {
-                            string subject = "Thông báo điều chỉnh lịch chiếu / Showtime Update Notice";
-                            string message = $"[VI] Phim {showtime.Movie.Title} của bạn được điều chỉnh sang giờ: {normalizedStartTime:dd/MM/yyyy HH:mm}. Lý do: {updateReason}.\n\n" +
-                                             $"[EN] Your movie {showtime.Movie.Title} has been rescheduled to: {normalizedStartTime:dd/MM/yyyy HH:mm}. Reason: {updateReason}.";
+                            string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
+                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeNoticeBody,
+                                showtime.Movie.Title,
+                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
+                                updateReason);
                             _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
                         }
                     }
@@ -409,8 +412,13 @@ public sealed class ShowtimeService : IShowtimeService
         var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
         foreach(var booking in paidBookings)
         {
-            var email = booking.GuestEmail ?? "customer@example.com";
-            _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, "Thay đổi phòng chiếu / Room Change", $"Phòng chiếu của bạn đã được thay đổi sang {newRoom.RoomName}. Vui lòng kiểm tra lại vé để xem vị trí ghế mới.", CancellationToken.None));
+            var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            if (!string.IsNullOrEmpty(email))
+            {
+                string subject = _emailTemplates.ShowtimeRoomChangeSubject;
+                string message = string.Format(_emailTemplates.ShowtimeRoomChangeBody, newRoom.RoomName);
+                _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, subject, message, CancellationToken.None));
+            }
         }
 
         var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
@@ -498,26 +506,58 @@ public sealed class ShowtimeService : IShowtimeService
             }
         }
 
-        var cancellation = new ShowtimeCancellation
+        var cancellation = showtime.ShowtimeCancellation;
+        if (cancellation == null)
         {
-            ShowtimeCancellationId = NewId("STC"),
-            ShowtimeId = showtime.ShowtimeId,
-            CancelReason = cancelReason,
-            CancelledAt = _clock.UtcNow,
-            CancelledByUserId = userId,
-        };
-        _dbContext.ShowtimeCancellations.Add(cancellation);
+            cancellation = new ShowtimeCancellation
+            {
+                ShowtimeCancellationId = NewId("STC"),
+                ShowtimeId = showtime.ShowtimeId,
+                CancelReason = cancelReason,
+                CancelledAt = _clock.UtcNow,
+                CancelledByUserId = userId,
+            };
+            _dbContext.ShowtimeCancellations.Add(cancellation);
+        }
 
         foreach (var booking in paidBookings)
         {
             booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
 
+            var paymentId = booking.Payments.FirstOrDefault()?.PaymentId;
+            var paymentProviderId = booking.Payments.FirstOrDefault()?.PaymentProviderId;
+
+            if (string.IsNullOrEmpty(paymentId))
+            {
+                var dbPayment = await _dbContext.Payments
+                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
+                
+                if (dbPayment != null)
+                {
+                    paymentId = dbPayment.PaymentId;
+                    paymentProviderId = dbPayment.PaymentProviderId;
+                }
+            }
+            else
+            {
+                bool paymentExists = await _dbContext.Payments.AnyAsync(p => p.PaymentId == paymentId, cancellationToken);
+                if (!paymentExists)
+                {
+                    paymentId = null;
+                }
+            }
+
+            if (string.IsNullOrEmpty(paymentId) || string.IsNullOrEmpty(paymentProviderId))
+            {
+                throw new Exception($"Cannot create refund for booking {booking.BookingId} because no valid payment or payment provider record exists in the database.");
+            }
+
             var refund = new Refund
             {
                 RefundId = NewId("REF"),
                 BookingId = booking.BookingId,
-                PaymentId = booking.Payments.FirstOrDefault()?.PaymentId ?? "UNKNOWN",
-                PaymentProviderId = booking.Payments.FirstOrDefault()?.PaymentProviderId ?? "UNKNOWN",
+                PaymentId = paymentId,
+                PaymentProviderId = paymentProviderId,
                 ShowtimeCancellationId = cancellation.ShowtimeCancellationId,
                 RefundAmount = booking.TotalAmount,
                 RefundStatus = DomainConstants.RefundStatus.Pending,
@@ -530,9 +570,8 @@ public sealed class ShowtimeService : IShowtimeService
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
             if (!string.IsNullOrEmpty(customerEmail))
             {
-                string subject = "Thông báo hủy suất chiếu / Showtime Cancellation Notice";
-                string message = $"[VI] Xuất chiếu của bạn đã được hủy do sự cố. Quý khách vui lòng chờ hệ thống hoàn tiền.\n\n" +
-                                 $"[EN] Your showtime has been cancelled due to an issue. Please wait for your refund to be processed.";
+                string subject = _emailTemplates.ShowtimeCancellationSubject;
+                string message = _emailTemplates.ShowtimeCancellationBody;
                 _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
             }
         }

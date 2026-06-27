@@ -11,6 +11,8 @@ using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
+using Hangfire;
+
 namespace CinemaSystem.Infrastructure.Services;
 
 public class ReviewService : IReviewService
@@ -18,12 +20,14 @@ public class ReviewService : IReviewService
     private readonly CinemaDbContext _dbContext;
     private readonly IAiModerationService _aiService;
     private readonly IMovieService _movieService;
+    private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
 
-    public ReviewService(CinemaDbContext dbContext, IAiModerationService aiService, IMovieService movieService)
+    public ReviewService(CinemaDbContext dbContext, IAiModerationService aiService, IMovieService movieService, Hangfire.IBackgroundJobClient backgroundJobClient)
     {
         _dbContext = dbContext;
         _aiService = aiService;
         _movieService = movieService;
+        _backgroundJobClient = backgroundJobClient;
     }
 
     public async Task<ServiceResult<ReviewResponse>> CreateReviewAsync(string userId, CreateReviewRequest request, CancellationToken cancellationToken = default)
@@ -80,32 +84,13 @@ public class ReviewService : IReviewService
             return ServiceResult<ReviewResponse>.Ok(MapToResponse(review));
         }
 
-        var moderationResult = await HandleModerationAsync(userId, request.Rating, request.Comment, cancellationToken);
-        if (moderationResult.IsBlockedOrFailed)
-        {
-            // Note: If user is blocked, we still might want to save the review as Rejected? 
-            // In the prompt, it says: "Nếu AI báo spam -> kiểm tra DB xem là lần 1 hay lần 2 -> Cảnh báo hoặc Khóa acc"
-            // Wait, does the review get saved if blocked? I will save it as REJECTED so admin can see it.
-            review.Status = ReviewConstants.Rejected;
-            review.RejectedReason = moderationResult.AiResult.Reason;
-            review.ModeratedBy = "SYSTEM_AI";
-            _dbContext.Set<Review>().Add(review);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            return ServiceResult<ReviewResponse>.Fail(moderationResult.StatusCode, moderationResult.Message, "MODERATION_FAILED");
-        }
-
-        review.Status = GetStatusConstant(moderationResult.AiResult.Status);
-        if (review.Status == ReviewConstants.Rejected || review.Status == ReviewConstants.Flagged)
-        {
-            review.RejectedReason = moderationResult.AiResult.Reason;
-            review.ModeratedBy = "SYSTEM_AI";
-        }
-
+        review.Status = "PENDING";
         _dbContext.Set<Review>().Add(review);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), moderationResult.AiResult.ModeratorMessage);
+        _backgroundJobClient.Enqueue<IReviewService>(s => s.ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment));
+
+        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), "Bình luận của bạn đang được duyệt.", 202);
     }
 
     public async Task<ServiceResult<ReviewResponse>> EditReviewAsync(string userId, string reviewId, UpdateReviewRequest request, CancellationToken cancellationToken = default)
@@ -147,32 +132,43 @@ public class ReviewService : IReviewService
             return ServiceResult<ReviewResponse>.Ok(MapToResponse(review));
         }
 
-        var moderationResult = await HandleModerationAsync(userId, request.Rating, request.Comment, cancellationToken);
+        review.Status = "PENDING";
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _backgroundJobClient.Enqueue<IReviewService>(s => s.ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment));
+
+        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), "Bình luận của bạn đang được duyệt.", 202);
+    }
+
+    public async Task ProcessReviewModerationAsync(string reviewId, string userId, int rating, string comment)
+    {
+        var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId });
+        if (review == null) return;
+
+        var moderationResult = await HandleModerationAsync(userId, rating, comment, CancellationToken.None);
+        
         if (moderationResult.IsBlockedOrFailed)
         {
             review.Status = ReviewConstants.Rejected;
-            review.RejectedReason = moderationResult.AiResult.Reason;
-            review.ModeratedBy = "SYSTEM_AI";
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            return ServiceResult<ReviewResponse>.Fail(moderationResult.StatusCode, moderationResult.Message, "MODERATION_FAILED");
-        }
-
-        review.Status = GetStatusConstant(moderationResult.AiResult.Status);
-        if (review.Status == ReviewConstants.Rejected || review.Status == ReviewConstants.Flagged)
-        {
-            review.RejectedReason = moderationResult.AiResult.Reason;
+            review.RejectedReason = moderationResult.AiResult?.Reason ?? "Tài khoản vi phạm.";
             review.ModeratedBy = "SYSTEM_AI";
         }
         else
         {
-            review.RejectedReason = null;
-            review.ModeratedBy = null;
+            review.Status = GetStatusConstant(moderationResult.AiResult.Status);
+            if (review.Status == ReviewConstants.Rejected || review.Status == ReviewConstants.Flagged)
+            {
+                review.RejectedReason = moderationResult.AiResult.Reason;
+                review.ModeratedBy = "SYSTEM_AI";
+            }
+            else
+            {
+                review.RejectedReason = null;
+                review.ModeratedBy = null;
+            }
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), moderationResult.AiResult.ModeratorMessage);
+        await _dbContext.SaveChangesAsync();
     }
 
     private class ModerationHandlerResult

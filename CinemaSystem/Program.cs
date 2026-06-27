@@ -75,6 +75,12 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.Configure<CinemaSystem.Application.Settings.CinemaProcessingSettings>(
     builder.Configuration.GetSection("CinemaProcessingSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.AuthSettings>(
+    builder.Configuration.GetSection("AuthSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.SecuritySettings>(
+    builder.Configuration.GetSection("SecuritySettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.EmailTemplatesSettings>(
+    builder.Configuration.GetSection("EmailTemplates"));
 builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
 var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");

@@ -1083,3 +1083,8 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT_PROVIDER] WHERE [paymentProviderId] = 
     VALUES ('PP_SEPAY', 'SEPAY', 'https://my.sepay.vn', 'ACTIVE');
 GO
 `  
+
+## Business Logic Notes
+- **Pending Payment Cleanup**: The Cronjob uses `Soft Cancel` (sets status to CANCELLED) instead of `Hard Delete` to preserve audit trails for bookings, allowing late payments to be reconciled.
+- **Late Payments**: If a payment via SePay arrives after a booking is EXPIRED or a showtime is CANCELLED, the system intercepts the success callback, sets the booking to `REFUND_PENDING`, and generates a `REFUND` record instead of marking it `PAID`.
+- **Showtime Cancellation 1:1 Relationship**: Entity Framework enforces a strict 1:1 relationship between `SHOWTIME` and `SHOWTIME_CANCELLATION`. Re-canceling a showtime must reuse the existing `SHOWTIME_CANCELLATION` entity to prevent EF Core from nullifying the FK and throwing `ShowtimeId IS NULL` SQL constraints.

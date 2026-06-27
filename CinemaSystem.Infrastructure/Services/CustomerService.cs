@@ -10,11 +10,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Hangfire;
+
 namespace CinemaSystem.Infrastructure.Services;
 
 public sealed class CustomerService : ICustomerService
 {
-    private const int OtpExpirySeconds = 120;
     private const string EmailUpdatePurpose = "EMAIL_UPDATE";
 
     private readonly CinemaDbContext _dbContext;
@@ -22,19 +23,25 @@ public sealed class CustomerService : ICustomerService
     private readonly IOtpGenerator _otpGenerator;
     private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
+    private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
+    private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
 
     public CustomerService(
         CinemaDbContext dbContext,
         IPasswordHasher passwordHasher,
         IOtpGenerator otpGenerator,
         IEmailSender emailSender,
-        IClock clock)
+        IClock clock,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
+        Hangfire.IBackgroundJobClient backgroundJobClient)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
         _otpGenerator = otpGenerator;
         _emailSender = emailSender;
         _clock = clock;
+        _authSettings = authOptions.Value;
+        _backgroundJobClient = backgroundJobClient;
     }
 
     public async Task<ServiceResult<CustomerProfileResponse>> GetProfileAsync(string userId, CancellationToken cancellationToken)
@@ -211,7 +218,7 @@ public sealed class CustomerService : ICustomerService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
+            ExpiredAt = now.AddSeconds(_authSettings.OtpExpirySeconds),
             IsUsed = false,
             Purpose = purpose,
             AttemptCount = 1
@@ -220,11 +227,12 @@ public sealed class CustomerService : ICustomerService
         _dbContext.EmailVerificationTokens.Add(token);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var body = $"Your verification OTP is: {otp}. It expires in {OtpExpirySeconds / 60} minutes.";
+        var body = $"Your verification OTP is: {otp}. It expires in {_authSettings.OtpExpirySeconds / 60} minutes.";
 
         try
         {
-            await _emailSender.SendEmailAsync(targetEmail, "Cinema Booking - Email Update Verification", body, cancellationToken);
+            _backgroundJobClient.Enqueue<IEmailSender>(email => 
+                email.SendEmailAsync(targetEmail, "Cinema Booking - Email Update Verification", body, CancellationToken.None));
         }
         catch
         {

@@ -35,4 +35,22 @@ public static class DomainConstants
         public const string Failed = "FAILED";
         public const string Requested = "REQUESTED";
     }
+
+    public static class TicketStatus
+    {
+        public const string Generated = "GENERATED";
+        public const string Unused = "UNUSED";
+        public const string CheckedIn = "CHECKED_IN";
+        public const string Cancelled = "CANCELLED";
+        public const string Refunded = "REFUNDED";
+    }
+
+    public static class PaymentStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+        public const string Cancelled = "CANCELLED";
+        public const string Expired = "EXPIRED";
+    }
 }

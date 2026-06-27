@@ -124,3 +124,12 @@ Dưới đây là tổng hợp các ý tưởng nghiệp vụ và kiến trúc h
 ### 4. Quy trình Xóa Phim / Xóa Suất Chiếu
 *   Khi Admin xóa hẳn một bộ Phim hoặc Suất chiếu, các vé đã thanh toán sẽ tự động chuyển trạng thái từ `PAID` sang `PendingRefund`.
 *   Hệ thống gửi Email thông báo Hủy Suất Chiếu (Song ngữ) yêu cầu người dùng chờ hệ thống xử lý lệnh hoàn tiền ví điện tử/ngân hàng.
+
+### 5. Xử lý thanh toán muộn (Late Payment Handling)
+*   Khi khách hàng thanh toán qua SePay nhưng vé đã bị đánh dấu là Hết hạn (EXPIRED) hoặc Suất chiếu đã bị Hủy (CANCELLED).
+*   Hệ thống sẽ không đánh dấu vé là PAID mà sẽ tự động cập nhật thành REFUND_PENDING và sinh ra bản ghi REFUND để hoàn tiền lại cho khách hàng.
+*   Luồng dọn dẹp vé chưa thanh toán (Cronjob) sử dụng Soft Cancel (cập nhật trạng thái) thay vì xóa cứng (Hard Delete) để giữ lại đối soát dòng tiền cho các giao dịch trễ.
+
+### 6. Ràng buộc quan hệ 1-1 của Entity Framework (Showtime Cancellation)
+*   Hệ thống bắt lỗi nghiêm ngặt với các quan hệ 1-1 (Ví dụ: 1 Suất chiếu chỉ có 1 Biên bản hủy SHOWTIME_CANCELLATION).
+*   Khi Admin cố tình thao tác xóa nhiều lần, hệ thống sử dụng chung biên bản hủy cũ thay vì tạo mới, giúp tránh lỗi ShowtimeId IS NULL khi EF Core tự động nullify khóa ngoại.

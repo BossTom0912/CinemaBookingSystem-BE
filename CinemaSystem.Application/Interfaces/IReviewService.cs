@@ -14,4 +14,5 @@ public interface IReviewService
     Task<ServiceResult<bool>> UpdateReviewStatusAsync(string reviewId, string status, CancellationToken cancellationToken = default);
     Task<ServiceResult<bool>> AdminApproveReviewAsync(string reviewId, string adminUserId, CancellationToken cancellationToken = default);
     Task<ServiceResult<List<ReviewResponse>>> GetCustomerReviewsAsync(string customerProfileId, CancellationToken cancellationToken = default);
+    Task ProcessReviewModerationAsync(string reviewId, string userId, int rating, string comment);
 }
