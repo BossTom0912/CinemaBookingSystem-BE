@@ -1,6 +1,3 @@
-# Cinema Booking Database Schema  
-  
-`sql  
 /*
 ============================================================
 CinemaBookingDB - FIXED VERSION FOR SQL SERVER
@@ -26,6 +23,7 @@ Main fixes applied from the original DB.txt:
     every admin account to also have a STAFF_PROFILE row.
 16. Added voucher/promotion campaign metadata and payment audit fields for provider
     reconciliation, callbacks, and refund investigation.
+17. [HOTFIX] Added moderatedBy column to REVIEW table and removed duplicate MOVIE_VIEW_LOG.
 
 Note:
 - This reset script drops CinemaBookingDB if it already exists, then recreates it from zero.
@@ -99,7 +97,6 @@ CREATE TABLE [MOVIE] (
     [posterUrl] NVARCHAR(1000) NULL,
     [trailerUrl] NVARCHAR(1000) NULL,
     [highlight] NVARCHAR(30) NULL,
-    [viewCount] INT NOT NULL DEFAULT 0,
     [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
     [viewCount] INT NOT NULL DEFAULT 0,
     [averageRating] DECIMAL(3,2) NOT NULL DEFAULT 0.00,
@@ -112,7 +109,6 @@ CREATE TABLE [MOVIE] (
     CONSTRAINT [CK_MOVIE_STATUS]
         CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED'))
 );
-GO
 
 CREATE TABLE [PAYMENT_PROVIDER] (
     [paymentProviderId] NVARCHAR(50) PRIMARY KEY,
@@ -617,6 +613,7 @@ CREATE TABLE [REVIEW] (
     [bookingId] NVARCHAR(50) NULL,
     [rating] INT NOT NULL,
     [comment] NVARCHAR(1000) NULL,
+    [moderatedBy] NVARCHAR(50) NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [CK_REVIEW_RATING] CHECK ([rating] BETWEEN 0 AND 5),
@@ -628,18 +625,6 @@ CREATE TABLE [REVIEW] (
         FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
     CONSTRAINT [FK_REVIEW_BOOKING]
         FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
-);
-GO
-
-CREATE TABLE [MOVIE_VIEW_LOG] (
-    [movieViewLogId] NVARCHAR(50) PRIMARY KEY,
-    [movieId] NVARCHAR(50) NOT NULL,
-    [userId] NVARCHAR(50) NULL,
-    [viewedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    [ipAddress] NVARCHAR(100) NULL,
-
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
 );
 GO
 
@@ -1082,9 +1067,3 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT_PROVIDER] WHERE [paymentProviderId] = 
     INSERT INTO dbo.[PAYMENT_PROVIDER] ([paymentProviderId], [providerName], [apiEndpoint], [providerStatus])
     VALUES ('PP_SEPAY', 'SEPAY', 'https://my.sepay.vn', 'ACTIVE');
 GO
-`  
-
-## Business Logic Notes
-- **Pending Payment Cleanup**: The Cronjob uses `Soft Cancel` (sets status to CANCELLED) instead of `Hard Delete` to preserve audit trails for bookings, allowing late payments to be reconciled.
-- **Late Payments**: If a payment via SePay arrives after a booking is EXPIRED or a showtime is CANCELLED, the system intercepts the success callback, sets the booking to `REFUND_PENDING`, and generates a `REFUND` record instead of marking it `PAID`.
-- **Showtime Cancellation 1:1 Relationship**: Entity Framework enforces a strict 1:1 relationship between `SHOWTIME` and `SHOWTIME_CANCELLATION`. Re-canceling a showtime must reuse the existing `SHOWTIME_CANCELLATION` entity to prevent EF Core from nullifying the FK and throwing `ShowtimeId IS NULL` SQL constraints.
