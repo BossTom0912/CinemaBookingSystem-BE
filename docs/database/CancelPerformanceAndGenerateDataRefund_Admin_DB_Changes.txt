@@ -207,4 +207,3 @@ highlight phim, moderation review, lich su review va chatbot.
   + docs/database/sprint-2-full-architecture.sql
   + docs/database/sprint-2-review-and-views.sql
   + docs/database/profile-token-counter-sale-patch.sql
-

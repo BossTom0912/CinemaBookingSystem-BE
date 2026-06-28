@@ -57,5 +57,8 @@ are retained for traceability but are not authoritative specifications.
 - [`reports/forgot-password-implementation.md`](reports/forgot-password-implementation.md)
 - [`reports/scrum-157-checkout-implementation-plan.md`](reports/scrum-157-checkout-implementation-plan.md)
 - [`reports/sprint-1-auth-implementation.md`](reports/sprint-1-auth-implementation.md)
+- [`reports/main-manager-admin-integration-test-2026-06-28.md`](reports/main-manager-admin-integration-test-2026-06-28.md):
+  merge-conflict decisions, integrated feature/database scope, and build/test
+  evidence for `main` + `MangerAndAdmin_1`.
 - [`reports/SCRUM-193-customer-assisted-refund.md`](reports/SCRUM-193-customer-assisted-refund.md)
 - [`reports/MangerAndAdmin_1-admin-merge-report.md`](reports/MangerAndAdmin_1-admin-merge-report.md)
