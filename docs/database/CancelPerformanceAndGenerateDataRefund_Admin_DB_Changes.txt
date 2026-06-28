@@ -1,0 +1,210 @@
+TONG HOP NHUNG THAY DOI DATABASE TU 2 NHANH
+CancelPerformanceAndGenerateDataRefund va Admin
+
+Branch tong hop hien tai: MangerAndAdmin_1
+
+Muc dich:
+File nay tom tat nhung bang, cot, constraint/index va seed data da duoc them vao DB
+khi gop 2 nhanh CancelPerformanceAndGenerateDataRefund va Admin, de gui team nam thay doi.
+
+============================================================
+1. Nhanh CancelPerformanceAndGenerateDataRefund
+============================================================
+
+Nhanh nay bo sung luong huy suat chieu, tao refund, khach hang bo sung thong tin
+hoan tien va admin xu ly hoan tien thu cong.
+
+1.1. Bang moi duoc them
+
+- BANK_DIRECTORY
+  Luu danh muc ngan hang ho tro hoan tien.
+  Cac cot chinh:
+  bankCode, bankBin, shortName, fullName, isActive,
+  supportsAccountInquiry, supportsPayout, createdAt, updatedAt.
+
+- REFUND_CLAIM
+  Luu thong tin khach hang khai bao de nhan tien hoan.
+  Lien ket 1-1 voi REFUND va lien ket voi CUSTOMER_PROFILE.
+  Co the lien ket BANK_DIRECTORY qua bankCode.
+  Cac thong tin nhay cam nhu so tai khoan/ten chu tai khoan duoc thiet ke de luu encrypted.
+
+- REFUND_CLAIM_TOKEN
+  Luu token hash cho link khach hang khai bao thong tin hoan tien.
+  Chi luu tokenHash, khong luu raw token.
+
+- CUSTOMER_REFUND_REQUEST
+  Luu request hoan tien/ho tro tu khach hang, gan voi REFUND, CUSTOMER_PROFILE
+  va co the gan voi TICKET.
+
+- MANUAL_REFUND_PROCESS
+  Luu quy trinh admin xu ly hoan tien thu cong.
+  Co thong tin nguoi duoc assign, trang thai xu ly, ma giao dich ngan hang,
+  so tien da chuyen, proofUrl, ghi chu admin, thoi diem assign/confirm.
+
+- REFUND_PAYOUT_ATTEMPT
+  Luu cac lan thu payout qua provider/ngan hang.
+  Ho tro idempotencyKey, attemptNumber, provider request/transaction code,
+  trang thai attempt va failureReason.
+
+- EMAIL_OUTBOX
+  Luu email can gui/retry, payload duoc thiet ke de ma hoa truoc khi persist.
+  Ho tro retry qua outboxStatus, attemptCount, nextAttemptAt, lastError.
+
+1.2. Constraint va index moi quan trong
+
+- UQ_BANK_DIRECTORY_BIN
+- UQ_REFUND_CLAIM_REFUND
+- UQ_REFUND_CLAIM_TOKEN_HASH
+- UQ_MANUAL_REFUND_PROCESS_REFUND
+- UQ_MANUAL_REFUND_PROCESS_CLAIM
+- UX_MANUAL_REFUND_BANK_TRANSACTION_CODE
+- IX_REFUND_CLAIM_CUSTOMER_PROFILE_ID
+- IX_REFUND_CLAIM_STATUS
+- IX_REFUND_CLAIM_TOKEN_CLAIM
+- IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS
+- IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS
+- IX_MANUAL_REFUND_PROCESS_STATUS_CREATED
+- IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT
+
+1.3. Status moi/bo sung
+
+- REFUND.refundStatus:
+  co them/ho tro REQUESTED ben canh cac trang thai PENDING, PROCESSING,
+  SUCCESS, FAILED.
+
+- REFUND_CLAIM.claimStatus:
+  PENDING_INFO, VERIFIED, SUBMITTED, PROCESSING, COMPLETED,
+  EXPIRED, MANUAL_REQUIRED, REVOKED.
+
+- REFUND_CLAIM.accountValidationStatus:
+  NOT_STARTED, VERIFIED, FAILED, UNAVAILABLE.
+
+- MANUAL_REFUND_PROCESS.processStatus:
+  OPEN, IN_PROGRESS, CONFIRMED, REJECTED.
+
+- REFUND_PAYOUT_ATTEMPT.attemptStatus:
+  CREATED, SUBMITTED, ACCEPTED, CONFIRMED, FAILED, UNKNOWN.
+
+- EMAIL_OUTBOX.outboxStatus:
+  PENDING, PROCESSING, SENT, FAILED.
+
+1.4. Seed data moi
+
+Them seed BANK_DIRECTORY cho cac ngan hang:
+
+- VCB - Vietcombank
+- MB - MB Bank
+- TCB - Techcombank
+- BIDV
+- CTG - VietinBank
+
+============================================================
+2. Nhanh Admin
+============================================================
+
+Nhanh nay bo sung DB cho cac chuc nang admin/movie CRUD, thong ke view,
+highlight phim, moderation review, lich su review va chatbot.
+
+2.1. Cot moi trong MOVIE
+
+- highlight
+  Phan loai phim noi bat.
+  Gia tri hop le: HOT, NEW, TRENDING.
+
+- viewCount
+  Dem tong luot xem phim.
+
+- averageRating
+  Diem rating trung binh.
+
+- totalReviews
+  Tong so review.
+
+- totalViews
+  Tong so luot xem dung cho thong ke/highlight.
+
+- dailyViews
+  Luot xem trong ngay.
+
+2.2. Cot moi trong USER
+
+- spamViolationCount
+  Dem so lan vi pham spam review.
+
+- isBlocked
+  Danh dau user bi block.
+
+- blockedUntil
+  Thoi diem block het han.
+
+2.3. Bang moi duoc them
+
+- CHAT_HISTORY
+  Luu lich su tin nhan chatbot theo user/session.
+
+- MOVIE_VIEW_LOG
+  Luu log moi lan xem phim, gom movie, user neu co, thoi gian xem va IP.
+
+- MOVIE_DAILY_VIEW
+  Luu thong ke luot xem theo phim va theo ngay.
+
+- REVIEW_EDIT_HISTORY
+  Luu lich su sua review: old/new rating, old/new comment, editedAt.
+
+- REVIEW_MODERATION_HISTORY
+  Luu lich su moderation review: oldStatus, newStatus, moderatorId,
+  rejectedReason, moderatedAt.
+
+2.4. Thay doi review
+
+- REVIEW duoc lien ket voi BOOKING qua bookingId.
+- Them unique index UX_REVIEW_BOOKING de tranh 1 booking tao nhieu review.
+- Them cac bang lich su edit/moderation de audit qua trinh sua/duyet/reject review.
+
+2.5. Constraint va index moi quan trong
+
+- CK_MOVIE_HIGHLIGHT
+  Gioi han highlight chi gom HOT, NEW, TRENDING.
+
+- IX_REVIEW_EDIT_HISTORY_REVIEW_ID
+- IX_REVIEW_MODERATION_HISTORY_REVIEW_ID
+- IX_MOVIE_DAILY_VIEW_DATE
+- IX_MOVIE_HIGHLIGHT_VIEWS
+- UX_REVIEW_BOOKING
+
+============================================================
+3. DB sau khi gop 2 nhanh se ho tro gi?
+============================================================
+
+- Huy movie/showtime/room co booking paid va chuyen booking sang REFUND_PENDING.
+- Tao REFUND va theo doi trang thai refund.
+- Khach hang nhan link claim refund va nhap thong tin ngan hang.
+- Admin xem, assign va confirm manual refund.
+- Theo doi cac lan payout/refund attempt voi idempotency.
+- Luu outbox email de retry gui email lien quan den refund.
+- Quan ly danh muc ngan hang phuc vu hoan tien.
+- Quan ly movie admin CRUD voi highlight, view count, rating aggregate.
+- Log luot xem phim va thong ke daily view.
+- Tao/quan ly review gan voi booking.
+- Luu lich su sua review va moderation review.
+- Block user spam review.
+- Luu lich su chatbot.
+
+============================================================
+4. Luu y khi apply DB
+============================================================
+
+- File schema tong hop hien tai co mot so phan bi trung lap can cleanup truoc khi
+  dung lam reset script chinh thuc:
+  + MOVIE.viewCount dang xuat hien trung trong schema tong hop.
+  + MOVIE_VIEW_LOG dang co dau hieu duoc tao 2 lan voi shape khac nhau.
+  + Can verify REVIEW co du cot duoc FK/constraint tham chieu.
+  + Cac patch sprint-2 co the overlap voi schema tong hop, nen can boc IF EXISTS /
+    IF NOT EXISTS neu chay tren DB da co san.
+
+- File patch lien quan:
+  + docs/database/customer-assisted-refund-patch.txt
+  + docs/database/sprint-2-full-architecture.sql
+  + docs/database/sprint-2-review-and-views.sql
+  + docs/database/profile-token-counter-sale-patch.sql
+
