@@ -42,8 +42,8 @@ public sealed class MovieDetailTests
         Assert.Equal("MOV_001", movie.MovieId);
         Assert.Equal("Dune: Part Two", movie.Title);
         Assert.Equal(166, movie.DurationMinutes);
-        Assert.Equal("Sci-Fi, Adventure", movie.Genre);
-        Assert.Equal("English", movie.Language);
+        Assert.Equal(["Sci-Fi", "Adventure"], movie.Genres);
+        Assert.Equal("EN_SUB_VN", movie.Language);
         Assert.Equal(new DateOnly(2026, 6, 15), movie.ReleaseDate);
         Assert.Equal("T13", movie.AgeRating);
         Assert.Equal("Movie description", movie.Description);
@@ -130,13 +130,12 @@ public sealed class MovieDetailTests
         string movieStatus,
         string ageRating)
     {
-        return new Movie
+        var movie = new Movie
         {
             MovieId = movieId,
             Title = "Dune: Part Two",
             DurationMinutes = 166,
-            Genre = "Sci-Fi, Adventure",
-            Language = "English",
+            LanguageId = "EN_SUB_VN",
             ReleaseDate = new DateOnly(2026, 6, 15),
             AgeRating = ageRating,
             Description = "Movie description",
@@ -144,6 +143,19 @@ public sealed class MovieDetailTests
             TrailerUrl = "https://youtube.com/watch?v=test",
             MovieStatus = movieStatus
         };
+        movie.MovieGenres.Add(new MovieGenre
+        {
+            MovieId = movieId,
+            GenreId = 1,
+            Genre = new Genre { GenreId = 1, Name = "Sci-Fi" }
+        });
+        movie.MovieGenres.Add(new MovieGenre
+        {
+            MovieId = movieId,
+            GenreId = 2,
+            Genre = new Genre { GenreId = 2, Name = "Adventure" }
+        });
+        return movie;
     }
 
     private sealed class TestFixture : IAsyncDisposable
@@ -166,7 +178,10 @@ public sealed class MovieDetailTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var service = new MovieService(dbContext);
+            var service = new MovieService(
+                dbContext,
+                new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
+                new Moq.Mock<CinemaSystem.Application.Interfaces.IFileStorageService>().Object);
             var controller = new MoviesController(service);
 
             return new TestFixture(dbContext, controller);

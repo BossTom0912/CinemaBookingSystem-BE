@@ -3,9 +3,12 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Services;
+using CinemaSystem.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
+using CinemaSystem.Tests.Infrastructure;
 
 namespace CinemaSystem.Tests;
 
@@ -155,7 +158,11 @@ public sealed class PaymentServiceTests
                     BankName = "Test Bank",
                     BankAccount = "123456789",
                     DevelopmentPaymentAmountOverride = paymentAmountOverride
-                }));
+                }),
+                new RefundClaimIssuer(Options.Create(new RefundSettings())),
+                new FakeEmailCapture(),
+                Options.Create(new RefundSettings()),
+                NullLogger<PaymentService>.Instance);
 
             return new Fixture(dbContext, service);
         }

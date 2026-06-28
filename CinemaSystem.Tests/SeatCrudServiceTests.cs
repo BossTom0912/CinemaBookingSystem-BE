@@ -122,7 +122,7 @@ public sealed class SeatCrudServiceTests
   }
 
   [Fact]
-  public async Task DeleteSeatAsync_FutureShowtime_ReturnsConflict()
+  public async Task DeleteSeatAsync_AvailableFutureShowtimeSeat_DeactivatesSeat()
   {
     // Luồng: ghế đang trong suất chiếu OPEN tương lai → 409 SEAT_IN_ACTIVE_SHOWTIME.
     var fixture = await Fixture.CreateAsync();
@@ -149,9 +149,11 @@ public sealed class SeatCrudServiceTests
 
     var result = await fixture.Service.DeleteSeatAsync("SEAT_1", UserId, CancellationToken.None);
 
-    Assert.False(result.Success);
-    Assert.Equal(409, result.StatusCode);
-    Assert.Equal("SEAT_IN_ACTIVE_SHOWTIME", result.ErrorCode);
+    Assert.True(result.Success);
+    var seat = await fixture.DbContext.Seats.SingleAsync(item => item.SeatId == "SEAT_1");
+    var showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync(item => item.ShowtimeSeatId == "STS_1");
+    Assert.False(seat.IsActive);
+    Assert.Equal("MAINTENANCE", showtimeSeat.SeatStatus);
   }
 
   [Fact]
@@ -245,7 +247,14 @@ public sealed class SeatCrudServiceTests
         });
       await dbContext.SaveChangesAsync();
 
-      return new Fixture(dbContext, new SeatService(dbContext));
+      return new Fixture(
+        dbContext,
+        new SeatService(
+          dbContext,
+          new Moq.Mock<Hangfire.IBackgroundJobClient>().Object,
+          new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
+          Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
+          Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings())));
     }
   }
 }

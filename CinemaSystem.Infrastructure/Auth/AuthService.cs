@@ -9,6 +9,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
+using Google.Apis.Auth;
+using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Auth;
 
@@ -26,10 +28,6 @@ namespace CinemaSystem.Infrastructure.Auth;
 /// </remarks>
 public sealed class AuthService : IAuthService
 {
-    private const int OtpExpirySeconds = 120;
-    private const int OtpResendCooldownSeconds = 60;
-    private const int OtpMaxSendAttempts = 5;
-    private const int OtpSendLockHours = 2;
     private const string EmailVerificationPurpose = "EMAIL_VERIFICATION";
     private const string PasswordResetPurpose = "PASSWORD_RESET";
 
@@ -40,6 +38,8 @@ public sealed class AuthService : IAuthService
     private readonly IJwtTokenService _jwtTokenService;
     private readonly IClock _clock;
     private readonly JwtSettings _jwtSettings;
+    private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
+    private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly bool _autoConfirmEmail;
 
     public AuthService(
@@ -50,6 +50,8 @@ public sealed class AuthService : IAuthService
         IJwtTokenService jwtTokenService,
         IClock clock,
         IOptions<JwtSettings> jwtOptions,
+        IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
+        Hangfire.IBackgroundJobClient backgroundJobClient,
         IConfiguration? configuration = null)
     {
         _dbContext = dbContext;
@@ -59,6 +61,8 @@ public sealed class AuthService : IAuthService
         _jwtTokenService = jwtTokenService;
         _clock = clock;
         _jwtSettings = jwtOptions.Value;
+        _authSettings = authOptions.Value;
+        _backgroundJobClient = backgroundJobClient;
         _autoConfirmEmail = bool.TryParse(
             configuration?["EmailSettings:AutoConfirmEmail"],
             out var autoConfirmEmail) && autoConfirmEmail;
@@ -146,7 +150,7 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
+            ExpiredAt = now.AddSeconds(_authSettings.OtpExpirySeconds),
             IsUsed = false,
             Purpose = EmailVerificationPurpose,
             AttemptCount = 1
@@ -174,7 +178,7 @@ public sealed class AuthService : IAuthService
             {
                 email = normalizedEmail,
                 expiresAt = verificationToken.ExpiredAt,
-                attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
+                attemptsRemaining = _authSettings.OtpMaxSendAttempts - verificationToken.AttemptCount
             },
             "Registration successful. Please verify your email with the OTP sent to your inbox.",
             201);
@@ -273,6 +277,83 @@ public sealed class AuthService : IAuthService
                 Role = AuthConstants.Roles.Normalize(user.Role.RoleName)
             },
             "Login successful.");
+    }
+
+    public async Task<ServiceResult<AuthResponse>> GoogleLoginAsync(GoogleLoginRequest request, CancellationToken cancellationToken)
+    {
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken);
+        }
+        catch (InvalidJwtException)
+        {
+            return ServiceResult<AuthResponse>.Fail(401, "Invalid Google ID token.", "INVALID_GOOGLE_TOKEN");
+        }
+
+        var normalizedEmail = NormalizeEmail(payload.Email);
+        var user = await _dbContext.Users
+            .Include(item => item.Role)
+            .FirstOrDefaultAsync(item => item.Email == normalizedEmail, cancellationToken);
+
+        if (user is null)
+        {
+            var customerRole = await GetOrCreateRoleAsync(
+                AuthConstants.RoleIds.Customer,
+                AuthConstants.Roles.Customer,
+                "Customer account",
+                cancellationToken);
+
+            user = new User
+            {
+                UserId = NewId("USR"),
+                RoleId = customerRole.RoleId,
+                Email = normalizedEmail,
+                PasswordHash = _passwordHasher.HashSecret(Guid.NewGuid().ToString()),
+                FullName = payload.Name?.Trim() ?? "Google User",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = _clock.UtcNow
+            };
+
+            var customerProfile = new CustomerProfile
+            {
+                CustomerProfileId = NewId("CUS"),
+                UserId = user.UserId,
+                MemberLevel = "STANDARD",
+                RewardPoints = 0
+            };
+
+            _dbContext.Users.Add(user);
+            _dbContext.CustomerProfiles.Add(customerProfile);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            user.Role = customerRole;
+        }
+
+        if (user.Status != AuthConstants.UserStatus.Active)
+        {
+            return ServiceResult<AuthResponse>.Fail(403, "Account is not active.", "ACCOUNT_NOT_ACTIVE");
+        }
+
+        var accessToken = _jwtTokenService.GenerateAccessToken(user.UserId, user.Email, user.Role.RoleName);
+        var refreshTokenValue = _jwtTokenService.GenerateRefreshToken();
+        var refreshToken = CreateRefreshToken(user.UserId, refreshTokenValue);
+
+        _dbContext.RefreshTokens.Add(refreshToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<AuthResponse>.Ok(
+            new AuthResponse
+            {
+                AccessToken = accessToken.AccessToken,
+                RefreshToken = refreshTokenValue,
+                ExpiresAt = accessToken.ExpiresAt,
+                UserId = user.UserId,
+                Email = user.Email,
+                FullName = user.FullName,
+                Role = AuthConstants.Roles.Normalize(user.Role.RoleName)
+            },
+            "Google login successful.");
     }
 
     public async Task<ServiceResult<TokenResponse>> RefreshTokenAsync(RefreshTokenRequest request, CancellationToken cancellationToken)
@@ -402,7 +483,7 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
+            ExpiredAt = now.AddSeconds(_authSettings.OtpExpirySeconds),
             IsUsed = false,
             Purpose = EmailVerificationPurpose,
             AttemptCount = GetNextOtpAttemptCount(latestToken, now)
@@ -428,7 +509,7 @@ public sealed class AuthService : IAuthService
             {
                 email = normalizedEmail,
                 expiresAt = verificationToken.ExpiredAt,
-                attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
+                attemptsRemaining = _authSettings.OtpMaxSendAttempts - verificationToken.AttemptCount
             },
             successMessage);
     }
@@ -482,7 +563,7 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
+            ExpiredAt = now.AddSeconds(_authSettings.OtpExpirySeconds),
             IsUsed = false,
             Purpose = PasswordResetPurpose,
             AttemptCount = GetNextOtpAttemptCount(latestToken, now)
@@ -510,7 +591,7 @@ public sealed class AuthService : IAuthService
             {
                 email = normalizedEmail,
                 expiresAt = resetToken.ExpiredAt,
-                attemptsRemaining = OtpMaxSendAttempts - resetToken.AttemptCount
+                attemptsRemaining = _authSettings.OtpMaxSendAttempts - resetToken.AttemptCount
             },
             "Password reset OTP sent successfully.");
     }
@@ -609,7 +690,7 @@ public sealed class AuthService : IAuthService
             .OrderByDescending(item => item.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var resendAvailableAt = latestToken?.CreatedAt.AddSeconds(OtpResendCooldownSeconds);
+        var resendAvailableAt = latestToken?.CreatedAt.AddSeconds(_authSettings.OtpResendCooldownSeconds);
         if (latestToken is not null &&
             !latestToken.IsUsed &&
             latestToken.ExpiredAt > now &&
@@ -622,7 +703,7 @@ public sealed class AuthService : IAuthService
                 {
                     email = user.Email,
                     expiresAt = latestToken.ExpiredAt,
-                    attemptsRemaining = OtpMaxSendAttempts - GetEffectiveOtpAttemptCount(latestToken)
+                    attemptsRemaining = _authSettings.OtpMaxSendAttempts - GetEffectiveOtpAttemptCount(latestToken)
                 },
                 "Account is pending email verification. Use the OTP already sent to your email.");
         }
@@ -649,7 +730,7 @@ public sealed class AuthService : IAuthService
             UserId = user.UserId,
             Token = _passwordHasher.HashSecret(otp),
             CreatedAt = now,
-            ExpiredAt = now.AddSeconds(OtpExpirySeconds),
+            ExpiredAt = now.AddSeconds(_authSettings.OtpExpirySeconds),
             IsUsed = false,
             Purpose = EmailVerificationPurpose,
             AttemptCount = GetNextOtpAttemptCount(latestToken, now)
@@ -675,12 +756,12 @@ public sealed class AuthService : IAuthService
             {
                 email = user.Email,
                 expiresAt = verificationToken.ExpiredAt,
-                attemptsRemaining = OtpMaxSendAttempts - verificationToken.AttemptCount
+                attemptsRemaining = _authSettings.OtpMaxSendAttempts - verificationToken.AttemptCount
             },
             "Account is pending email verification. A new verification OTP has been sent.");
     }
 
-    private static ServiceResult<object>? GetOtpSendPolicyFailure(
+    private ServiceResult<object>? GetOtpSendPolicyFailure(
         EmailVerificationToken? latestToken,
         DateTime now)
     {
@@ -689,9 +770,9 @@ public sealed class AuthService : IAuthService
             return null;
         }
 
-        if (GetEffectiveOtpAttemptCount(latestToken) >= OtpMaxSendAttempts)
+        if (GetEffectiveOtpAttemptCount(latestToken) >= _authSettings.OtpMaxSendAttempts)
         {
-            var unlockAt = latestToken.CreatedAt.AddHours(OtpSendLockHours);
+            var unlockAt = latestToken.CreatedAt.AddHours(_authSettings.OtpSendLockHours);
             if (unlockAt > now)
             {
                 return CreateOtpRateLimitFailure(
@@ -702,7 +783,7 @@ public sealed class AuthService : IAuthService
             }
         }
 
-        var resendAvailableAt = latestToken.CreatedAt.AddSeconds(OtpResendCooldownSeconds);
+        var resendAvailableAt = latestToken.CreatedAt.AddSeconds(_authSettings.OtpResendCooldownSeconds);
         if (resendAvailableAt > now)
         {
             return CreateOtpRateLimitFailure(
@@ -715,7 +796,7 @@ public sealed class AuthService : IAuthService
         return null;
     }
 
-    private static ServiceResult<object> CreateOtpRateLimitFailure(
+    private ServiceResult<object> CreateOtpRateLimitFailure(
         string message,
         string errorCode,
         DateTime retryAt,
@@ -733,15 +814,15 @@ public sealed class AuthService : IAuthService
             });
     }
 
-    private static int GetNextOtpAttemptCount(EmailVerificationToken? latestToken, DateTime now)
+    private int GetNextOtpAttemptCount(EmailVerificationToken? latestToken, DateTime now)
     {
         if (latestToken is null)
         {
             return 1;
         }
 
-        if (GetEffectiveOtpAttemptCount(latestToken) >= OtpMaxSendAttempts &&
-            latestToken.CreatedAt.AddHours(OtpSendLockHours) <= now)
+        if (GetEffectiveOtpAttemptCount(latestToken) >= _authSettings.OtpMaxSendAttempts &&
+            latestToken.CreatedAt.AddHours(_authSettings.OtpSendLockHours) <= now)
         {
             return 1;
         }
@@ -749,7 +830,7 @@ public sealed class AuthService : IAuthService
         return GetEffectiveOtpAttemptCount(latestToken) + 1;
     }
 
-    private static int GetEffectiveOtpAttemptCount(EmailVerificationToken token)
+    private int GetEffectiveOtpAttemptCount(EmailVerificationToken token)
     {
         return Math.Max(1, token.AttemptCount);
     }
@@ -857,11 +938,12 @@ public sealed class AuthService : IAuthService
 
         try
         {
-            await _emailSender.SendEmailAsync(
-                email,
-                "Cinema Booking - Email Verification",
-                body,
-                cancellationToken);
+            _backgroundJobClient.Enqueue<IEmailSender>(emailSender =>
+                emailSender.SendEmailAsync(
+                    email,
+                    "Cinema Booking - Email Verification",
+                    body,
+                    CancellationToken.None));
         }
         catch (Exception)
         {
@@ -892,11 +974,12 @@ public sealed class AuthService : IAuthService
 
         try
         {
-            await _emailSender.SendEmailAsync(
-                email,
-                "Cinema Booking - Password Reset",
-                body,
-                cancellationToken);
+            _backgroundJobClient.Enqueue<IEmailSender>(emailSender =>
+                emailSender.SendEmailAsync(
+                    email,
+                    "Cinema Booking - Password Reset",
+                    body,
+                    CancellationToken.None));
         }
         catch (Exception)
         {

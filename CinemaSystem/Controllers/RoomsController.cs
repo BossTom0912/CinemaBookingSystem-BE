@@ -8,49 +8,47 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
-/// <summary>
-/// Room query, room CRUD and bulk seat-generation HTTP entry point.
-/// </summary>
-/// <remarks>
-/// Each action hands processing to <see cref="IRoomService"/>. Runtime DI maps
-/// it to <c>CinemaSystem.Infrastructure.Rooms.RoomService</c>, which validates
-/// CINEMA/ROOM/SEAT state and commits changes through <c>CinemaDbContext</c>.
-/// Role checks happen before the action; cinema-scope checks are not currently
-/// implemented by this controller or service.
-/// </remarks>
 [ApiController]
 [Route("api/rooms")]
 public sealed class RoomsController : ControllerBase
 {
     private readonly IRoomService _roomService;
+    private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
-    public RoomsController(IRoomService roomService)
+    public RoomsController(
+        IRoomService roomService,
+        ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
     {
         _roomService = roomService ?? throw new ArgumentNullException(nameof(roomService));
+        _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService
+            ?? throw new ArgumentNullException(nameof(cinemaScopeAuthorizationService));
     }
 
     [HttpGet("rooms")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
-    public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRooms([FromQuery] bool includeInactive = false, CancellationToken cancellationToken = default)
     {
-        // Bước tiếp theo: IRoomService -> RoomService tại
-        // CinemaSystem.Infrastructure/Rooms/RoomService.cs để query ROOM kèm
-        // CINEMA/SEAT. Role đã được middleware kiểm trước khi vào action.
-        var result = await _roomService.GetRoomsAsync(cancellationToken);
+        var scope = await _cinemaScopeAuthorizationService.GetUserCinemaScopeAsync(User, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
 
-        // Service trả Contracts DTO; Controller map thành API DTO.
+        var result = await _roomService.GetRoomsAsync(scope.CinemaId, includeInactive, cancellationToken);
         return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Rooms.RoomResponse>, IReadOnlyList<RoomResponse>>());
     }
 
     [HttpGet("rooms/{roomId}")]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
-    public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRoomById(string roomId, [FromQuery] bool includeInactive = false, CancellationToken cancellationToken = default)
     {
-        // Bước tiếp theo: RoomService (Infrastructure/Rooms) đọc room/cinema/seats
-        // và áp rule ẩn room INACTIVE.
-        var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
 
-        // RoomResponse hoặc ROOM_NOT_FOUND quay lại đây để tạo HTTP status.
+        var result = await _roomService.GetRoomByIdAsync(roomId, includeInactive, cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -61,15 +59,16 @@ public sealed class RoomsController : ControllerBase
         CreateRoomRequest request,
         CancellationToken cancellationToken)
     {
-        // Bước tiếp theo: RoomService kiểm CINEMA tồn tại + room status rồi ghi
-        // ROOM qua CinemaDbContext. Tách sang service để Controller không chứa
-        // validation nghiệp vụ hoặc SaveChangesAsync.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeCinemaAsync(User, cinemaId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.CreateRoomAsync(
             cinemaId,
             request.MapTo<Contracts.Rooms.CreateRoomRequest>(),
             cancellationToken);
-
-        // ROOM đã lưu và map DTO xong mới quay lại Controller.
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -80,14 +79,17 @@ public sealed class RoomsController : ControllerBase
         UpdateRoomRequest request,
         CancellationToken cancellationToken)
     {
-        // Bước tiếp theo: RoomService (Infrastructure/Rooms) kiểm tên trùng,
-        // capacity, số ghế hiện có và status trước khi cập nhật ROOM.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.UpdateRoomAsync(
             roomId,
             request.MapTo<Contracts.Rooms.UpdateRoomRequest>(),
+            GetUserId(),
             cancellationToken);
-
-        // Kết quả persistence quay lại đây để map API response.
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -95,11 +97,13 @@ public sealed class RoomsController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> DeleteRoom(string roomId, CancellationToken cancellationToken)
     {
-        // Bước tiếp theo: RoomService thực hiện soft delete trong
-        // Infrastructure/Rooms bằng roomStatus=INACTIVE; đây không phải xóa vật lý.
-        var result = await _roomService.DeleteRoomAsync(roomId, cancellationToken);
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
 
-        // Service lưu DB xong thì kết quả quay lại Controller.
+        var result = await _roomService.DeleteRoomAsync(roomId, GetUserId(), cancellationToken);
         return ToActionResult(result);
     }
     [HttpPost("{roomId}/generate-seats")]
@@ -118,14 +122,17 @@ public sealed class RoomsController : ControllerBase
         [FromBody] GenerateSeatsRequest request,
         CancellationToken cancellationToken)
     {
-        // Bước tiếp theo: RoomService kiểm room chưa có ghế và giới hạn ma trận,
-        // sau đó sinh nhiều SEAT + cập nhật ROOM.capacity trong Infrastructure.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _roomService.GenerateSeatsAsync(
             roomId,
             request.MapTo<Contracts.Rooms.GenerateSeatsRequest>(),
             cancellationToken);
 
-        // Số ghế đã tạo hoặc lỗi validation quay lại API layer tại đây.
         return ToActionResult(result);
     }
 
@@ -136,5 +143,18 @@ public sealed class RoomsController : ControllerBase
             : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
 
         return StatusCode(result.StatusCode, response);
+    }
+
+    private ObjectResult ToActionResult(CinemaScopeAuthorizationResult result)
+    {
+        var response = ApiResponse<object>.Fail(result.Message, result.ErrorCode);
+        return StatusCode(result.StatusCode, response);
+    }
+
+    private string GetUserId()
+    {
+        return User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User?.FindFirst("userId")?.Value
+            ?? string.Empty;
     }
 }

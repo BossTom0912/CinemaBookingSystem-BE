@@ -11,6 +11,9 @@ public interface IAuthService
 
     Task<ServiceResult<AuthResponse>> LoginAsync(LoginRequest request, CancellationToken cancellationToken);
 
+    Task<ServiceResult<AuthResponse>> GoogleLoginAsync(GoogleLoginRequest request, CancellationToken cancellationToken);
+
+
     Task<ServiceResult<TokenResponse>> RefreshTokenAsync(RefreshTokenRequest request, CancellationToken cancellationToken);
 
     Task<ServiceResult<object>> LogoutAsync(LogoutRequest request, CancellationToken cancellationToken);

@@ -8,6 +8,8 @@ using CinemaSystem.Infrastructure.Configuration;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using CinemaSystem.Application.Common;
+using Microsoft.Extensions.Logging;
+using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -27,13 +29,27 @@ public class PaymentService : IPaymentService
 {
     private readonly CinemaDbContext _db;
     private readonly SepaySettings _sepaySettings;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
+    private readonly RefundSettings _refundSettings;
+    private readonly ILogger<PaymentService> _logger;
     private const int PaymentExpiryMinutes = 10;
     private static readonly Regex TransactionCodeRegex = new(@"T[A-Z0-9]{10}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public PaymentService(CinemaDbContext db, IOptions<SepaySettings> sepayOptions)
+    public PaymentService(
+        CinemaDbContext db,
+        IOptions<SepaySettings> sepayOptions,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
+        IOptions<RefundSettings> refundSettings,
+        ILogger<PaymentService> logger)
     {
         _db = db;
         _sepaySettings = sepayOptions.Value;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
+        _refundSettings = refundSettings.Value;
+        _logger = logger;
     }
 
     // Create payment record for a booking and return bank info + transaction code
@@ -65,7 +81,7 @@ public class PaymentService : IPaymentService
             !string.Equals(booking.CustomerProfile.UserId, normalizedUserId, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("You are not allowed to pay for this booking.");
 
-        if (!string.Equals(booking.BookingStatus, "PENDING_PAYMENT", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Booking {booking.BookingId} is not awaiting payment.");
 
         // Ensure payment provider exists
@@ -76,7 +92,7 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException($"Payment provider {paymentProviderId} is not active.");
 
         var successfulPayment = booking.Payments
-            .FirstOrDefault(item => string.Equals(item.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(item => string.Equals(item.PaymentStatus, DomainConstants.PaymentStatus.Success, StringComparison.OrdinalIgnoreCase));
         if (successfulPayment != null)
             throw new InvalidOperationException($"Booking {booking.BookingId} has already been paid.");
 
@@ -84,7 +100,7 @@ public class PaymentService : IPaymentService
         var pendingPayment = booking.Payments
             .Where(item =>
                 item.PaymentProviderId == provider.PaymentProviderId
-                && string.Equals(item.PaymentStatus, "PENDING", StringComparison.OrdinalIgnoreCase))
+                && string.Equals(item.PaymentStatus, DomainConstants.PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(item => item.CreatedAt)
             .FirstOrDefault();
         if (pendingPayment != null)
@@ -108,7 +124,7 @@ public class PaymentService : IPaymentService
             PaymentProviderId = provider.PaymentProviderId,
             Amount = paymentAmount,
             TransactionCode = GenerateTransactionCode(),
-            PaymentStatus = "PENDING",
+            PaymentStatus = DomainConstants.PaymentStatus.Pending,
             CreatedAt = now,
             PaymentMethod = "SEPAY"
         };
@@ -164,13 +180,20 @@ public class PaymentService : IPaymentService
 
         // Find payment by exact transaction code
         var payment = await _db.Payments
+            .Include(p => p.Refunds)
             .Include(p => p.Booking)
                 .ThenInclude(b => b.BookingSeats)
                     .ThenInclude(bs => bs.ShowtimeSeat)
             .Include(p => p.Booking)
                 .ThenInclude(b => b.BookingSeats)
                     .ThenInclude(bs => bs.Ticket)
-            .SingleOrDefaultAsync(p => p.TransactionCode == transactionCode, cancellationToken);
+            .Include(p => p.Booking)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
+            .SingleOrDefaultAsync(
+                p => p.TransactionCode != null
+                    && p.TransactionCode == transactionCode,
+                cancellationToken);
 
         if (payment == null)
             throw new InvalidOperationException($"Payment with transaction code {transactionCode} not found.");
@@ -180,8 +203,10 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException($"Payment amount mismatch. Expected {payment.Amount} got {amount}.");
 
         // If already success - idempotent
-        if (string.Equals(payment.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Success, StringComparison.OrdinalIgnoreCase))
+        {
             return;
+        }
 
         // Chặng tiếp theo là transaction EF Core tại Persistence/CinemaDbContext.
         // Một callback phải cập nhật payment, booking, seat và ticket nguyên tử;
@@ -189,7 +214,7 @@ public class PaymentService : IPaymentService
         await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            payment.PaymentStatus = "SUCCESS";
+            payment.PaymentStatus = DomainConstants.PaymentStatus.Success;
             payment.PaidAt = DateTime.UtcNow;
             payment.UpdatedAt = DateTime.UtcNow;
             payment.ProviderTransactionCode = string.IsNullOrWhiteSpace(providerTransactionCode)
@@ -204,14 +229,124 @@ public class PaymentService : IPaymentService
             if (booking == null)
                 throw new InvalidOperationException($"Booking {payment.BookingId} not found.");
 
-            if (string.Equals(booking.BookingStatus, "PENDING_PAYMENT", StringComparison.OrdinalIgnoreCase))
+            var showtime = await _db.Showtimes
+                .Include(item => item.ShowtimeCancellation)
+                .Include(item => item.Movie)
+                .FirstOrDefaultAsync(item => item.ShowtimeId == booking.ShowtimeId, cancellationToken);
+
+            if (IsCancelledOrRefundFlow(booking, showtime))
             {
-                booking.BookingStatus = "PAID";
+                RefundClaimIssue? claimIssue = null;
+                booking.BookingStatus = BookingConstants.BookingStatus.RefundPending;
+
+                foreach (var bookingSeat in booking.BookingSeats)
+                {
+                    bookingSeat.ShowtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Unavailable;
+                    bookingSeat.ShowtimeSeat.LockedUntil = null;
+                    bookingSeat.ShowtimeSeat.LockedByUserId = null;
+
+                    if (bookingSeat.Ticket is not null
+                        && !IsStatus(bookingSeat.Ticket.TicketStatus, BookingConstants.TicketStatus.Refunded))
+                    {
+                        bookingSeat.Ticket.TicketStatus = BookingConstants.TicketStatus.Cancelled;
+                    }
+                }
+
+                if (!payment.Refunds.Any(IsActiveRefund))
+                {
+                    var refund = new Refund
+                    {
+                        RefundId = GenerateId("REF"),
+                        BookingId = booking.BookingId,
+                        PaymentId = payment.PaymentId,
+                        PaymentProviderId = payment.PaymentProviderId,
+                        ShowtimeCancellationId = showtime?.ShowtimeCancellation?.ShowtimeCancellationId,
+                        RefundAmount = payment.Amount,
+                        RefundStatus = BookingConstants.RefundStatus.Pending,
+                        RefundReason = "Payment succeeded after booking or showtime cancellation.",
+                        RequestedAt = DateTime.UtcNow
+                    };
+                    _db.Refunds.Add(refund);
+                    if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+                    {
+                        claimIssue = _refundClaimIssuer.Create(
+                            refund.RefundId,
+                            booking.CustomerProfileId,
+                            DateTime.UtcNow);
+                        _db.RefundClaims.Add(claimIssue.Claim);
+                    }
+                }
+
+                await _db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                if (claimIssue is not null
+                    && booking.CustomerProfile?.User is not null)
+                {
+                    await TrySendLatePaymentClaimEmailAsync(
+                        booking.CustomerProfile.User.Email,
+                        showtime?.Movie.Title ?? "cancelled showtime",
+                        claimIssue,
+                        cancellationToken);
+                }
+
+                return;
+            }
+
+            if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase))
+            {
+                booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+            }
+
+            if (booking.Showtime != null && booking.Showtime.Status == DomainConstants.EntityStatus.Cancelled)
+            {
+                // The showtime was cancelled while the user was paying.
+                // We MUST record the payment, but we CANNOT finalize the booking or generate tickets.
+                // Instead, transition directly to REFUND_PENDING to save the user's money.
+                booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
+
+                _db.Refunds.Add(new Refund
+                {
+                    RefundId = GenerateId("REF"),
+                    BookingId = booking.BookingId,
+                    PaymentId = payment.PaymentId,
+                    PaymentProviderId = payment.PaymentProviderId,
+                    RefundAmount = payment.Amount,
+                    RefundStatus = DomainConstants.RefundStatus.Pending,
+                    RequestedAt = DateTime.UtcNow,
+                    RefundReason = "Late payment received for a cancelled showtime."
+                });
+
+                await _db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                return;
+            }
+
+            if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+            {
+                // The booking was cancelled (e.g. expired due to timeout), but the bank transfer arrived late.
+                // Transition to REFUND_PENDING so the admin can refund the money. Do NOT generate tickets.
+                booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
+
+                _db.Refunds.Add(new Refund
+                {
+                    RefundId = GenerateId("REF"),
+                    BookingId = booking.BookingId,
+                    PaymentId = payment.PaymentId,
+                    PaymentProviderId = payment.PaymentProviderId,
+                    RefundAmount = payment.Amount,
+                    RefundStatus = DomainConstants.RefundStatus.Pending,
+                    RequestedAt = DateTime.UtcNow,
+                    RefundReason = "Late payment received for an expired booking."
+                });
+
+                await _db.SaveChangesAsync(cancellationToken);
+                await tx.CommitAsync(cancellationToken);
+                return;
             }
 
             foreach (var bookingSeat in booking.BookingSeats)
             {
-                bookingSeat.ShowtimeSeat.SeatStatus = "BOOKED";
+                bookingSeat.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Booked;
                 bookingSeat.ShowtimeSeat.LockedUntil = null;
                 bookingSeat.ShowtimeSeat.LockedByUserId = null;
 
@@ -222,7 +357,7 @@ public class PaymentService : IPaymentService
                         TicketId = GenerateId("TCK"),
                         BookingSeatId = bookingSeat.BookingSeatId,
                         QrCode = GenerateTicketQrCode(booking.BookingId, bookingSeat.BookingSeatId),
-                        TicketStatus = "UNUSED",
+                        TicketStatus = DomainConstants.TicketStatus.Unused,
                         GeneratedAt = DateTime.UtcNow
                     });
                 }
@@ -243,6 +378,50 @@ public class PaymentService : IPaymentService
     }
 
     private static string GenerateId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+
+    private static bool IsCancelledOrRefundFlow(Booking booking, Showtime? showtime)
+    {
+        return IsStatus(showtime?.Status, BookingConstants.ShowtimeStatus.Cancelled)
+            || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Cancelled)
+            || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.RefundPending)
+            || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Refunded);
+    }
+
+    private static bool IsActiveRefund(Refund refund)
+    {
+        return IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.Pending)
+            || IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.Success)
+            || IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.ManualRequired);
+    }
+
+    private static bool IsStatus(string? actual, string expected)
+    {
+        return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task TrySendLatePaymentClaimEmailAsync(
+        string email,
+        string movieTitle,
+        RefundClaimIssue issue,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}/refunds/claim?t={Uri.EscapeDataString(issue.RawToken)}";
+            await _emailSender.SendEmailAsync(
+                email,
+                "Refund information required",
+                $"A late payment was received for the cancelled showtime {movieTitle}. "
+                + $"Submit bank information before {issue.Token.ExpiresAt:O}: {link}",
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Late-payment refund claim email could not be sent.");
+        }
+    }
 
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
         $"G2C|{bookingId}|{bookingSeatId}|{Guid.NewGuid():N}";

@@ -24,15 +24,15 @@ public sealed class MovieApiIntegrationTests
         var response = await client.GetAsync("/api/movies?status=now_showing");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = JsonSerializer.Deserialize<ApiResponse<List<MovieResponse>>>(
+        var body = JsonSerializer.Deserialize<ApiResponse<PagedList<MovieResponse>>>(
             await response.Content.ReadAsStringAsync(),
             JsonOptions);
             
         Assert.True(body!.Success);
-        Assert.Single(body.Data!);
-        Assert.Equal("Test Movie", body.Data[0].MovieNameVn);
-        Assert.Equal("Action", body.Data[0].Genre);
-        Assert.Equal("HOT", body.Data[0].Highlight);
+        Assert.Single(body.Data!.Items);
+        Assert.Equal("Test Movie", body.Data.Items[0].MovieNameVn);
+        Assert.Contains("Action", body.Data.Items[0].Genres!);
+        Assert.Equal("HOT", body.Data.Items[0].Highlight);
     }
 
     [Fact]
@@ -59,16 +59,27 @@ public sealed class MovieApiIntegrationTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        db.Movies.Add(new Movie
+        var genre = new Genre
+        {
+            GenreId = 1,
+            Name = "Action"
+        };
+        var movie = new Movie
         {
             MovieId = "MOV_01",
             Title = "Test Movie",
             DurationMinutes = 120,
-            Genre = "Action",
             MovieStatus = "NOW_SHOWING",
             Highlight = "HOT",
             ReleaseDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        movie.MovieGenres.Add(new MovieGenre
+        {
+            MovieId = movie.MovieId,
+            GenreId = genre.GenreId,
+            Genre = genre
         });
+        db.Movies.Add(movie);
         await db.SaveChangesAsync();
     }
 }
