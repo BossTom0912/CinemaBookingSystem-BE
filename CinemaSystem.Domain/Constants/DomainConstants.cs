@@ -78,4 +78,18 @@ public static class DomainConstants
 
         public static readonly string[] ValidLanguages = { VN, EN_SUB_VN, EN_DUB_VN, KR_SUB_VN, JP_SUB_VN, TH_SUB_VN, CN_SUB_VN };
     }
+
+    public static class Action
+    {
+        public const string Create = "CREATE";
+        public const string Update = "UPDATE";
+        public const string Delete = "DELETE";
+    }
+
+    public static class ApprovalStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Approved = "APPROVED";
+        public const string Rejected = "REJECTED";
+    }
 }

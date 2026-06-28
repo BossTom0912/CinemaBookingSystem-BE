@@ -15,15 +15,15 @@ namespace CinemaSystem.Infrastructure.Services;
 
 public sealed class SeatService : ISeatService
 {
-    private const string ActionCreate = "CREATE";
-    private const string ActionUpdate = "UPDATE";
-    private const string ActionDelete = "DELETE";
-    private const string StatusPending = "PENDING";
-    private const string StatusApproved = "APPROVED";
-    private const string StatusRejected = "REJECTED";
-    private const string SeatAvailable = "AVAILABLE";
-    private const string SeatLocked = "LOCKED";
-    private const string SeatBooked = "BOOKED";
+    private const string ActionCreate = DomainConstants.Action.Create;
+    private const string ActionUpdate = DomainConstants.Action.Update;
+    private const string ActionDelete = DomainConstants.Action.Delete;
+    private const string StatusPending = DomainConstants.ApprovalStatus.Pending;
+    private const string StatusApproved = DomainConstants.ApprovalStatus.Approved;
+    private const string StatusRejected = DomainConstants.ApprovalStatus.Rejected;
+    private const string SeatAvailable = DomainConstants.EntityStatus.Available;
+    private const string SeatLocked = DomainConstants.EntityStatus.Locked;
+    private const string SeatBooked = DomainConstants.EntityStatus.Booked;
     private static readonly TimeSpan SeatLockTtl = TimeSpan.FromMinutes(10);
 
     private readonly CinemaDbContext _dbContext;

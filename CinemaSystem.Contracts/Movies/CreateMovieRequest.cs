@@ -25,15 +25,15 @@ public class CreateMovieRequest
     [MaxLength(2000)]
     public string? Description { get; set; }
 
-    [MaxLength(2000)]
+    [MaxLength(1000)]
     public string? TrailerUrl { get; set; }
 
-    [MaxLength(1000)]
+    [MaxLength(30)]
     public string? Highlight { get; set; }
 
     [MaxLength(200)]
     public string? Director { get; set; }
 
-    [MaxLength(50)]
+    [MaxLength(30)]
     public string? MovieStatus { get; set; }
 }

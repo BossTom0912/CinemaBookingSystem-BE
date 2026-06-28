@@ -142,12 +142,12 @@ public class AdminRefundService : IAdminRefundService
                     if (existingRefund == null)
                     {
                         // Tìm bản ghi thanh toán hợp lệ nhất (ưu tiên trạng thái Success)
-                        var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == "SUCCESS") ?? booking.Payments.FirstOrDefault();
+                        var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.PaymentStatus.Success) ?? booking.Payments.FirstOrDefault();
                         
                         if (payment == null)
                         {
                             payment = await _dbContext.Payments
-                                .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == "SUCCESS", cancellationToken);
+                                .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == DomainConstants.PaymentStatus.Success, cancellationToken);
                             if (payment == null)
                             {
                                 payment = await _dbContext.Payments.FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);

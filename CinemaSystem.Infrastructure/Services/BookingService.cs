@@ -75,12 +75,12 @@ public sealed class BookingService : IBookingService
 
         foreach (var ss in showtimeSeats)
         {
-            if (ss.SeatStatus == "BOOKED")
+            if (ss.SeatStatus == DomainConstants.EntityStatus.Booked)
             {
                 return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is already booked.", "SEAT_ALREADY_BOOKED");
             }
 
-            if (ss.SeatStatus == "LOCKED" && ss.LockedByUserId != userId && ss.LockedUntil > now)
+            if (ss.SeatStatus == DomainConstants.EntityStatus.Locked && ss.LockedByUserId != userId && ss.LockedUntil > now)
             {
                 return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is locked by another user.", "SEAT_LOCKED");
             }
@@ -134,7 +134,7 @@ public sealed class BookingService : IBookingService
             BookingId = bookingId,
             CustomerProfileId = customerProfile.CustomerProfileId,
             ShowtimeId = showtime.ShowtimeId,
-            BookingStatus = "PENDING_PAYMENT",
+            BookingStatus = DomainConstants.EntityStatus.PendingPayment,
             TotalAmount = totalAmount,
             CreatedAt = now,
             ExpiredAt = now.AddMinutes(10),
@@ -146,7 +146,7 @@ public sealed class BookingService : IBookingService
         // Update showtime seats to LOCKED
         foreach (var ss in showtimeSeats)
         {
-            ss.SeatStatus = "LOCKED";
+            ss.SeatStatus = DomainConstants.EntityStatus.Locked;
             ss.LockedUntil = booking.ExpiredAt;
             ss.LockedByUserId = userId;
         }
