@@ -2,8 +2,10 @@
 
 ## 1. Kết quả tổng quát
 
-Ngày thực hiện: 2026-06-28  
-Nhánh test: `Tom/integration-main-manager-admin-test`  
+Ngày thực hiện: 2026-06-28
+
+Nhánh test: `Tom/integration-main-manager-admin-test`
+
 Remote sử dụng: `gitlab`
 
 Kết quả:
