@@ -8,6 +8,17 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// HTTP entry point for registration, OTP verification, login, token rotation,
+/// logout and password recovery.
+/// </summary>
+/// <remarks>
+/// Processing continues through <see cref="IAuthService"/>. Runtime DI maps that
+/// interface to <c>CinemaSystem.Infrastructure.Auth.AuthService</c>, which uses
+/// <c>CinemaDbContext</c>, the password/OTP services, JWT generation and email.
+/// Every action maps the returned <c>ServiceResult</c> to the shared
+/// <c>ApiResponse</c>; business rules must stay in the service, not here.
+/// </remarks>
 [ApiController]
 [Route("api/auth")]
 public sealed class AuthController : ControllerBase

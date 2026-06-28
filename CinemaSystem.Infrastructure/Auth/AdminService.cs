@@ -8,6 +8,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Auth;
 
+/// <summary>
+/// Runtime implementation of Admin account-provisioning use cases.
+/// </summary>
+/// <remarks>
+/// <c>AdminController</c> reaches this class through <see cref="IAdminService"/>.
+/// Staff creation writes USER, STAFF_PROFILE and a hashed invitation token,
+/// then calls <see cref="IEmailService"/>. The invitation is consumed by the
+/// shared reset-password flow in <c>AuthService</c>; this class does not create
+/// Manager accounts on the current main branch.
+/// </remarks>
 public sealed class AdminService : IAdminService
 {
     private const int InvitationTokenExpiryMinutes = 60;

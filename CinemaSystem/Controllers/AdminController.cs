@@ -8,6 +8,17 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Admin-only HTTP entry point for account administration.
+/// </summary>
+/// <remarks>
+/// The current route hands staff provisioning to <see cref="IAdminService"/>.
+/// Runtime DI resolves it to
+/// <c>CinemaSystem.Infrastructure.Auth.AdminService</c>, which writes USER,
+/// STAFF_PROFILE and EMAIL_VERIFICATION_TOKEN before sending the invitation.
+/// Authorization is evaluated before this class through the
+/// <c>CanManageUserAndRole</c> policy configured in <c>Program.cs</c>.
+/// </remarks>
 [ApiController]
 [Route("api/admin")]
 [Authorize(Policy = AuthConstants.Policies.CanManageUserAndRole)]

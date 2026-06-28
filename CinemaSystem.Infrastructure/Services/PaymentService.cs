@@ -11,6 +11,18 @@ using CinemaSystem.Application.Common;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Runtime SePay payment and payment-confirmation implementation reached from
+/// <c>PaymentController</c> through <see cref="IPaymentService"/>.
+/// </summary>
+/// <remarks>
+/// CreatePayment validates booking ownership/provider state and writes PAYMENT.
+/// ConfirmPayment is called after <c>PaymentWebhookService</c> verifies the
+/// webhook; in one database transaction it marks PAYMENT successful, marks the
+/// BOOKING paid, converts SHOWTIME_SEAT locks to booked seats and creates one
+/// TICKET per booking seat. The confirmation path is idempotent for an already
+/// successful payment.
+/// </remarks>
 public class PaymentService : IPaymentService
 {
     private readonly CinemaDbContext _db;

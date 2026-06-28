@@ -8,6 +8,15 @@ using Microsoft.Extensions.Logging;
 
 namespace CinemaSystem.Infrastructure.Data;
 
+/// <summary>
+/// Idempotent application-data seeding invoked through
+/// <c>DatabaseMaintenanceService</c> during Development startup.
+/// </summary>
+/// <remarks>
+/// Seeds role definitions first, then an Admin only when ADMIN_PASSWORD is
+/// provided. Development-only continuation can seed a cinema, F&amp;B inventory
+/// and configured Staff/Customer users. It does not seed a Manager account.
+/// </remarks>
 public static class DbInitializer
 {
     private const string DefaultCinemaId = "CIN_DEV_SEED";

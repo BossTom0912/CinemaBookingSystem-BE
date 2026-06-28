@@ -7,6 +7,15 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Public movie catalogue HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Requests continue through <see cref="IMovieService"/> to
+/// <c>CinemaSystem.Infrastructure.Movies.MovieService</c>. That service queries
+/// MOVIE through <c>CinemaDbContext</c> and applies public visibility rules
+/// before this controller wraps the result in <c>ApiResponse</c>.
+/// </remarks>
 [ApiController]
 [Route("api/movies")]
 public sealed class MoviesController : ControllerBase

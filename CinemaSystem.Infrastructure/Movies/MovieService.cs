@@ -6,6 +6,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Movies;
 
+/// <summary>
+/// Runtime movie-query implementation reached from <c>MoviesController</c> and
+/// reused by <c>GeminiChatbotService</c>.
+/// </summary>
+/// <remarks>
+/// Queries MOVIE with no tracking, applies public visibility rules, projects to
+/// Contracts DTOs, and returns the result to callers through
+/// <c>ServiceResult</c>. Movie administration is not implemented here.
+/// </remarks>
 public sealed class MovieService : IMovieService
 {
     private const string InactiveStatus = "INACTIVE";

@@ -3,6 +3,15 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Diagnostic endpoint used to prove that the API can query the movie table.
+/// </summary>
+/// <remarks>
+/// The call continues through <see cref="ICinemaDiagnosticsService"/> to
+/// <c>CinemaSystem.Infrastructure.Persistence.CinemaDiagnosticsService</c>,
+/// which executes the MOVIE count through <c>CinemaDbContext</c>. This is not a
+/// business use case endpoint.
+/// </remarks>
 [ApiController]
 [Route("api/db-test")]
 public class DbTestController : ControllerBase

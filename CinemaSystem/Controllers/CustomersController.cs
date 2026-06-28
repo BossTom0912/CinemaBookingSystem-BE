@@ -8,6 +8,15 @@ using System.Security.Claims;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Authenticated user profile, credential and booking-history HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Actions extract the user id from the JWT and hand processing to
+/// <see cref="ICustomerService"/>. Runtime DI maps it to
+/// <c>CinemaSystem.Infrastructure.Services.CustomerService</c>, which accesses
+/// USER, CUSTOMER_PROFILE, EMAIL_VERIFICATION_TOKEN and booking relations.
+/// </remarks>
 [ApiController]
 [Route("api/customer")]
 [Authorize]

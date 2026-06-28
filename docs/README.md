@@ -21,6 +21,9 @@ agents discover them there automatically.
 - [`architecture/clean-architecture-notes.md`](architecture/clean-architecture-notes.md)
 - [`architecture/context-diagram-en.md`](architecture/context-diagram-en.md)
 - [`architecture/context-diagram-vi.md`](architecture/context-diagram-vi.md)
+- [`architecture/implemented-features-and-class-flow-vi.md`](architecture/implemented-features-and-class-flow-vi.md):
+  current implementation inventory, role/login explanation, use-case status,
+  and Controller-to-Service-to-database flow map for the team.
 
 ## API Contracts
 

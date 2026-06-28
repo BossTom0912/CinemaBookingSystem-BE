@@ -8,6 +8,16 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Public showtime query and Manager/Admin showtime CRUD HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Actions continue through <see cref="IShowtimeService"/> to
+/// <c>CinemaSystem.Infrastructure.Showtimes.ShowtimeService</c>. The service
+/// validates movie/room availability and overlap, then reads or writes
+/// SHOWTIME and SHOWTIME_SEAT through <c>CinemaDbContext</c>. Delete here is not
+/// the cancel-showtime/refund use case.
+/// </remarks>
 [ApiController]
 [Route("api/showtimes")]
 public sealed class ShowtimesController : ControllerBase

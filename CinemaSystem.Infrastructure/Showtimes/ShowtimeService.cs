@@ -7,6 +7,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
+/// <summary>
+/// Runtime showtime query/CRUD implementation reached from
+/// <c>ShowtimesController</c> and queried by <c>GeminiChatbotService</c>.
+/// </summary>
+/// <remarks>
+/// Uses MOVIE, CINEMA, ROOM, SEAT, SHOWTIME and SHOWTIME_SEAT through
+/// <c>CinemaDbContext</c>. Create/update validate availability and overlap;
+/// create generates per-showtime seats. Direct delete is allowed only before
+/// bookings/refunds exist and must not be confused with cancel/refund UC003.
+/// </remarks>
 public sealed class ShowtimeService : IShowtimeService
 {
     private const int BufferMinutes = 15;

@@ -5,6 +5,17 @@ using CinemaSystem.Application.Interfaces;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// SePay webhook orchestration reached from
+/// <c>PaymentController.SepayWebhook</c>.
+/// </summary>
+/// <remarks>
+/// The service validates required headers, delegates HMAC verification to
+/// <see cref="IWebhookSignatureVerifier"/>, deserializes the provider payload,
+/// then hands the state-changing transaction to
+/// <see cref="IPaymentService.ConfirmPaymentAsync"/>. It does not write the
+/// database directly.
+/// </remarks>
 public sealed class PaymentWebhookService : IPaymentWebhookService
 {
     private readonly IWebhookSignatureVerifier _signatureVerifier;

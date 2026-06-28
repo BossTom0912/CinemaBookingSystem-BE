@@ -8,6 +8,17 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Runtime seat CRUD, seat-map and temporary-lock implementation reached from
+/// <c>SeatsController</c> through <see cref="ISeatService"/>.
+/// </summary>
+/// <remarks>
+/// Persistent seat state lives in SEAT/SHOWTIME_SEAT through
+/// <c>CinemaDbContext</c>. A lock is first acquired through
+/// <see cref="ISeatLockStore"/> (Redis or in-process), then recorded in
+/// SHOWTIME_SEAT. On database failure the distributed/in-memory lock is
+/// released before the exception is propagated.
+/// </remarks>
 public sealed class SeatService : ISeatService
 {
     private const string ActionCreate = "CREATE";

@@ -8,6 +8,14 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Public cinema catalogue HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Processing continues through <see cref="ICinemaService"/> to
+/// <c>CinemaSystem.Infrastructure.Cinemas.CinemaService</c>, which reads CINEMA
+/// with <c>CinemaDbContext</c>. This controller only maps the contract response.
+/// </remarks>
 [ApiController]
 [Route("api/cinemas")]
 public sealed class CinemasController : ControllerBase

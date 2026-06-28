@@ -6,6 +6,14 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Test-only style endpoints that demonstrate role-policy enforcement.
+/// </summary>
+/// <remarks>
+/// Authorization is completed by ASP.NET before these actions execute. The
+/// methods do not hand off to an Infrastructure service; they only return the
+/// claims produced by <c>JwtTokenService</c>.
+/// </remarks>
 [ApiController]
 [Route("api/auth-test")]
 public sealed class AuthPolicyTestController : ControllerBase

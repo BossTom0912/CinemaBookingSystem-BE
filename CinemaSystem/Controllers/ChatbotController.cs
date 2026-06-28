@@ -7,6 +7,16 @@ using System.Threading.Tasks;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Chatbot HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Processing continues through <see cref="IChatbotService"/> to
+/// <c>CinemaSystem.Infrastructure.Services.GeminiChatbotService</c>. That class
+/// loads movie/showtime context through their Application interfaces and then
+/// calls the configured Google Gemini endpoint. Chat history is not persisted
+/// on the current main branch.
+/// </remarks>
 [ApiController]
 [Route("api/[controller]")]
 public class ChatbotController : ControllerBase

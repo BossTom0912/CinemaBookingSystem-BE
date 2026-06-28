@@ -8,6 +8,17 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Customer booking and checkout HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Create/detail/history calls continue through <see cref="IBookingService"/>
+/// to <c>CinemaSystem.Infrastructure.Services.BookingService</c>. The richer
+/// checkout route continues through <see cref="ICheckoutService"/> to
+/// <c>CinemaSystem.Infrastructure.Bookings.CheckoutService</c>, where seat,
+/// food, voucher and booking rows are validated and committed in a transaction.
+/// Payment is a separate next step handled by <c>PaymentController</c>.
+/// </remarks>
 [ApiController]
 [Route("api/bookings")]
 [Authorize(Policy = AuthConstants.Policies.CanBookTicket)]

@@ -9,6 +9,15 @@ using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Runtime chatbot implementation reached from <c>ChatbotController</c>.
+/// </summary>
+/// <remarks>
+/// Loads current public movie/showtime context through
+/// <see cref="IMovieService"/> and <see cref="IShowtimeService"/>, then calls
+/// Google Gemini with the configured API key. The response returns directly to
+/// the controller; chat history is not persisted by this implementation.
+/// </remarks>
 public class GeminiChatbotService : IChatbotService
 {
     private static readonly HttpClient _httpClient = new HttpClient();

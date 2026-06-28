@@ -8,6 +8,16 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Seat CRUD, seat-map and temporary seat-lock HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Processing continues through <see cref="ISeatService"/> to
+/// <c>CinemaSystem.Infrastructure.Services.SeatService</c>. CRUD and seat-map
+/// state use <c>CinemaDbContext</c>; lock/unlock also calls
+/// <c>ISeatLockStore</c>, resolved to Redis when configured and otherwise to the
+/// in-process lock store. Booking/checkout consumes the resulting lock state.
+/// </remarks>
 [ApiController]
 [Route("api/seats")]
 public sealed class SeatsController : ControllerBase

@@ -11,6 +11,16 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace CinemaSystem.Infrastructure.Identity;
 
+/// <summary>
+/// Creates signed access tokens and cryptographically random refresh-token
+/// values for <c>AuthService</c>.
+/// </summary>
+/// <remarks>
+/// Role names are normalized before being written to JWT claims. After this
+/// class returns, <c>AuthService</c> hashes and persists the refresh token;
+/// <c>Program.cs</c> later validates access-token signature/lifetime and uses
+/// the role claim for authorization policies.
+/// </remarks>
 public sealed class JwtTokenService : IJwtTokenService
 {
     private readonly JwtSettings _settings;

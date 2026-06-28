@@ -13,6 +13,17 @@ using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Bookings;
 
+/// <summary>
+/// Runtime implementation of the transactional checkout use case reached from
+/// <c>BookingsController.Checkout</c> through <see cref="ICheckoutService"/>.
+/// </summary>
+/// <remarks>
+/// Within a SQL transaction this class validates the customer, showtime cutoff,
+/// seat-lock ownership, F&amp;B inventory and voucher rules, then creates
+/// BOOKING/BOOKING_SEAT plus optional BOOKING_FB_ITEM/VOUCHER_USAGE records.
+/// It returns a PENDING_PAYMENT booking; SePay payment and ticket issuance are
+/// handled afterward by <c>PaymentService</c>.
+/// </remarks>
 public sealed class CheckoutService : ICheckoutService
 {
     private readonly CinemaDbContext _dbContext;

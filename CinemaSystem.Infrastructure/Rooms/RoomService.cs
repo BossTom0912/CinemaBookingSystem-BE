@@ -8,6 +8,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Rooms;
 
+/// <summary>
+/// Runtime room CRUD and bulk seat-generation implementation reached from
+/// <c>RoomsController</c> through <see cref="IRoomService"/>.
+/// </summary>
+/// <remarks>
+/// Validates CINEMA/ROOM state, reads and writes ROOM/SEAT with
+/// <c>CinemaDbContext</c>, and returns contract DTOs through
+/// <c>ServiceResult</c>. Delete is a room soft delete; it does not trigger
+/// showtime cancellation or refund orchestration.
+/// </remarks>
 public sealed class RoomService : IRoomService
 {
     private const string DefaultSeatTypeId = "SEAT_TYPE_STANDARD";

@@ -6,6 +6,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Cinemas;
 
+/// <summary>
+/// Runtime cinema-query implementation reached from <c>CinemasController</c>.
+/// </summary>
+/// <remarks>
+/// Reads CINEMA through <c>CinemaDbContext</c>, projects database entities to
+/// Contracts DTOs and returns them through <c>ServiceResult</c>. This service
+/// currently exposes queries only, not cinema administration.
+/// </remarks>
 public sealed class CinemaService : ICinemaService
 {
     private readonly CinemaDbContext _dbContext;

@@ -21,6 +21,17 @@ namespace CinemaSystem.Infrastructure.Extensions;
 
 public static class DependencyInjection
 {
+    /// <summary>
+    /// Composition root for Infrastructure implementations.
+    /// </summary>
+    /// <remarks>
+    /// Controllers depend only on Application interfaces. This method defines
+    /// which concrete class receives each call at runtime, for example
+    /// IAuthService -> AuthService -> CinemaDbContext and
+    /// IPaymentWebhookService -> PaymentWebhookService -> IPaymentService.
+    /// Change an implementation here rather than constructing Infrastructure
+    /// services inside controllers.
+    /// </remarks>
     public static IServiceCollection AddInfrastructureServices(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -76,6 +87,9 @@ public static class DependencyInjection
             options.UseSqlServer(defaultConnection);
         });
 
+        // Controller-to-service handoff map. Each interface below is injected
+        // into the matching controller; the concrete class performs the use
+        // case and continues to CinemaDbContext or an external adapter.
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICheckoutService, CheckoutService>();
         services.AddScoped<IAdminService, AdminService>();

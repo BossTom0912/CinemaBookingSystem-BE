@@ -10,6 +10,17 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Customer payment creation and SePay webhook HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Payment creation continues through <see cref="IPaymentService"/> to
+/// <c>CinemaSystem.Infrastructure.Services.PaymentService</c>. Webhooks first
+/// continue through <see cref="IPaymentWebhookService"/> to
+/// <c>PaymentWebhookService</c>, then signature verification calls back into
+/// <c>PaymentService.ConfirmPaymentAsync</c> to update PAYMENT, BOOKING,
+/// SHOWTIME_SEAT and TICKET in a transaction.
+/// </remarks>
 [ApiController]
 [Route("api/[controller]")]
 public class PaymentController : ControllerBase

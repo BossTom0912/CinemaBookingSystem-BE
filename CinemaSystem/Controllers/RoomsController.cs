@@ -8,6 +8,16 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Room query, room CRUD and bulk seat-generation HTTP entry point.
+/// </summary>
+/// <remarks>
+/// Each action hands processing to <see cref="IRoomService"/>. Runtime DI maps
+/// it to <c>CinemaSystem.Infrastructure.Rooms.RoomService</c>, which validates
+/// CINEMA/ROOM/SEAT state and commits changes through <c>CinemaDbContext</c>.
+/// Role checks happen before the action; cinema-scope checks are not currently
+/// implemented by this controller or service.
+/// </remarks>
 [ApiController]
 [Route("api/rooms")]
 public sealed class RoomsController : ControllerBase

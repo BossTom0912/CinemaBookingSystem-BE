@@ -227,6 +227,11 @@ if (!app.Environment.IsDevelopment())
 
 app.UseCors("FrontendCors");
 
+// Request handoff order: JwtBearer first builds User/role claims from the
+// access token; authorization policies then decide whether the selected
+// controller action may run. An accepted action continues through an
+// Application interface to the Infrastructure implementation registered by
+// DependencyInjection.AddInfrastructureServices above.
 app.UseAuthentication();
 app.UseAuthorization();
 

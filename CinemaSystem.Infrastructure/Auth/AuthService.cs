@@ -12,6 +12,18 @@ using System.Text;
 
 namespace CinemaSystem.Infrastructure.Auth;
 
+/// <summary>
+/// Runtime implementation of the public authentication use cases exposed by
+/// <c>AuthController</c> through <see cref="IAuthService"/>.
+/// </summary>
+/// <remarks>
+/// This is the authentication business/persistence boundary: it validates
+/// account and OTP state in USER/ROLE/EMAIL_VERIFICATION_TOKEN, delegates secret
+/// verification to <see cref="IPasswordHasher"/>, delegates JWT creation to
+/// <see cref="IJwtTokenService"/>, persists refresh-token hashes, and delegates
+/// outbound OTP delivery to <see cref="IEmailSender"/>. Results return to the
+/// controller as <c>ServiceResult</c>.
+/// </remarks>
 public sealed class AuthService : IAuthService
 {
     private const int OtpExpirySeconds = 120;

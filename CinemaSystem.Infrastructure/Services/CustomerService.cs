@@ -12,6 +12,17 @@ using System.Threading.Tasks;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Runtime implementation for authenticated profile and customer-history
+/// operations reached from <c>CustomersController</c>.
+/// </summary>
+/// <remarks>
+/// Profile/password/email changes use USER, CUSTOMER_PROFILE and
+/// EMAIL_VERIFICATION_TOKEN through <c>CinemaDbContext</c>. Email-change OTPs
+/// are hashed through <see cref="IPasswordHasher"/> and sent through
+/// <see cref="IEmailSender"/>. Booking history follows EF relationships from
+/// BOOKING to showtime, movie, cinema, room and seat.
+/// </remarks>
 public sealed class CustomerService : ICustomerService
 {
     private const int OtpExpirySeconds = 120;

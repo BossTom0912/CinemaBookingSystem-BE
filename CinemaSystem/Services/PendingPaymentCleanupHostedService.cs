@@ -6,6 +6,15 @@ using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Services;
 
+/// <summary>
+/// Background continuation of the booking lifecycle for abandoned payments.
+/// </summary>
+/// <remarks>
+/// Registered by <c>Program.cs</c>. On startup and at the configured interval,
+/// it creates a DI scope, resolves <c>CinemaDbContext</c>, finds expired
+/// PENDING_PAYMENT bookings, releases SHOWTIME_SEAT locks and removes dependent
+/// voucher/F&amp;B/payment/booking rows in one EF unit of work.
+/// </remarks>
 public sealed class PendingPaymentCleanupHostedService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
