@@ -5,6 +5,10 @@ public static class BookingConstants
     public static class BookingStatus
     {
         public const string PendingPayment = "PENDING_PAYMENT";
+        public const string Cancelled = "CANCELLED";
+        public const string Paid = "PAID";
+        public const string Completed = "COMPLETED";
+        public const string PendingRefund = "REFUND_PENDING";
     }
 
     public static class BookingChannel
@@ -21,6 +25,7 @@ public static class BookingConstants
     {
         public const string Locked = "LOCKED";
         public const string Available = "AVAILABLE";
+        public const string Booked = "BOOKED";
     }
 
     public static class ResourceStatus

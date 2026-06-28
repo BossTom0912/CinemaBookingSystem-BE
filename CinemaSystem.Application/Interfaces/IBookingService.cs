@@ -22,6 +22,11 @@ public interface IBookingService
         string userId,
         CancellationToken cancellationToken);
 
+    Task<ServiceResult<bool>> CancelPendingBookingAsync(
+        string bookingId,
+        string userId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<bool>> ConfirmTimeChangeAsync(
         string bookingId,
         bool accept,

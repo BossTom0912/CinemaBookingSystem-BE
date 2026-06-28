@@ -31,6 +31,8 @@ public sealed class BookingService : IBookingService
         string userId,
         CancellationToken cancellationToken)
     {
+        await CancelExpiredPendingBookingsAsync(request.ShowtimeId, null, cancellationToken);
+
         var customerProfile = await _dbContext.CustomerProfiles
             .FirstOrDefaultAsync(cp => cp.UserId == userId, cancellationToken);
 
@@ -56,6 +58,7 @@ public sealed class BookingService : IBookingService
         }
 
         var showtimeSeats = await _dbContext.ShowtimeSeats
+            .Include(ss => ss.BookingSeat)
             .Include(ss => ss.Seat)
             .ThenInclude(s => s.SeatType)
             .Where(ss => request.ShowtimeSeatIds.Contains(ss.ShowtimeSeatId) && ss.ShowtimeId == request.ShowtimeId)
@@ -75,6 +78,11 @@ public sealed class BookingService : IBookingService
 
         foreach (var ss in showtimeSeats)
         {
+            if (ss.BookingSeat != null)
+            {
+                return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is already booked.", "SEAT_ALREADY_BOOKED");
+            }
+
             if (ss.SeatStatus == "BOOKED")
             {
                 return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is already booked.", "SEAT_ALREADY_BOOKED");
@@ -174,6 +182,8 @@ public sealed class BookingService : IBookingService
         string userId,
         CancellationToken cancellationToken)
     {
+        await CancelExpiredPendingBookingsAsync(null, userId, cancellationToken);
+
         var booking = await _dbContext.Bookings
             .Include(b => b.Showtime)
                 .ThenInclude(s => s.Movie)
@@ -199,6 +209,11 @@ public sealed class BookingService : IBookingService
         if (booking.CustomerProfile?.UserId != userId)
         {
             return ServiceResult<BookingDetailsResponse>.Fail(403, "You do not have permission to view this booking.", "FORBIDDEN");
+        }
+
+        if (string.Equals(booking.BookingStatus, BookingConstants.BookingStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(404, "Booking has been cancelled.", "BOOKING_CANCELLED");
         }
 
         return ServiceResult<BookingDetailsResponse>.Ok(new BookingDetailsResponse
@@ -236,9 +251,14 @@ public sealed class BookingService : IBookingService
         string userId,
         CancellationToken cancellationToken)
     {
+        await CancelExpiredPendingBookingsAsync(null, userId, cancellationToken);
+
         var bookings = await _dbContext.Bookings
             .Include(b => b.CustomerProfile)
-            .Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId)
+            .Where(b =>
+                b.CustomerProfile != null
+                && b.CustomerProfile.UserId == userId
+                && b.BookingStatus != BookingConstants.BookingStatus.Cancelled)
             .OrderByDescending(b => b.CreatedAt)
             .Select(b => new BookingResponse
             {
@@ -256,6 +276,45 @@ public sealed class BookingService : IBookingService
             .ToListAsync(cancellationToken);
 
         return ServiceResult<IReadOnlyList<BookingResponse>>.Ok(bookings, "My bookings retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<bool>> CancelPendingBookingAsync(
+        string bookingId,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var booking = await _dbContext.Bookings
+            .Include(b => b.CustomerProfile)
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.ShowtimeSeat)
+            .Include(b => b.Payments)
+            .Include(b => b.VoucherUsage)
+            .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
+
+        if (booking == null)
+        {
+            return ServiceResult<bool>.Fail(404, "Booking not found.", "BOOKING_NOT_FOUND");
+        }
+
+        if (booking.CustomerProfile?.UserId != userId)
+        {
+            return ServiceResult<bool>.Fail(403, "You do not have permission to cancel this booking.", "FORBIDDEN");
+        }
+
+        if (string.Equals(booking.BookingStatus, BookingConstants.BookingStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<bool>.Ok(true, "Booking has already been cancelled.");
+        }
+
+        if (!string.Equals(booking.BookingStatus, BookingConstants.BookingStatus.PendingPayment, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<bool>.Fail(409, "Only pending payment bookings can be cancelled.", "BOOKING_NOT_PENDING_PAYMENT");
+        }
+
+        CancelPendingBookingEntity(booking, _clock.UtcNow, DomainConstants.PaymentStatus.Cancelled);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(true, "Booking cancelled and seats released successfully.");
     }
 
     public async Task<ServiceResult<bool>> ConfirmTimeChangeAsync(
@@ -331,6 +390,77 @@ public sealed class BookingService : IBookingService
             _dbContext.Refunds.Add(refund);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return ServiceResult<bool>.Ok(true, "Time change rejected. Refund initiated.");
+        }
+    }
+
+    private async Task CancelExpiredPendingBookingsAsync(
+        string? showtimeId,
+        string? userId,
+        CancellationToken cancellationToken)
+    {
+        var now = _clock.UtcNow;
+        var query = _dbContext.Bookings
+            .Include(b => b.CustomerProfile)
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.ShowtimeSeat)
+            .Include(b => b.Payments)
+            .Include(b => b.VoucherUsage)
+            .Where(b =>
+                b.BookingStatus == BookingConstants.BookingStatus.PendingPayment
+                && b.ExpiredAt.HasValue
+                && b.ExpiredAt.Value <= now);
+
+        if (!string.IsNullOrWhiteSpace(showtimeId))
+        {
+            query = query.Where(b => b.ShowtimeId == showtimeId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            query = query.Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId);
+        }
+
+        var expiredBookings = await query.ToListAsync(cancellationToken);
+        if (expiredBookings.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var booking in expiredBookings)
+        {
+            CancelPendingBookingEntity(booking, now, DomainConstants.PaymentStatus.Expired);
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private void CancelPendingBookingEntity(
+        Booking booking,
+        DateTime cancelledAt,
+        string paymentStatus)
+    {
+        booking.BookingStatus = BookingConstants.BookingStatus.Cancelled;
+        booking.ExpiredAt = cancelledAt;
+
+        foreach (var bookingSeat in booking.BookingSeats.ToList())
+        {
+            bookingSeat.ShowtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Available;
+            bookingSeat.ShowtimeSeat.LockedUntil = null;
+            bookingSeat.ShowtimeSeat.LockedByUserId = null;
+        }
+
+        _dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
+
+        foreach (var payment in booking.Payments.Where(payment =>
+                     string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase)))
+        {
+            payment.PaymentStatus = paymentStatus;
+            payment.UpdatedAt = cancelledAt;
+        }
+
+        if (booking.VoucherUsage is not null)
+        {
+            booking.VoucherUsage.UsageStatus = "CANCELLED";
         }
     }
 

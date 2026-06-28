@@ -97,6 +97,32 @@ public sealed class BookingsController : ControllerBase
         return StatusCode(result.StatusCode, response);
     }
 
+    [HttpPost("{bookingId}/cancel")]
+    public async Task<IActionResult> CancelPendingBooking(
+        string bookingId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _bookingService.CancelPendingBookingAsync(
+            bookingId,
+            userId,
+            cancellationToken);
+
+        var response = result.Success
+            ? ApiResponse<bool>.Ok(result.Data, result.Message)
+            : ApiResponse<bool>.Fail(
+                result.Message,
+                result.ErrorCode,
+                result.Errors);
+
+        return StatusCode(result.StatusCode, response);
+    }
+
     [HttpGet("{bookingId}/confirm-time-change")]
     [AllowAnonymous]
     public async Task<IActionResult> ConfirmTimeChange(

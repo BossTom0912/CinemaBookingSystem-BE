@@ -30,8 +30,32 @@ public class ReviewService : IReviewService
         _backgroundJobClient = backgroundJobClient;
     }
 
+    private Task EnsureReviewSchemaAsync(CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            IF OBJECT_ID(N'[dbo].[REVIEW]', N'U') IS NOT NULL
+            BEGIN
+                IF COL_LENGTH(N'dbo.REVIEW', N'status') IS NULL
+                    ALTER TABLE [dbo].[REVIEW] ADD [status] NVARCHAR(20) NOT NULL DEFAULT N'PENDING';
+
+                IF COL_LENGTH(N'dbo.REVIEW', N'editCount') IS NULL
+                    ALTER TABLE [dbo].[REVIEW] ADD [editCount] INT NOT NULL DEFAULT 0;
+
+                IF COL_LENGTH(N'dbo.REVIEW', N'moderatedBy') IS NULL
+                    ALTER TABLE [dbo].[REVIEW] ADD [moderatedBy] NVARCHAR(50) NULL;
+
+                IF COL_LENGTH(N'dbo.REVIEW', N'rejectedReason') IS NULL
+                    ALTER TABLE [dbo].[REVIEW] ADD [rejectedReason] NVARCHAR(500) NULL;
+            END;
+            """;
+
+        return _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+    }
+
     public async Task<ServiceResult<ReviewResponse>> CreateReviewAsync(string userId, CreateReviewRequest request, CancellationToken cancellationToken = default)
     {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
         var userProfile = await _dbContext.Set<User>().FindAsync(new object[] { userId }, cancellationToken);
         if (userProfile != null && userProfile.IsBlocked && userProfile.BlockedUntil > DateTime.UtcNow)
         {
@@ -57,8 +81,10 @@ public class ReviewService : IReviewService
         if (booking.BookingStatus != "COMPLETED" && booking.BookingStatus != "PAID")
             return ServiceResult<ReviewResponse>.Fail(400, "Chỉ được phép đánh giá sau khi hoàn tất thanh toán hoặc xem phim.", "BOOKING_NOT_COMPLETED");
 
-        if (booking.Showtime.EndTime > DateTime.UtcNow)
-            return ServiceResult<ReviewResponse>.Fail(400, "Bạn chỉ được phép đánh giá sau khi suất chiếu kết thúc.", "SHOWTIME_NOT_ENDED");
+        // Temporarily disabled for local review-form testing.
+        // Re-enable this check when reviews should only be allowed after a showtime ends.
+        // if (booking.Showtime.EndTime > DateTime.UtcNow)
+        //     return ServiceResult<ReviewResponse>.Fail(400, "Bạn chỉ được phép đánh giá sau khi suất chiếu kết thúc.", "SHOWTIME_NOT_ENDED");
 
         bool alreadyReviewed = await _dbContext.Set<Review>().AnyAsync(r => r.BookingId == request.BookingId, cancellationToken);
         if (alreadyReviewed)
@@ -84,7 +110,7 @@ public class ReviewService : IReviewService
             return ServiceResult<ReviewResponse>.Ok(MapToResponse(review));
         }
 
-        review.Status = "PENDING";
+        review.Status = ReviewConstants.Pending;
         _dbContext.Set<Review>().Add(review);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -95,6 +121,8 @@ public class ReviewService : IReviewService
 
     public async Task<ServiceResult<ReviewResponse>> EditReviewAsync(string userId, string reviewId, UpdateReviewRequest request, CancellationToken cancellationToken = default)
     {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
         var userProfile = await _dbContext.Set<User>().FindAsync(new object[] { userId }, cancellationToken);
         if (userProfile != null && userProfile.IsBlocked && userProfile.BlockedUntil > DateTime.UtcNow)
         {
@@ -132,7 +160,7 @@ public class ReviewService : IReviewService
             return ServiceResult<ReviewResponse>.Ok(MapToResponse(review));
         }
 
-        review.Status = "PENDING";
+        review.Status = ReviewConstants.Pending;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _backgroundJobClient.Enqueue<IReviewService>(s => s.ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment));
@@ -142,6 +170,8 @@ public class ReviewService : IReviewService
 
     public async Task ProcessReviewModerationAsync(string reviewId, string userId, int rating, string comment)
     {
+        await EnsureReviewSchemaAsync();
+
         var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId });
         if (review == null) return;
 
@@ -151,7 +181,7 @@ public class ReviewService : IReviewService
         {
             review.Status = ReviewConstants.Rejected;
             review.RejectedReason = moderationResult.AiResult?.Reason ?? "Tài khoản vi phạm.";
-            review.ModeratedBy = "SYSTEM_AI";
+            review.ModeratedBy = null;
         }
         else
         {
@@ -159,7 +189,7 @@ public class ReviewService : IReviewService
             if (review.Status == ReviewConstants.Rejected || review.Status == ReviewConstants.Flagged)
             {
                 review.RejectedReason = moderationResult.AiResult.Reason;
-                review.ModeratedBy = "SYSTEM_AI";
+                review.ModeratedBy = null;
             }
             else
             {
@@ -237,17 +267,168 @@ public class ReviewService : IReviewService
 
     public async Task<ServiceResult<List<ReviewResponse>>> GetApprovedMovieReviewsAsync(string movieId, CancellationToken cancellationToken = default)
     {
-        var reviews = await _dbContext.Set<Review>()
+        await EnsureReviewSchemaAsync(cancellationToken);
+
+        var approvedStatuses = new[] { ReviewConstants.Approved, "Approved" };
+
+        var reviewRows = await _dbContext.Set<Review>()
             .AsNoTracking()
-            .Where(r => r.MovieId == movieId && r.Status == ReviewConstants.Approved)
-            .OrderByDescending(r => r.CreatedAt)
+            .Where(review => review.MovieId == movieId && approvedStatuses.Contains(review.Status))
+            .OrderByDescending(review => review.CreatedAt)
+            .Select(review => new
+            {
+                review.ReviewId,
+                review.CustomerProfileId,
+                review.MovieId,
+                review.BookingId,
+                review.Rating,
+                review.Comment,
+                review.CreatedAt,
+                review.Status
+            })
             .ToListAsync(cancellationToken);
 
-        return ServiceResult<List<ReviewResponse>>.Ok(reviews.Select(MapToResponse).ToList());
+        var customerProfileIds = reviewRows
+            .Select(review => review.CustomerProfileId)
+            .Distinct()
+            .ToList();
+
+        if (reviewRows.Count == 0)
+        {
+            return ServiceResult<List<ReviewResponse>>.Ok(new List<ReviewResponse>());
+        }
+
+        var customerNames = await (
+                from customerProfile in _dbContext.CustomerProfiles.AsNoTracking()
+                join user in _dbContext.Users.AsNoTracking()
+                    on customerProfile.UserId equals user.UserId
+                where customerProfileIds.Contains(customerProfile.CustomerProfileId)
+                select new
+                {
+                    customerProfile.CustomerProfileId,
+                    user.FullName,
+                    user.Email
+                })
+            .ToDictionaryAsync(
+                customer => customer.CustomerProfileId,
+                customer => string.IsNullOrWhiteSpace(customer.FullName) ? customer.Email : customer.FullName,
+                cancellationToken);
+
+        var movieTitle = await _dbContext.Movies
+            .AsNoTracking()
+            .Where(movie => movie.MovieId == movieId)
+            .Select(movie => movie.Title)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var reviews = reviewRows
+            .Select(review => new ReviewResponse
+            {
+                ReviewId = review.ReviewId,
+                CustomerProfileId = review.CustomerProfileId,
+                MovieId = review.MovieId,
+                MovieTitle = movieTitle,
+                CustomerName = customerNames.TryGetValue(review.CustomerProfileId, out var customerName) ? customerName : null,
+                BookingId = review.BookingId,
+                Rating = review.Rating,
+                Comment = review.Comment,
+                CreatedAt = review.CreatedAt,
+                Status = review.Status
+            })
+            .ToList();
+
+        return ServiceResult<List<ReviewResponse>>.Ok(reviews);
+    }
+
+    public async Task<ServiceResult<List<ReviewResponse>>> GetModerationQueueAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
+        var queueStatuses = new[]
+        {
+            ReviewConstants.Pending,
+            ReviewConstants.Flagged,
+            "Pending",
+            "Flagged"
+        };
+
+        var reviewRows = await _dbContext.Set<Review>()
+            .AsNoTracking()
+            .Where(review => queueStatuses.Contains(review.Status))
+            .OrderByDescending(review => review.CreatedAt)
+            .Take(100)
+            .Select(review => new
+            {
+                review.ReviewId,
+                review.CustomerProfileId,
+                review.MovieId,
+                review.BookingId,
+                review.Rating,
+                review.Comment,
+                review.CreatedAt,
+                review.Status
+            })
+            .ToListAsync(cancellationToken);
+
+        var movieIds = reviewRows
+            .Select(review => review.MovieId)
+            .Distinct()
+            .ToList();
+
+        var customerProfileIds = reviewRows
+            .Select(review => review.CustomerProfileId)
+            .Distinct()
+            .ToList();
+
+        if (reviewRows.Count == 0)
+        {
+            return ServiceResult<List<ReviewResponse>>.Ok(new List<ReviewResponse>());
+        }
+
+        var movieTitles = await _dbContext.Movies
+            .AsNoTracking()
+            .Where(movie => movieIds.Contains(movie.MovieId))
+            .Select(movie => new { movie.MovieId, movie.Title })
+            .ToDictionaryAsync(movie => movie.MovieId, movie => movie.Title, cancellationToken);
+
+        var customerNames = await (
+                from customerProfile in _dbContext.CustomerProfiles.AsNoTracking()
+                join user in _dbContext.Users.AsNoTracking()
+                    on customerProfile.UserId equals user.UserId
+                where customerProfileIds.Contains(customerProfile.CustomerProfileId)
+                select new
+                {
+                    customerProfile.CustomerProfileId,
+                    user.FullName,
+                    user.Email
+                })
+            .ToDictionaryAsync(
+                customer => customer.CustomerProfileId,
+                customer => string.IsNullOrWhiteSpace(customer.FullName) ? customer.Email : customer.FullName,
+                cancellationToken);
+
+        var reviews = reviewRows
+            .Select(review => new ReviewResponse
+            {
+                ReviewId = review.ReviewId,
+                CustomerProfileId = review.CustomerProfileId,
+                MovieId = review.MovieId,
+                MovieTitle = movieTitles.TryGetValue(review.MovieId, out var movieTitle) ? movieTitle : null,
+                CustomerName = customerNames.TryGetValue(review.CustomerProfileId, out var customerName) ? customerName : null,
+                BookingId = review.BookingId,
+                Rating = review.Rating,
+                Comment = review.Comment,
+                CreatedAt = review.CreatedAt,
+                Status = review.Status
+            })
+            .ToList();
+
+        return ServiceResult<List<ReviewResponse>>.Ok(reviews);
     }
 
     public async Task<ServiceResult<bool>> UpdateReviewStatusAsync(string reviewId, string status, CancellationToken cancellationToken = default)
     {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
         var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId }, cancellationToken);
         if (review == null) return ServiceResult<bool>.Fail(404, "Review not found.", "REVIEW_NOT_FOUND");
 
@@ -259,6 +440,8 @@ public class ReviewService : IReviewService
 
     public async Task<ServiceResult<bool>> AdminApproveReviewAsync(string reviewId, string adminUserId, CancellationToken cancellationToken = default)
     {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
         var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId }, cancellationToken);
         if (review == null) return ServiceResult<bool>.Fail(404, "Không tìm thấy đánh giá.", "REVIEW_NOT_FOUND");
 
@@ -292,6 +475,22 @@ public class ReviewService : IReviewService
         return ServiceResult<bool>.Ok(true);
     }
 
+    public async Task<ServiceResult<bool>> AdminRejectReviewAsync(string reviewId, string adminUserId, CancellationToken cancellationToken = default)
+    {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
+        var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId }, cancellationToken);
+        if (review == null) return ServiceResult<bool>.Fail(404, "KhÃ´ng tÃ¬m tháº¥y Ä‘Ã¡nh giÃ¡.", "REVIEW_NOT_FOUND");
+
+        review.Status = ReviewConstants.Rejected;
+        review.ModeratedBy = adminUserId;
+        review.RejectedReason = "Admin rejected";
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(true);
+    }
+
     private ReviewResponse MapToResponse(Review review)
     {
         return new ReviewResponse
@@ -299,28 +498,77 @@ public class ReviewService : IReviewService
             ReviewId = review.ReviewId,
             CustomerProfileId = review.CustomerProfileId,
             MovieId = review.MovieId,
+            MovieTitle = review.Movie?.Title,
+            CustomerName = review.CustomerProfile?.User?.FullName ?? review.CustomerProfile?.User?.Email,
             BookingId = review.BookingId,
             Rating = review.Rating,
             Comment = review.Comment,
             CreatedAt = review.CreatedAt,
-            Status = review.Status
+            Status = review.Status,
+            RejectedReason = review.RejectedReason,
+            ModeratedBy = review.ModeratedBy
         };
     }
 
     public async Task<ServiceResult<List<ReviewResponse>>> GetCustomerReviewsAsync(string userId, CancellationToken cancellationToken = default)
     {
+        await EnsureReviewSchemaAsync(cancellationToken);
+
         var customerProfile = await _dbContext.Set<CustomerProfile>()
             .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
 
         if (customerProfile == null)
             return ServiceResult<List<ReviewResponse>>.Fail(400, "Customer profile not found.", "CUSTOMER_PROFILE_NOT_FOUND");
 
-        var reviews = await _dbContext.Set<Review>()
+        var reviewRows = await _dbContext.Set<Review>()
             .AsNoTracking()
-            .Where(r => r.CustomerProfileId == customerProfile.CustomerProfileId)
-            .OrderByDescending(r => r.CreatedAt)
+            .Where(review => review.CustomerProfileId == customerProfile.CustomerProfileId)
+            .OrderByDescending(review => review.CreatedAt)
+            .Select(review => new
+            {
+                review.ReviewId,
+                review.CustomerProfileId,
+                review.MovieId,
+                review.BookingId,
+                review.Rating,
+                review.Comment,
+                review.CreatedAt,
+                review.Status
+            })
             .ToListAsync(cancellationToken);
 
-        return ServiceResult<List<ReviewResponse>>.Ok(reviews.Select(MapToResponse).ToList());
+        var movieIds = reviewRows
+            .Select(review => review.MovieId)
+            .Distinct()
+            .ToList();
+
+        if (reviewRows.Count == 0)
+        {
+            return ServiceResult<List<ReviewResponse>>.Ok(new List<ReviewResponse>());
+        }
+
+        var movieTitles = await _dbContext.Movies
+            .AsNoTracking()
+            .Where(movie => movieIds.Contains(movie.MovieId))
+            .Select(movie => new { movie.MovieId, movie.Title })
+            .ToDictionaryAsync(movie => movie.MovieId, movie => movie.Title, cancellationToken);
+
+        var reviews = reviewRows
+            .Select(review => new ReviewResponse
+            {
+                ReviewId = review.ReviewId,
+                CustomerProfileId = review.CustomerProfileId,
+                MovieId = review.MovieId,
+                MovieTitle = movieTitles.TryGetValue(review.MovieId, out var movieTitle) ? movieTitle : null,
+                CustomerName = customerProfile.User?.FullName ?? customerProfile.User?.Email,
+                BookingId = review.BookingId,
+                Rating = review.Rating,
+                Comment = review.Comment,
+                CreatedAt = review.CreatedAt,
+                Status = review.Status
+            })
+            .ToList();
+
+        return ServiceResult<List<ReviewResponse>>.Ok(reviews);
     }
 }

@@ -74,12 +74,14 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
         foreach (var booking in expiredBookings)
         {
-            foreach (var bookingSeat in booking.BookingSeats)
+            foreach (var bookingSeat in booking.BookingSeats.ToList())
             {
                 bookingSeat.ShowtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Available;
                 bookingSeat.ShowtimeSeat.LockedUntil = null;
                 bookingSeat.ShowtimeSeat.LockedByUserId = null;
             }
+
+            dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
 
             if (booking.VoucherUsage is not null)
             {
@@ -91,10 +93,12 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                 if (payment.PaymentStatus == "PENDING")
                 {
                     payment.PaymentStatus = "EXPIRED";
+                    payment.UpdatedAt = now;
                 }
             }
 
-            booking.BookingStatus = "CANCELLED";
+            booking.BookingStatus = BookingConstants.BookingStatus.Cancelled;
+            booking.ExpiredAt = now;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

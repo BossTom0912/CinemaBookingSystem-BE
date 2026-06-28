@@ -95,6 +95,30 @@ public sealed class ReviewsController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet("admin/moderation-queue")]
+    [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
+    [ProducesResponseType(typeof(ApiResponse<List<ReviewResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetModerationQueue(CancellationToken cancellationToken)
+    {
+        var result = await _reviewService.GetModerationQueueAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPut("admin/{reviewId}/reject")]
+    [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> AdminRejectReview(
+        [FromRoute] string reviewId,
+        CancellationToken cancellationToken)
+    {
+        var adminIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        if (adminIdClaim == null)
+            return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
+
+        var result = await _reviewService.AdminRejectReviewAsync(reviewId, adminIdClaim.Value, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success

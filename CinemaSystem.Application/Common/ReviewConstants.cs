@@ -2,8 +2,8 @@ namespace CinemaSystem.Application.Common;
 
 public static class ReviewConstants
 {
-    public const string Pending = "Pending";
-    public const string Approved = "Approved";
-    public const string Rejected = "Rejected";
-    public const string Flagged = "Flagged";
+    public const string Pending = "PENDING";
+    public const string Approved = "APPROVED";
+    public const string Rejected = "REJECTED";
+    public const string Flagged = "FLAGGED";
 }

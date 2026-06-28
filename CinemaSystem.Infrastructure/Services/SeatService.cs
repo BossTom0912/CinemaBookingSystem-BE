@@ -320,8 +320,11 @@ public sealed class SeatService : ISeatService
             return ServiceResult<LockSeatResponse>.Fail(401, "User is required.", "USER_REQUIRED");
         }
 
+        await ReleaseExpiredPendingBookingsForShowtimeAsync(request.ShowtimeId, cancellationToken);
+
         var showtimeSeat = await _dbContext.ShowtimeSeats
             .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
             .FirstOrDefaultAsync(
                 item =>
                     item.ShowtimeId == request.ShowtimeId
@@ -336,7 +339,31 @@ public sealed class SeatService : ISeatService
         }
 
         var now = DateTime.UtcNow;
-        if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+        if (showtimeSeat.BookingSeat?.Booking is { } existingBooking)
+        {
+            if (IsPendingPayment(existingBooking))
+            {
+                return ServiceResult<LockSeatResponse>.Fail(
+                    409,
+                    "Seat is temporarily locked.",
+                    "SEAT_LOCKED");
+            }
+
+            if (IsSoldBooking(existingBooking))
+            {
+                return ServiceResult<LockSeatResponse>.Fail(
+                    409,
+                    "Seat has already been sold.",
+                    "SEAT_SOLD");
+            }
+
+            ReleaseCancelledBookingSeat(showtimeSeat.BookingSeat, now);
+            await _seatLockStore.ReleaseAsync(
+                BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
+                cancellationToken);
+        }
+
+        if (showtimeSeat.SeatStatus == SeatBooked)
         {
             return ServiceResult<LockSeatResponse>.Fail(
                 409,
@@ -407,6 +434,18 @@ public sealed class SeatService : ISeatService
 
         var showtimeSeat = await _dbContext.ShowtimeSeats
             .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
+                    .ThenInclude(item => item.CustomerProfile)
+            .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
+                    .ThenInclude(item => item.BookingSeats)
+                        .ThenInclude(item => item.ShowtimeSeat)
+            .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
+                    .ThenInclude(item => item.Payments)
+            .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
+                    .ThenInclude(item => item.VoucherUsage)
             .FirstOrDefaultAsync(
                 item =>
                     item.ShowtimeId == request.ShowtimeId
@@ -420,7 +459,51 @@ public sealed class SeatService : ISeatService
                 "SHOWTIME_SEAT_NOT_FOUND");
         }
 
-        if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+        var now = DateTime.UtcNow;
+        if (showtimeSeat.BookingSeat?.Booking is { } booking)
+        {
+            if (IsPendingPayment(booking))
+            {
+                if (!string.Equals(booking.CustomerProfile?.UserId, userId, StringComparison.Ordinal))
+                {
+                    return ServiceResult<UnlockSeatResponse>.Fail(
+                        403,
+                        "Seat is locked by another user.",
+                        "SEAT_LOCKED_BY_ANOTHER_USER");
+                }
+
+                await ReleasePendingBookingAsync(
+                    booking,
+                    now,
+                    DomainConstants.PaymentStatus.Cancelled,
+                    cancellationToken);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                return ServiceResult<UnlockSeatResponse>.Ok(
+                    ToUnlockSeatResponse(showtimeSeat),
+                    "Pending booking cancelled and seats released successfully.");
+            }
+
+            if (IsSoldBooking(booking))
+            {
+                return ServiceResult<UnlockSeatResponse>.Fail(
+                    409,
+                    "Seat has already been sold.",
+                    "SEAT_SOLD");
+            }
+
+            ReleaseCancelledBookingSeat(showtimeSeat.BookingSeat, now);
+            await _seatLockStore.ReleaseAsync(
+                BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
+                cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<UnlockSeatResponse>.Ok(
+                ToUnlockSeatResponse(showtimeSeat),
+                "Seat lock released successfully.");
+        }
+
+        if (showtimeSeat.SeatStatus == SeatBooked)
         {
             return ServiceResult<UnlockSeatResponse>.Fail(
                 409,
@@ -428,7 +511,6 @@ public sealed class SeatService : ISeatService
                 "SEAT_SOLD");
         }
 
-        var now = DateTime.UtcNow;
         if (showtimeSeat.SeatStatus != SeatLocked
             || !showtimeSeat.LockedUntil.HasValue
             || showtimeSeat.LockedUntil.Value <= now)
@@ -485,10 +567,12 @@ public sealed class SeatService : ISeatService
         }
 
         await ReleaseExpiredLocksAsync(showtimeId, cancellationToken);
+        await ReleaseExpiredPendingBookingsForShowtimeAsync(showtimeId, cancellationToken);
 
         var seats = await _dbContext.ShowtimeSeats
             .AsNoTracking()
             .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
             .Include(item => item.Seat)
                 .ThenInclude(item => item.SeatType)
             .Where(item => item.ShowtimeId == showtimeId)
@@ -503,7 +587,25 @@ public sealed class SeatService : ISeatService
 
         foreach (var showtimeSeat in seats)
         {
-            if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+            if (showtimeSeat.BookingSeat?.Booking is { } booking)
+            {
+                if (IsPendingPayment(booking))
+                {
+                    lockedSeats.Add(ToSeatMapItem(showtimeSeat, SeatLocked, showtime.BasePrice));
+                    continue;
+                }
+
+                if (IsSoldBooking(booking))
+                {
+                    soldSeats.Add(ToSeatMapItem(showtimeSeat, SeatBooked, showtime.BasePrice));
+                    continue;
+                }
+
+                availableSeats.Add(ToSeatMapItem(showtimeSeat, SeatAvailable, showtime.BasePrice));
+                continue;
+            }
+
+            if (showtimeSeat.SeatStatus == SeatBooked)
             {
                 soldSeats.Add(ToSeatMapItem(showtimeSeat, SeatBooked, showtime.BasePrice));
                 continue;
@@ -722,6 +824,103 @@ public sealed class SeatService : ISeatService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    private async Task ReleaseExpiredPendingBookingsForShowtimeAsync(
+        string showtimeId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var expiredBookings = await _dbContext.Bookings
+            .Include(item => item.BookingSeats)
+                .ThenInclude(item => item.ShowtimeSeat)
+            .Include(item => item.Payments)
+            .Include(item => item.VoucherUsage)
+            .Where(item =>
+                item.ShowtimeId == showtimeId
+                && item.BookingStatus == BookingConstants.BookingStatus.PendingPayment
+                && item.ExpiredAt.HasValue
+                && item.ExpiredAt.Value <= now)
+            .ToListAsync(cancellationToken);
+
+        if (expiredBookings.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var booking in expiredBookings)
+        {
+            await ReleasePendingBookingAsync(
+                booking,
+                now,
+                DomainConstants.PaymentStatus.Expired,
+                cancellationToken);
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task ReleasePendingBookingAsync(
+        Booking booking,
+        DateTime releasedAt,
+        string paymentStatus,
+        CancellationToken cancellationToken)
+    {
+        booking.BookingStatus = BookingConstants.BookingStatus.Cancelled;
+        booking.ExpiredAt = releasedAt;
+
+        foreach (var bookingSeat in booking.BookingSeats.ToList())
+        {
+            bookingSeat.ShowtimeSeat.SeatStatus = SeatAvailable;
+            bookingSeat.ShowtimeSeat.LockedUntil = null;
+            bookingSeat.ShowtimeSeat.LockedByUserId = null;
+
+            await _seatLockStore.ReleaseAsync(
+                BuildSeatLockKey(
+                    bookingSeat.ShowtimeSeat.ShowtimeId,
+                    bookingSeat.ShowtimeSeat.SeatId),
+                cancellationToken);
+        }
+
+        _dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
+
+        foreach (var payment in booking.Payments.Where(payment =>
+                     string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase)))
+        {
+            payment.PaymentStatus = paymentStatus;
+            payment.UpdatedAt = releasedAt;
+        }
+
+        if (booking.VoucherUsage is not null)
+        {
+            booking.VoucherUsage.UsageStatus = "CANCELLED";
+        }
+    }
+
+    private void ReleaseCancelledBookingSeat(BookingSeat bookingSeat, DateTime releasedAt)
+    {
+        bookingSeat.ShowtimeSeat.SeatStatus = SeatAvailable;
+        bookingSeat.ShowtimeSeat.LockedUntil = null;
+        bookingSeat.ShowtimeSeat.LockedByUserId = null;
+
+        if (bookingSeat.Booking.BookingStatus == BookingConstants.BookingStatus.PendingPayment)
+        {
+            bookingSeat.Booking.BookingStatus = BookingConstants.BookingStatus.Cancelled;
+            bookingSeat.Booking.ExpiredAt = releasedAt;
+        }
+
+        _dbContext.BookingSeats.Remove(bookingSeat);
+    }
+
+    private static bool IsPendingPayment(Booking booking) =>
+        string.Equals(
+            booking.BookingStatus,
+            BookingConstants.BookingStatus.PendingPayment,
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSoldBooking(Booking booking) =>
+        string.Equals(booking.BookingStatus, BookingConstants.BookingStatus.Paid, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(booking.BookingStatus, BookingConstants.BookingStatus.Completed, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(booking.BookingStatus, BookingConstants.BookingStatus.PendingRefund, StringComparison.OrdinalIgnoreCase);
 
     private static SeatResponse ToSeatResponse(Seat seat)
     {
