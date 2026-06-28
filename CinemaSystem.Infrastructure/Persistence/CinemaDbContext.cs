@@ -38,6 +38,12 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<MovieDailyView> MovieDailyViews { get; set; }
 
+    public virtual DbSet<Genre> Genres { get; set; }
+
+    public virtual DbSet<MovieGenre> MovieGenres { get; set; }
+
+    public virtual DbSet<Language> Languages { get; set; }
+
     public virtual DbSet<ChatHistory> ChatHistories { get; set; }
 
     public virtual DbSet<ReviewEditHistory> ReviewEditHistories { get; set; }
@@ -471,15 +477,12 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("ageRating");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.DurationMinutes).HasColumnName("durationMinutes");
-            entity.Property(e => e.Genre)
-                .HasMaxLength(255)
-                .HasColumnName("genre");
             entity.Property(e => e.Highlight)
                 .HasMaxLength(30)
                 .HasColumnName("highlight");
-            entity.Property(e => e.Language)
-                .HasMaxLength(100)
-                .HasColumnName("language");
+            entity.Property(e => e.LanguageId)
+                .HasMaxLength(50)
+                .HasColumnName("languageId");
             entity.Property(e => e.MovieStatus)
                 .HasMaxLength(30)
                 .HasDefaultValue("COMING_SOON")
@@ -510,6 +513,10 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.DailyViews)
                 .HasDefaultValue(0)
                 .HasColumnName("dailyViews");
+
+            entity.HasOne(d => d.Language).WithMany(p => p.Movies)
+                .HasForeignKey(d => d.LanguageId)
+                .HasConstraintName("FK_MOVIE_LANGUAGE");
         });
 
         modelBuilder.Entity<MovieViewLog>(entity =>
@@ -553,6 +560,40 @@ public partial class CinemaDbContext : DbContext
                 .HasForeignKey(d => d.MovieId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MOVIE_DAILY_VIEW_MOVIE");
+        });
+
+        modelBuilder.Entity<Genre>(entity =>
+        {
+            entity.HasKey(e => e.GenreId);
+            entity.ToTable("GENRE");
+            entity.Property(e => e.GenreId).HasColumnName("genreId");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
+        });
+
+        modelBuilder.Entity<MovieGenre>(entity =>
+        {
+            entity.HasKey(e => new { e.MovieId, e.GenreId });
+            entity.ToTable("MOVIE_GENRE");
+            entity.Property(e => e.MovieId).HasMaxLength(50).HasColumnName("movieId");
+            entity.Property(e => e.GenreId).HasColumnName("genreId");
+
+            entity.HasOne(d => d.Movie).WithMany(p => p.MovieGenres)
+                .HasForeignKey(d => d.MovieId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_MOVIE_GENRE_MOVIE");
+
+            entity.HasOne(d => d.Genre).WithMany(p => p.MovieGenres)
+                .HasForeignKey(d => d.GenreId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_MOVIE_GENRE_GENRE");
+        });
+
+        modelBuilder.Entity<Language>(entity =>
+        {
+            entity.HasKey(e => e.LanguageId);
+            entity.ToTable("LANGUAGE");
+            entity.Property(e => e.LanguageId).HasMaxLength(50).HasColumnName("languageId");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
         });
 
         modelBuilder.Entity<ChatHistory>(entity =>

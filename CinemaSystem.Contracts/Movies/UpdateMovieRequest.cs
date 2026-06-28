@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System;
 
 namespace CinemaSystem.Contracts.Movies;
@@ -13,8 +13,7 @@ public class UpdateMovieRequest
     [Range(1, 500)]
     public int DurationMinutes { get; set; }
 
-    [MaxLength(100)]
-    public string? Genre { get; set; }
+    public List<int>? GenreIds { get; set; }
 
     [MaxLength(50)]
     public string? Language { get; set; }
@@ -35,6 +34,9 @@ public class UpdateMovieRequest
 
     [MaxLength(1000)]
     public string? Highlight { get; set; }
+
+    [MaxLength(200)]
+    public string? Director { get; set; }
 
     [Required]
     [MaxLength(50)]

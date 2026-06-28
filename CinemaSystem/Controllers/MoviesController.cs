@@ -26,12 +26,13 @@ public sealed class MoviesController : ControllerBase
         StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMovies(
         [FromQuery] string? status,
+        [FromQuery] string? genre,
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 10,
         CancellationToken cancellationToken = default)
     {
         bool includeDeleted = User?.IsInRole(AuthConstants.Roles.Admin) == true || User?.IsInRole(AuthConstants.Roles.Manager) == true;
-        var result = await _movieService.GetMoviesAsync(status, pageIndex, pageSize, includeDeleted, cancellationToken);
+        var result = await _movieService.GetMoviesAsync(status, pageIndex, pageSize, genre, includeDeleted, cancellationToken);
         return ToActionResult(result);
     }
 

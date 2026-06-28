@@ -37,7 +37,7 @@ public class GeminiChatbotService : IChatbotService
         }
 
         // Get context from DB
-        var moviesResult = await _movieService.GetMoviesAsync(null, 1, 100, false, cancellationToken);
+        var moviesResult = await _movieService.GetMoviesAsync(null, 1, 100, null, false, cancellationToken);
         var showtimesResult = await _showtimeService.GetShowtimesAsync(cancellationToken);
 
         var contextBuilder = new StringBuilder("Movie Theater Context:\n");
@@ -46,7 +46,8 @@ public class GeminiChatbotService : IChatbotService
             contextBuilder.AppendLine("Available Movies:");
             foreach (var m in moviesResult.Data.Items)
             {
-                contextBuilder.AppendLine($"- {m.MovieNameVn} (Genre: {m.Genre}, Duration: {m.Duration}m, Avg Rating: {m.AvgRating}, Highlight: {m.Highlight})");
+                var genresStr = m.Genres != null ? string.Join(", ", m.Genres) : "";
+                contextBuilder.AppendLine($"- {m.MovieNameVn} (Genre: {genresStr}, Duration: {m.Duration}m, Avg Rating: {m.AvgRating}, Highlight: {m.Highlight})");
             }
         }
         
