@@ -3,6 +3,7 @@ using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Showtimes;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
@@ -16,7 +17,7 @@ namespace CinemaSystem.Infrastructure.Showtimes;
 
 public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 {
-    private const string ActiveEmploymentStatus = "ACTIVE";
+    private const string ActiveEmploymentStatus = DomainConstants.EntityStatus.Active;
 
     private readonly CinemaDbContext _dbContext;
     private readonly IRefundClaimIssuer _refundClaimIssuer;
@@ -493,8 +494,8 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         {
             AuditLogId = NewId("AUD"),
             UserId = userId,
-            Action = "CANCEL_SHOWTIME",
-            EntityName = "SHOWTIME",
+            Action = DomainConstants.AuditAction.CancelShowtime,
+            EntityName = DomainConstants.AuditEntity.Showtime,
             EntityId = showtimeId,
             OldValue = JsonSerializer.Serialize(new { status = oldStatus }),
             NewValue = JsonSerializer.Serialize(new

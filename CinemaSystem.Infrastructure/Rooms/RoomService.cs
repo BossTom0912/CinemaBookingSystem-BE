@@ -26,9 +26,9 @@ public sealed class RoomService : IRoomService
 
     private static readonly HashSet<string> ValidRoomStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ACTIVE",
-        "INACTIVE",
-        "MAINTENANCE"
+        DomainConstants.EntityStatus.Active,
+        DomainConstants.EntityStatus.Inactive,
+        DomainConstants.EntityStatus.Maintenance
     };
 
     private readonly CinemaDbContext _dbContext;
@@ -93,7 +93,7 @@ public sealed class RoomService : IRoomService
 
         if (!includeInactive)
         {
-            query = query.Where(room => room.RoomStatus != "INACTIVE");
+            query = query.Where(room => room.RoomStatus != DomainConstants.EntityStatus.Inactive);
         }
 
         query = query
@@ -133,7 +133,7 @@ public sealed class RoomService : IRoomService
                 "ROOM_NOT_FOUND");
         }
 
-        if (!includeInactive && string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive && string.Equals(room.RoomStatus, DomainConstants.EntityStatus.Inactive, StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<RoomResponse>.Fail(
                 404,
@@ -310,7 +310,9 @@ public sealed class RoomService : IRoomService
                 "INVALID_CAPACITY");
         }
 
-        if (room.RoomStatus != roomStatus && (roomStatus == "MAINTENANCE" || roomStatus == "INACTIVE"))
+        if (room.RoomStatus != roomStatus
+            && (roomStatus == DomainConstants.EntityStatus.Maintenance
+                || roomStatus == DomainConstants.EntityStatus.Inactive))
         {
             var openShowtimes = await _dbContext.Showtimes
                 .Where(s => s.RoomId == roomId && s.Status == DomainConstants.EntityStatus.Open)
@@ -318,7 +320,7 @@ public sealed class RoomService : IRoomService
 
             foreach (var st in openShowtimes)
             {
-                st.Status = "SUSPENDED";
+                st.Status = DomainConstants.EntityStatus.Suspended;
             }
         }
 
@@ -355,11 +357,11 @@ public sealed class RoomService : IRoomService
 
         foreach (var st in openShowtimes)
         {
-            st.Status = "SUSPENDED";
+            st.Status = DomainConstants.EntityStatus.Suspended;
         }
 
         // delete (soft-delete) immediately
-        room.RoomStatus = "INACTIVE";
+        room.RoomStatus = DomainConstants.EntityStatus.Inactive;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<object>.Ok(new { RoomId = roomId, RoomStatus = room.RoomStatus }, "Room deactivated successfully.");

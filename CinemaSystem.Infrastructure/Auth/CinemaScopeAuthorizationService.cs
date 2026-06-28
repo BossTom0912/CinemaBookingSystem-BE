@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,7 @@ namespace CinemaSystem.Infrastructure.Auth;
 
 public sealed class CinemaScopeAuthorizationService : ICinemaScopeAuthorizationService
 {
-    private const string ActiveEmploymentStatus = "ACTIVE";
+    private const string ActiveEmploymentStatus = DomainConstants.EntityStatus.Active;
     private const string ScopeForbiddenMessage = "You do not have permission to access this cinema resource.";
     private const string ScopeForbiddenCode = "CINEMA_SCOPE_FORBIDDEN";
 

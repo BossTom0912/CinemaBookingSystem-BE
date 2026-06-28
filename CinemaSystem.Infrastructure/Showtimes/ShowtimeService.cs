@@ -511,7 +511,7 @@ public sealed class ShowtimeService : IShowtimeService
         if (string.IsNullOrWhiteSpace(userId) || userId == "string" || userId == "user")
         {
             var adminUser = await _dbContext.Users
-                .FirstOrDefaultAsync(u => u.Role.RoleName == "Admin" && u.Status == DomainConstants.EntityStatus.Active, cancellationToken);
+                .FirstOrDefaultAsync(u => u.Role.RoleName == AuthConstants.Roles.Admin && u.Status == DomainConstants.EntityStatus.Active, cancellationToken);
 
             if (adminUser != null)
             {

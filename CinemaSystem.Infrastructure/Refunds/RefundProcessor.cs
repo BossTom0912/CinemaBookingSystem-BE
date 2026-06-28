@@ -3,6 +3,7 @@ using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Refunds;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -216,7 +217,7 @@ public sealed class RefundProcessor : IRefundProcessor
                         now);
                     AddRefundAuditLog(
                         refund,
-                        "SUCCESS",
+                        BookingConstants.RefundStatus.Success,
                         rewardPointsReverted,
                         now);
                     email = CreateEmail(
@@ -241,7 +242,7 @@ public sealed class RefundProcessor : IRefundProcessor
                     "Refund requires manual processing",
                     $"Refund for booking {refund.BookingId} requires additional processing.",
                     now);
-                AddRefundAuditLog(refund, "MANUAL_REQUIRED", 0, now);
+                AddRefundAuditLog(refund, BookingConstants.RefundStatus.ManualRequired, 0, now);
                 email = CreateEmail(
                     refund,
                     "Refund requires additional processing",
@@ -381,8 +382,8 @@ public sealed class RefundProcessor : IRefundProcessor
         {
             AuditLogId = NewId("AUD"),
             UserId = actorUserId,
-            Action = "PROCESS_REFUND",
-            EntityName = "REFUND",
+            Action = DomainConstants.AuditAction.ProcessRefund,
+            EntityName = DomainConstants.AuditEntity.Refund,
             EntityId = refund.RefundId,
             OldValue = JsonSerializer.Serialize(new
             {

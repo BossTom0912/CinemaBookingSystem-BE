@@ -53,6 +53,14 @@ public static class BookingConstants
         public const string ManualRequired = "MANUAL_REQUIRED";
     }
 
+    public static class RefundWorkflowStatus
+    {
+        public const string Pending = RefundStatus.Pending;
+        public const string Success = RefundStatus.Success;
+        public const string ManualRequired = RefundStatus.ManualRequired;
+        public const string AwaitingCustomerInfo = "AWAITING_CUSTOMER_INFO";
+    }
+
     public static class TicketStatus
     {
         public const string Generated = "GENERATED";
@@ -108,6 +116,13 @@ public static class BookingConstants
         public const string Open = "OPEN";
         public const string InProgress = "IN_PROGRESS";
         public const string Confirmed = "CONFIRMED";
+        public const string Rejected = "REJECTED";
+    }
+
+    public static class CustomerRefundRequestStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Fulfilled = "FULFILLED";
         public const string Rejected = "REJECTED";
     }
 

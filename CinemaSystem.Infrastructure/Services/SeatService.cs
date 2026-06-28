@@ -26,15 +26,15 @@ namespace CinemaSystem.Infrastructure.Services;
 /// </remarks>
 public sealed class SeatService : ISeatService
 {
-    private const string ActionCreate = "CREATE";
-    private const string ActionUpdate = "UPDATE";
-    private const string ActionDelete = "DELETE";
-    private const string StatusPending = "PENDING";
-    private const string StatusApproved = "APPROVED";
-    private const string StatusRejected = "REJECTED";
-    private const string SeatAvailable = "AVAILABLE";
-    private const string SeatLocked = "LOCKED";
-    private const string SeatBooked = "BOOKED";
+    private const string ActionCreate = DomainConstants.Action.Create;
+    private const string ActionUpdate = DomainConstants.Action.Update;
+    private const string ActionDelete = DomainConstants.Action.Delete;
+    private const string StatusPending = DomainConstants.ApprovalStatus.Pending;
+    private const string StatusApproved = DomainConstants.ApprovalStatus.Approved;
+    private const string StatusRejected = DomainConstants.ApprovalStatus.Rejected;
+    private const string SeatAvailable = DomainConstants.EntityStatus.Available;
+    private const string SeatLocked = DomainConstants.EntityStatus.Locked;
+    private const string SeatBooked = DomainConstants.EntityStatus.Booked;
     private static readonly TimeSpan SeatLockTtl = TimeSpan.FromMinutes(10);
 
     private readonly CinemaDbContext _dbContext;
@@ -299,14 +299,14 @@ public sealed class SeatService : ISeatService
         var room = await _dbContext.Rooms.FirstOrDefaultAsync(r => r.RoomId == seat.RoomId, cancellationToken);
         if (room != null)
         {
-            room.RoomStatus = "MAINTENANCE";
+            room.RoomStatus = DomainConstants.EntityStatus.Maintenance;
             var openShowtimes = await _dbContext.Showtimes
                 .Where(s => s.RoomId == room.RoomId && s.Status == DomainConstants.EntityStatus.Open)
                 .ToListAsync(cancellationToken);
 
             foreach (var st in openShowtimes)
             {
-                st.Status = "SUSPENDED";
+                st.Status = DomainConstants.EntityStatus.Suspended;
             }
         }
 
@@ -715,7 +715,7 @@ public sealed class SeatService : ISeatService
             .AnyAsync(
                 item =>
                     item.SeatId == seatId
-                    && item.Showtime.Status == "OPEN"
+                    && item.Showtime.Status == DomainConstants.EntityStatus.Open
                     && item.Showtime.StartTime > DateTime.UtcNow,
                 cancellationToken);
         if (hasFutureShowtime)

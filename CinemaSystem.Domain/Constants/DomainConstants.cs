@@ -78,4 +78,35 @@ public static class DomainConstants
 
         public static readonly string[] ValidLanguages = { VN, EN_SUB_VN, EN_DUB_VN, KR_SUB_VN, JP_SUB_VN, TH_SUB_VN, CN_SUB_VN };
     }
+
+    public static class Action
+    {
+        public const string Create = "CREATE";
+        public const string Update = "UPDATE";
+        public const string Delete = "DELETE";
+    }
+
+    public static class ApprovalStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Approved = "APPROVED";
+        public const string Rejected = "REJECTED";
+    }
+
+    public static class AuditAction
+    {
+        public const string CancelShowtime = "CANCEL_SHOWTIME";
+        public const string ProcessRefund = "PROCESS_REFUND";
+        public const string SubmitRefundClaim = "SUBMIT_REFUND_CLAIM";
+        public const string ReissueRefundClaimLink = "REISSUE_REFUND_CLAIM_LINK";
+        public const string AssignManualRefund = "ASSIGN_MANUAL_REFUND";
+        public const string ConfirmManualRefund = "CONFIRM_MANUAL_REFUND";
+    }
+
+    public static class AuditEntity
+    {
+        public const string Showtime = "SHOWTIME";
+        public const string Refund = "REFUND";
+        public const string RefundClaim = "REFUND_CLAIM";
+    }
 }

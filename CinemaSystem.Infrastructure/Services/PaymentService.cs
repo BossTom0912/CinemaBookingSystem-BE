@@ -88,7 +88,7 @@ public class PaymentService : IPaymentService
         var provider = await _db.PaymentProviders.SingleOrDefaultAsync(p => p.PaymentProviderId == paymentProviderId, cancellationToken);
         if (provider == null)
             throw new InvalidOperationException($"Payment provider {paymentProviderId} not found.");
-        if (!string.Equals(provider.ProviderStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(provider.ProviderStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Payment provider {paymentProviderId} is not active.");
 
         var successfulPayment = booking.Payments

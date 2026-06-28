@@ -3,6 +3,7 @@ using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Refunds;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -92,7 +93,7 @@ public sealed class ManualRefundService : IManualRefundService
             process.AssignedToUserId = adminUserId;
             process.AssignedAt ??= now;
             process.ProcessStatus = BookingConstants.ManualRefundProcessStatus.InProgress;
-            AddAudit(adminUserId, "ASSIGN_MANUAL_REFUND", process.RefundId, now);
+            AddAudit(adminUserId, DomainConstants.AuditAction.AssignManualRefund, process.RefundId, now);
             await _db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return ServiceResult<AssignManualRefundResponse>.Ok(new AssignManualRefundResponse
@@ -246,7 +247,7 @@ public sealed class ManualRefundService : IManualRefundService
             }
             AddAudit(
                 adminUserId,
-                "CONFIRM_MANUAL_REFUND",
+                DomainConstants.AuditAction.ConfirmManualRefund,
                 process.RefundId,
                 now,
                 new { transactionCode, request.TransferredAmount, revertedPoints });
@@ -346,7 +347,7 @@ public sealed class ManualRefundService : IManualRefundService
             AuditLogId = NewId("AUD"),
             UserId = userId,
             Action = action,
-            EntityName = "REFUND",
+            EntityName = DomainConstants.AuditEntity.Refund,
             EntityId = refundId,
             NewValue = value is null ? null : JsonSerializer.Serialize(value),
             CreatedAt = now

@@ -2,6 +2,7 @@ using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Refunds;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
@@ -193,7 +194,12 @@ public sealed class RefundClaimService : IRefundClaimService
             };
         }
         RevokeActiveTokens(claim, now);
-        AddAudit(userId, "SUBMIT_REFUND_CLAIM", "REFUND_CLAIM", claim.RefundClaimId, now);
+        AddAudit(
+            userId,
+            DomainConstants.AuditAction.SubmitRefundClaim,
+            DomainConstants.AuditEntity.RefundClaim,
+            claim.RefundClaimId,
+            now);
         await _db.SaveChangesAsync(cancellationToken);
         return ServiceResult<RefundClaimResponse>.Ok(ToResponse(claim), "Refund information submitted for manual processing.");
     }
@@ -254,11 +260,16 @@ public sealed class RefundClaimService : IRefundClaimService
             CustomerProfileId = refund.RefundClaim.CustomerProfileId,
             TicketId = string.IsNullOrWhiteSpace(request.TicketId) ? null : request.TicketId.Trim(),
             RequestReason = request.Reason.Trim(),
-            RequestStatus = "FULFILLED",
+            RequestStatus = BookingConstants.CustomerRefundRequestStatus.Fulfilled,
             ProcessedAt = now,
             CreatedAt = now
         });
-        AddAudit(userId, "REISSUE_REFUND_CLAIM_LINK", "REFUND", refund.RefundId, now);
+        AddAudit(
+            userId,
+            DomainConstants.AuditAction.ReissueRefundClaimLink,
+            DomainConstants.AuditEntity.Refund,
+            refund.RefundId,
+            now);
         await _db.SaveChangesAsync(cancellationToken);
 
         await TrySendClaimEmailAsync(

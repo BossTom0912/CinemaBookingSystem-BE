@@ -10,6 +10,7 @@ using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using CinemaSystem.Domain.Constants;
 
 using Hangfire;
 
@@ -54,7 +55,7 @@ public class ReviewService : IReviewService
         if (booking == null || booking.CustomerProfileId != customerProfile.CustomerProfileId)
             return ServiceResult<ReviewResponse>.Fail(400, "Không tìm thấy thông tin đặt vé hợp lệ.", "INVALID_BOOKING");
 
-        if (booking.BookingStatus != "COMPLETED" && booking.BookingStatus != "PAID")
+        if (booking.BookingStatus != DomainConstants.EntityStatus.Completed && booking.BookingStatus != DomainConstants.EntityStatus.Paid)
             return ServiceResult<ReviewResponse>.Fail(400, "Chỉ được phép đánh giá sau khi hoàn tất thanh toán hoặc xem phim.", "BOOKING_NOT_COMPLETED");
 
         if (booking.Showtime.EndTime > DateTime.UtcNow)
@@ -84,7 +85,7 @@ public class ReviewService : IReviewService
             return ServiceResult<ReviewResponse>.Ok(MapToResponse(review));
         }
 
-        review.Status = "PENDING";
+        review.Status = ReviewConstants.Pending;
         _dbContext.Set<Review>().Add(review);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -132,7 +133,7 @@ public class ReviewService : IReviewService
             return ServiceResult<ReviewResponse>.Ok(MapToResponse(review));
         }
 
-        review.Status = "PENDING";
+        review.Status = ReviewConstants.Pending;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _backgroundJobClient.Enqueue<IReviewService>(s => s.ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment));
@@ -184,13 +185,13 @@ public class ReviewService : IReviewService
     {
         var aiResponse = await _aiService.ModerateReviewAsync(rating, comment, cancellationToken);
 
-        if (aiResponse.Status == "APPROVED")
+        if (aiResponse.Status == ReviewConstants.Approved)
         {
             return new ModerationHandlerResult { IsBlockedOrFailed = false, AiResult = aiResponse };
         }
-        else if (aiResponse.Status == "REJECTED" || aiResponse.Status == "FLAGGED")
+        else if (aiResponse.Status == ReviewConstants.Rejected || aiResponse.Status == ReviewConstants.Flagged)
         {
-            if (aiResponse.IsSpam || aiResponse.Status == "REJECTED")
+            if (aiResponse.IsSpam || aiResponse.Status == ReviewConstants.Rejected)
             {
                 var userProfile = await _dbContext.Set<User>().FindAsync(new object[] { userId }, cancellationToken);
                 if (userProfile != null)
@@ -231,8 +232,8 @@ public class ReviewService : IReviewService
 
     private string GetStatusConstant(string aiStatus)
     {
-        if (aiStatus == "REJECTED") return ReviewConstants.Rejected;
-        if (aiStatus == "FLAGGED") return ReviewConstants.Flagged;
+        if (aiStatus == ReviewConstants.Rejected) return ReviewConstants.Rejected;
+        if (aiStatus == ReviewConstants.Flagged) return ReviewConstants.Flagged;
         return ReviewConstants.Approved;
     }
 

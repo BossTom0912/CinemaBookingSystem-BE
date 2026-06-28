@@ -99,14 +99,14 @@ public sealed class RefundService : IRefundService
                     ? null
                     : "******" + item.RefundClaim.BankAccountLast4,
                 WorkflowStatus = item.RefundStatus == BookingConstants.RefundStatus.Success
-                    ? "SUCCESS"
+                    ? BookingConstants.RefundWorkflowStatus.Success
                     : item.RefundStatus == BookingConstants.RefundStatus.ManualRequired
-                        ? "MANUAL_REQUIRED"
+                        ? BookingConstants.RefundWorkflowStatus.ManualRequired
                         : item.RefundClaim == null
-                            ? "PENDING"
+                            ? BookingConstants.RefundWorkflowStatus.Pending
                             : item.RefundClaim.ClaimStatus == BookingConstants.RefundClaimStatus.PendingInfo
-                                ? "AWAITING_CUSTOMER_INFO"
-                                : "PENDING",
+                                ? BookingConstants.RefundWorkflowStatus.AwaitingCustomerInfo
+                                : BookingConstants.RefundWorkflowStatus.Pending,
                 RefundReason = item.RefundReason,
                 ProviderRefundCode = item.ProviderRefundCode,
                 FailureReason = item.FailureReason,

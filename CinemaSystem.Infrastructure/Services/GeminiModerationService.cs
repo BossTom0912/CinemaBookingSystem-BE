@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -25,7 +26,7 @@ public class GeminiModerationService : IAiModerationService
         // Nếu không có API Key hoặc bị lỗi cấu hình, trả về Flagged để Admin duyệt tay
         if (string.IsNullOrWhiteSpace(_settings.ApiKey))
         {
-            return new AiModerationResult { Status = "FLAGGED", Reason = "MISSING_API_KEY" };
+            return new AiModerationResult { Status = ReviewConstants.Flagged, Reason = "MISSING_API_KEY" };
         }
 
         // ĐÂY LÀ PROMPT DÀNH CHO AI (VỪA KIỂM DUYỆT VỪA CSKH)
@@ -72,7 +73,7 @@ Chỉ trả về ĐÚNG 1 chuỗi JSON hợp lệ, không có markdown (```json)
             {
                 var errorDetails = await response.Content.ReadAsStringAsync(cancellationToken);
                 // Báo lỗi API để ReviewService lưu status là Flagged
-                return new AiModerationResult { Status = "FLAGGED", Reason = "AI_API_ERROR" };
+                return new AiModerationResult { Status = ReviewConstants.Flagged, Reason = "AI_API_ERROR" };
             }
 
             var jsonDoc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
@@ -85,19 +86,19 @@ Chỉ trả về ĐÚNG 1 chuỗi JSON hợp lệ, không có markdown (```json)
 
             if (string.IsNullOrWhiteSpace(aiTextResponse))
             {
-                return new AiModerationResult { Status = "FLAGGED", Reason = "AI_EMPTY_RESPONSE" };
+                return new AiModerationResult { Status = ReviewConstants.Flagged, Reason = "AI_EMPTY_RESPONSE" };
             }
 
             // Parse chuỗi JSON đó thành Object C#
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             var result = JsonSerializer.Deserialize<AiModerationResult>(aiTextResponse, options);
 
-            return result ?? new AiModerationResult { Status = "FLAGGED", Reason = "JSON_PARSE_ERROR" };
+            return result ?? new AiModerationResult { Status = ReviewConstants.Flagged, Reason = "JSON_PARSE_ERROR" };
         }
         catch (Exception ex)
         {
             // Bắt mọi Exception (Mất mạng, JSON sai format...) và đưa về Flagged
-            return new AiModerationResult { Status = "FLAGGED", Reason = $"EXCEPTION: {ex.Message}" };
+            return new AiModerationResult { Status = ReviewConstants.Flagged, Reason = $"EXCEPTION: {ex.Message}" };
         }
     }
 }
