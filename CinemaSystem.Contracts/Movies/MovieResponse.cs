@@ -8,7 +8,7 @@ public sealed class MovieResponse
 
     public string MovieNameVn { get; init; } = string.Empty;
 
-    public string? Genre { get; init; }
+    public List<string>? Genres { get; init; }
 
     public int Duration { get; init; }
 
@@ -21,4 +21,6 @@ public sealed class MovieResponse
     public int ViewCount { get; init; }
 
     public string? AgeRating { get; init; }
+
+    public string? Director { get; init; }
 }

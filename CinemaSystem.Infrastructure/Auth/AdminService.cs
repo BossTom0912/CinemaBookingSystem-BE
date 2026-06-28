@@ -6,11 +6,12 @@ using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
+using Hangfire;
+
 namespace CinemaSystem.Infrastructure.Auth;
 
 public sealed class AdminService : IAdminService
 {
-    private const int InvitationTokenExpiryMinutes = 60;
     private const string PasswordResetPurpose = "PASSWORD_RESET";
 
     private readonly CinemaDbContext _dbContext;
@@ -18,19 +19,25 @@ public sealed class AdminService : IAdminService
     private readonly IOtpGenerator _otpGenerator;
     private readonly IEmailService _emailService;
     private readonly IClock _clock;
+    private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
+    private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
 
     public AdminService(
         CinemaDbContext dbContext,
         IPasswordHasher passwordHasher,
         IOtpGenerator otpGenerator,
         IEmailService emailService,
-        IClock clock)
+        IClock clock,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
+        Hangfire.IBackgroundJobClient backgroundJobClient)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
         _otpGenerator = otpGenerator;
         _emailService = emailService;
         _clock = clock;
+        _authSettings = authOptions.Value;
+        _backgroundJobClient = backgroundJobClient;
     }
 
     public async Task<ServiceResult<object>> CreateStaffAsync(
@@ -106,7 +113,7 @@ public sealed class AdminService : IAdminService
             UserId = userId,
             Token = _passwordHasher.HashSecret(invitationOtp),
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(InvitationTokenExpiryMinutes),
+            ExpiredAt = now.AddMinutes(_authSettings.InvitationTokenExpiryMinutes),
             IsUsed = false,
             Purpose = PasswordResetPurpose
         };
@@ -118,7 +125,8 @@ public sealed class AdminService : IAdminService
         try
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
-            await _emailService.SendInvitationAsync(normalizedEmail, invitationOtp, cancellationToken);
+            _backgroundJobClient.Enqueue<IEmailService>(email =>
+                email.SendInvitationAsync(normalizedEmail, invitationOtp, CancellationToken.None));
         }
         catch (Exception)
         {

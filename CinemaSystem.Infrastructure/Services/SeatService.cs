@@ -30,16 +30,22 @@ public sealed class SeatService : ISeatService
     private readonly ISeatLockStore _seatLockStore;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IAdminRefundService _refundService;
+    private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
+    private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
     public SeatService(
         CinemaDbContext dbContext,
         IBackgroundJobClient backgroundJobClient,
         IAdminRefundService refundService,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplatesOptions,
         ISeatLockStore? seatLockStore = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _backgroundJobClient = backgroundJobClient;
         _refundService = refundService;
+        _securitySettings = securityOptions.Value;
+        _emailTemplates = emailTemplatesOptions.Value;
         _seatLockStore = seatLockStore ?? new InMemorySeatLockStore();
     }
 
@@ -198,6 +204,54 @@ public sealed class SeatService : ISeatService
         seat.SeatCode = newSeatCode;
         seat.SeatTypeId = request.SeatTypeId;
 
+        bool isMaintenanceTriggered = false;
+        if (!request.IsActive && seat.IsActive)
+        {
+            isMaintenanceTriggered = true;
+        }
+        seat.IsActive = request.IsActive;
+
+        if (isMaintenanceTriggered)
+        {
+            var futureShowtimeSeats = await _dbContext.ShowtimeSeats
+                .Include(item => item.Showtime)
+                .Include(item => item.BookingSeat)
+                    .ThenInclude(bs => bs!.Booking)
+                        .ThenInclude(b => b!.CustomerProfile)
+                            .ThenInclude(cp => cp!.User)
+                .Where(item => item.SeatId == seat.SeatId
+                            && item.Showtime.Status == DomainConstants.EntityStatus.Open
+                            && item.Showtime.StartTime > DateTime.UtcNow)
+                .ToListAsync(cancellationToken);
+
+            foreach (var sts in futureShowtimeSeats)
+            {
+                sts.SeatStatus = DomainConstants.EntityStatus.Maintenance;
+
+                if (sts.BookingSeat != null && sts.BookingSeat.Booking != null)
+                {
+                    var booking = sts.BookingSeat.Booking;
+                    var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                    if (!string.IsNullOrEmpty(customerEmail))
+                    {
+                        var secret = _securitySettings.ConfirmationTokenSecret;
+                        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                        var token = Convert.ToBase64String(hash);
+                        var encodedToken = System.Uri.EscapeDataString(token);
+
+                        string subject = _emailTemplates.SeatMaintenanceSubject;
+                        string message = string.Format(_emailTemplates.SeatMaintenanceBody,
+                            seat.SeatCode,
+                            sts.Showtime.StartTime.ToString("dd/MM/yyyy HH:mm"),
+                            booking.BookingId,
+                            encodedToken);
+                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                    }
+                }
+            }
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<bool>.Ok(true, "Seat updated successfully.");
@@ -223,27 +277,25 @@ public sealed class SeatService : ISeatService
             .Include(item => item.Showtime)
             .Where(item => item.SeatId == seatId && item.Showtime.Status == DomainConstants.EntityStatus.Open && item.Showtime.StartTime > DateTime.UtcNow)
             .ToListAsync(cancellationToken);
-
-        var affectedShowtimeIds = new HashSet<string>();
-
         foreach (var sts in futureShowtimeSeats)
         {
             if (sts.SeatStatus == DomainConstants.EntityStatus.Available)
             {
                 sts.SeatStatus = DomainConstants.EntityStatus.Maintenance;
             }
-            else if (sts.SeatStatus == DomainConstants.EntityStatus.Locked || sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
-            {
-                affectedShowtimeIds.Add(sts.ShowtimeId);
-            }
         }
 
-        if (affectedShowtimeIds.Any())
+        var room = await _dbContext.Rooms.FirstOrDefaultAsync(r => r.RoomId == seat.RoomId, cancellationToken);
+        if (room != null)
         {
-            var refundResult = await _refundService.CancelShowtimesAndRefundAsync(affectedShowtimeIds.ToArray(), $"Seat {seat.SeatCode} was set to maintenance/deleted.", false, userId, cancellationToken);
-            if (!refundResult.Success)
+            room.RoomStatus = "MAINTENANCE";
+            var openShowtimes = await _dbContext.Showtimes
+                .Where(s => s.RoomId == room.RoomId && s.Status == DomainConstants.EntityStatus.Open)
+                .ToListAsync(cancellationToken);
+
+            foreach (var st in openShowtimes)
             {
-                return ServiceResult<bool>.Fail(refundResult.StatusCode, refundResult.Message, refundResult.ErrorCode!);
+                st.Status = "SUSPENDED";
             }
         }
 

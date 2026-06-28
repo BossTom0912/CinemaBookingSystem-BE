@@ -25,6 +25,17 @@ public sealed class ReviewServiceTests
         return new CinemaDbContext(options);
     }
 
+    private static ReviewService CreateService(
+        CinemaDbContext dbContext,
+        IAiModerationService? aiModerationService = null)
+    {
+        return new ReviewService(
+            dbContext,
+            aiModerationService ?? new Mock<IAiModerationService>().Object,
+            new Mock<IMovieService>().Object,
+            new Mock<Hangfire.IBackgroundJobClient>().Object);
+    }
+
     private static void SeedCompletedBooking(CinemaDbContext dbContext)
     {
         dbContext.Set<Showtime>().Add(new Showtime
@@ -55,7 +66,7 @@ public sealed class ReviewServiceTests
     {
         var dbContext = CreateDbContext();
         var aiModerationServiceMock = new Mock<IAiModerationService>();
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5 };
 
@@ -74,7 +85,7 @@ public sealed class ReviewServiceTests
         await dbContext.SaveChangesAsync();
 
         var aiModerationServiceMock = new Mock<IAiModerationService>();
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", BookingId = "BKG1", Rating = 5, Comment = "" };
 
@@ -100,14 +111,20 @@ public sealed class ReviewServiceTests
         aiModerationServiceMock.Setup(x => x.ModerateReviewAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiModerationResult { Status = "APPROVED" });
 
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", BookingId = "BKG1", Rating = 5, Comment = "Great movie!" };
 
         var result = await service.CreateReviewAsync("user123", request);
 
         Assert.True(result.Success);
-        Assert.Equal(ReviewConstants.Approved, result.Data!.Status);
+        Assert.Equal("PENDING", result.Data!.Status);
+
+        await service.ProcessReviewModerationAsync(
+            result.Data.ReviewId,
+            "user123",
+            request.Rating,
+            request.Comment!);
 
         var savedReview = await dbContext.Set<Review>().FirstOrDefaultAsync(r => r.ReviewId == result.Data.ReviewId);
         Assert.NotNull(savedReview);
@@ -126,7 +143,7 @@ public sealed class ReviewServiceTests
         );
         await dbContext.SaveChangesAsync();
 
-        var service = new ReviewService(dbContext, new Mock<IAiModerationService>().Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext);
 
         var result = await service.GetApprovedMovieReviewsAsync("M1");
 
@@ -143,7 +160,7 @@ public sealed class ReviewServiceTests
         dbContext.Set<Review>().Add(review);
         await dbContext.SaveChangesAsync();
 
-        var service = new ReviewService(dbContext, new Mock<IAiModerationService>().Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext);
 
         var result = await service.UpdateReviewStatusAsync("R1", ReviewConstants.Approved);
 

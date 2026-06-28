@@ -12,8 +12,7 @@ public class CreateMovieRequest
     [Range(1, 500)]
     public int DurationMinutes { get; set; }
 
-    [MaxLength(100)]
-    public string? Genre { get; set; }
+    public List<int>? GenreIds { get; set; }
 
     [MaxLength(50)]
     public string? Language { get; set; }
@@ -31,4 +30,10 @@ public class CreateMovieRequest
 
     [MaxLength(1000)]
     public string? Highlight { get; set; }
+
+    [MaxLength(200)]
+    public string? Director { get; set; }
+
+    [MaxLength(50)]
+    public string? MovieStatus { get; set; }
 }

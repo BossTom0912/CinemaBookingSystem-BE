@@ -142,7 +142,27 @@ public class AdminRefundService : IAdminRefundService
                     if (existingRefund == null)
                     {
                         // Tìm bản ghi thanh toán hợp lệ nhất (ưu tiên trạng thái Success)
-                        var validPayment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.RefundStatus.Success) ?? booking.Payments.First();
+                        var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == "SUCCESS") ?? booking.Payments.FirstOrDefault();
+
+                        if (payment == null)
+                        {
+                            payment = await _dbContext.Payments
+                                .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == "SUCCESS", cancellationToken);
+                            if (payment == null)
+                            {
+                                payment = await _dbContext.Payments.FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
+                            }
+                        }
+                        else
+                        {
+                            bool exists = await _dbContext.Payments.AnyAsync(p => p.PaymentId == payment.PaymentId, cancellationToken);
+                            if (!exists) payment = null;
+                        }
+
+                        if (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId))
+                        {
+                            throw new Exception($"Cannot create refund for booking {booking.BookingId} because no valid payment record exists in the database.");
+                        }
 
                         // Tạo mới một đối tượng Refund
                         var refund = new Refund
@@ -152,9 +172,9 @@ public class AdminRefundService : IAdminRefundService
                             // Map với ID của Booking
                             BookingId = booking.BookingId,
                             // Map chính xác ID giao dịch thanh toán (Khắc phục lỗi FK_REFUND_PAYMENT)
-                            PaymentId = validPayment.PaymentId,
+                            PaymentId = payment.PaymentId,
                             // Map với nhà cung cấp dịch vụ thanh toán
-                            PaymentProviderId = validPayment.PaymentProviderId,
+                            PaymentProviderId = payment.PaymentProviderId,
                             // Số tiền hoàn trả bằng tổng số tiền đã thanh toán
                             RefundAmount = booking.TotalAmount,
                             // Trạng thái hoàn tiền khởi điểm là PENDING
@@ -175,6 +195,16 @@ public class AdminRefundService : IAdminRefundService
                         existingRefund.RefundStatus = DomainConstants.RefundStatus.Pending;
                         // Ghi đè lý do hoàn tiền mới nhất
                         existingRefund.RefundReason = reason;
+                    }
+
+                    // Send cancellation email
+                    var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                    if (!string.IsNullOrEmpty(customerEmail))
+                    {
+                        string subject = "Thông báo hủy suất chiếu / Showtime Cancellation Notice";
+                        string message = $"[VI] Xuất chiếu của bạn đã được hủy do sự cố: {reason}. Quý khách vui lòng chờ hệ thống hoàn tiền.\n\n" +
+                                         $"[EN] Your showtime has been cancelled due to: {reason}. Please wait for your refund to be processed.";
+                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
                     }
                 }
             }

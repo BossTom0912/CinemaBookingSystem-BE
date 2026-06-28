@@ -347,7 +347,13 @@ public sealed class ControllerMoqCoverageTests
     public async Task Movies_GetMoviesAndDetail_ReturnSuccessAndNotFound()
     {
         var service = new Mock<IMovieService>(MockBehavior.Strict);
-        service.Setup(x => x.GetMoviesAsync("NOW_SHOWING", It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        service.Setup(x => x.GetMoviesAsync(
+                "NOW_SHOWING",
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<PagedList<MovieResponse>>.Ok(
                 new PagedList<MovieResponse>(
                     [new MovieResponse { Id = "MOV_1", MovieNameVn = "Movie" }],
@@ -358,7 +364,10 @@ public sealed class ControllerMoqCoverageTests
             .ReturnsAsync(ServiceResult<MovieDetailResponse>.Fail(StatusCodes.Status404NotFound, "Movie not found.", "MOVIE_NOT_FOUND"));
         var controller = new MoviesController(service.Object);
 
-        var movies = AssertApiResponse<PagedList<MovieResponse>>(await controller.GetMovies("NOW_SHOWING", 1, 10, CancellationToken.None), StatusCodes.Status200OK, true);
+        var movies = AssertApiResponse<PagedList<MovieResponse>>(
+            await controller.GetMovies("NOW_SHOWING", null, 1, 10, CancellationToken.None),
+            StatusCodes.Status200OK,
+            true);
         Assert.Single(movies.Data!.Items);
         var missing = AssertApiResponse<MovieDetailResponse>(await controller.GetMovieById("missing", CancellationToken.None), StatusCodes.Status404NotFound, false);
         Assert.Equal("MOVIE_NOT_FOUND", missing.ErrorCode);

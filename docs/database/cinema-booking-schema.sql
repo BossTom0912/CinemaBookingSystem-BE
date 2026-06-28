@@ -86,21 +86,34 @@ CREATE TABLE [SEAT_TYPE] (
 );
 GO
 
+CREATE TABLE [GENRE] (
+    [genreId] INT IDENTITY(1,1) PRIMARY KEY,
+    [name] NVARCHAR(100) NOT NULL,
+
+    CONSTRAINT [UQ_GENRE_NAME] UNIQUE ([name])
+);
+GO
+
+CREATE TABLE [LANGUAGE] (
+    [languageId] NVARCHAR(50) PRIMARY KEY,
+    [name] NVARCHAR(100) NOT NULL
+);
+GO
+
 CREATE TABLE [MOVIE] (
     [movieId] NVARCHAR(50) PRIMARY KEY,
     [title] NVARCHAR(255) NOT NULL,
     [durationMinutes] INT NOT NULL,
-    [genre] NVARCHAR(255) NULL,
-    [language] NVARCHAR(100) NULL,
+    [languageId] NVARCHAR(50) NULL,
     [releaseDate] DATE NULL,
     [ageRating] NVARCHAR(30) NULL,
     [description] NVARCHAR(MAX) NULL,
     [posterUrl] NVARCHAR(1000) NULL,
     [trailerUrl] NVARCHAR(1000) NULL,
+    [director] NVARCHAR(200) NULL,
     [highlight] NVARCHAR(30) NULL,
     [viewCount] INT NOT NULL DEFAULT 0,
     [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
-    [viewCount] INT NOT NULL DEFAULT 0,
     [averageRating] DECIMAL(3,2) NOT NULL DEFAULT 0.00,
     [totalReviews] INT NOT NULL DEFAULT 0,
     [totalViews] INT NOT NULL DEFAULT 0,
@@ -109,7 +122,21 @@ CREATE TABLE [MOVIE] (
     CONSTRAINT [CK_MOVIE_DURATION] CHECK ([durationMinutes] > 0),
     CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK ([highlight] IS NULL OR [highlight] IN ('HOT', 'NEW', 'TRENDING')),
     CONSTRAINT [CK_MOVIE_STATUS]
-        CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE'))
+        CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED')),
+    CONSTRAINT [FK_MOVIE_LANGUAGE]
+        FOREIGN KEY ([languageId]) REFERENCES [LANGUAGE]([languageId])
+);
+GO
+
+CREATE TABLE [MOVIE_GENRE] (
+    [movieId] NVARCHAR(50) NOT NULL,
+    [genreId] INT NOT NULL,
+
+    CONSTRAINT [PK_MOVIE_GENRE] PRIMARY KEY ([movieId], [genreId]),
+    CONSTRAINT [FK_MOVIE_GENRE_MOVIE]
+        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]) ON DELETE CASCADE,
+    CONSTRAINT [FK_MOVIE_GENRE_GENRE]
+        FOREIGN KEY ([genreId]) REFERENCES [GENRE]([genreId]) ON DELETE CASCADE
 );
 GO
 
@@ -337,7 +364,7 @@ CREATE TABLE [SHOWTIME] (
     CONSTRAINT [CK_SHOWTIME_TIME_RANGE] CHECK ([endTime] > [startTime]),
     CONSTRAINT [CK_SHOWTIME_BASE_PRICE] CHECK ([basePrice] >= 0),
     CONSTRAINT [CK_SHOWTIME_STATUS]
-        CHECK ([status] IN ('OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED')),
+        CHECK ([status] IN ('OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED', 'SUSPENDED', 'PROCESSING_UNSTABLE')),
     CONSTRAINT [FK_SHOWTIME_MOVIE]
         FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
     CONSTRAINT [FK_SHOWTIME_ROOM]
@@ -385,7 +412,7 @@ CREATE TABLE [BOOKING] (
     [expiredAt] DATETIME2 NULL,
 
     CONSTRAINT [CK_BOOKING_STATUS]
-        CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED')),
+        CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE')),
     CONSTRAINT [CK_BOOKING_CHANNEL]
         CHECK ([bookingChannel] IN ('ONLINE', 'COUNTER')),
     CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED]
@@ -808,9 +835,15 @@ CREATE TABLE [REVIEW] (
     [bookingId] NVARCHAR(50) NULL,
     [rating] INT NOT NULL,
     [comment] NVARCHAR(1000) NULL,
+    [status] NVARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    [editCount] INT NOT NULL DEFAULT 0,
+    [rejectedReason] NVARCHAR(500) NULL,
+    [moderatedBy] NVARCHAR(50) NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [CK_REVIEW_RATING] CHECK ([rating] BETWEEN 0 AND 5),
+    CONSTRAINT [CK_REVIEW_STATUS]
+        CHECK ([status] IN ('PENDING', 'APPROVED', 'REJECTED', 'FLAGGED')),
     CONSTRAINT [FK_REVIEW_MODERATED_BY]
         FOREIGN KEY ([moderatedBy]) REFERENCES [USER]([userId]),
     CONSTRAINT [FK_REVIEW_CUSTOMER_PROFILE]
@@ -830,7 +863,9 @@ CREATE TABLE [MOVIE_VIEW_LOG] (
     [ipAddress] NVARCHAR(100) NULL,
 
     CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
+        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
+    CONSTRAINT [FK_MOVIE_VIEW_LOG_USER]
+        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
 
@@ -876,26 +911,11 @@ GO
 CREATE TABLE [CHAT_HISTORY] (
     [chatHistoryId] NVARCHAR(50) PRIMARY KEY,
     [userId] NVARCHAR(50) NULL,
-    [sessionId] NVARCHAR(100) NULL,
-    [message] NVARCHAR(MAX) NOT NULL,
-    [isUserMessage] BIT NOT NULL DEFAULT 1,
+    [userMessage] NVARCHAR(MAX) NOT NULL,
+    [aiReplyMessage] NVARCHAR(MAX) NOT NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [FK_CHAT_HISTORY_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
-);
-GO
-
-CREATE TABLE [MOVIE_VIEW_LOG] (
-    [viewLogId] NVARCHAR(50) PRIMARY KEY,
-    [movieId] NVARCHAR(50) NOT NULL,
-    [userId] NVARCHAR(50) NULL,
-    [viewTime] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    [ipAddress] NVARCHAR(100) NULL,
-
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_USER]
         FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
@@ -913,12 +933,12 @@ CREATE TABLE [MOVIE_DAILY_VIEW] (
 GO
 
 CREATE TABLE [REVIEW_EDIT_HISTORY] (
-    [editHistoryId] NVARCHAR(50) PRIMARY KEY,
+    [reviewEditHistoryId] NVARCHAR(50) PRIMARY KEY,
     [reviewId] NVARCHAR(50) NOT NULL,
     [oldComment] NVARCHAR(1000) NULL,
     [newComment] NVARCHAR(1000) NULL,
-    [oldRating] INT NULL,
-    [newRating] INT NULL,
+    [oldRating] INT NOT NULL,
+    [newRating] INT NOT NULL,
     [editedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [FK_REVIEW_EDIT_HISTORY_REVIEW]
@@ -929,16 +949,16 @@ GO
 CREATE TABLE [REVIEW_MODERATION_HISTORY] (
     [moderationHistoryId] NVARCHAR(50) PRIMARY KEY,
     [reviewId] NVARCHAR(50) NOT NULL,
-    [moderatedBy] NVARCHAR(50) NOT NULL,
-    [oldStatus] VARCHAR(20) NULL,
-    [newStatus] VARCHAR(20) NOT NULL,
-    [reason] NVARCHAR(1000) NULL,
+    [moderatorId] NVARCHAR(50) NULL,
+    [oldStatus] NVARCHAR(30) NULL,
+    [newStatus] NVARCHAR(30) NOT NULL,
+    [rejectedReason] NVARCHAR(1000) NULL,
     [moderatedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_REVIEW]
         FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId]),
     CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_USER]
-        FOREIGN KEY ([moderatedBy]) REFERENCES [USER]([userId])
+        FOREIGN KEY ([moderatorId]) REFERENCES [USER]([userId])
 );
 GO
 
@@ -1022,6 +1042,10 @@ CREATE INDEX [IX_CHECKIN_LOG_TICKET_ID] ON [CHECKIN_LOG]([ticketId]);
 CREATE INDEX [IX_CHECKIN_LOG_RAW_QR_CODE] ON [CHECKIN_LOG]([rawQrCode]) WHERE [rawQrCode] IS NOT NULL;
 CREATE INDEX [IX_NOTIFICATION_USER_READ] ON [NOTIFICATION]([userId], [isRead]);
 CREATE INDEX [IX_AUDIT_LOG_USER_CREATED_AT] ON [AUDIT_LOG]([userId], [createdAt]);
+CREATE INDEX [IX_REVIEW_EDIT_HISTORY_REVIEW_ID] ON [REVIEW_EDIT_HISTORY]([reviewId]);
+CREATE INDEX [IX_REVIEW_MODERATION_HISTORY_REVIEW_ID] ON [REVIEW_MODERATION_HISTORY]([reviewId]);
+CREATE INDEX [IX_MOVIE_DAILY_VIEW_DATE] ON [MOVIE_DAILY_VIEW]([viewDate]);
+CREATE INDEX [IX_MOVIE_HIGHLIGHT_VIEWS] ON [MOVIE]([highlight], [totalViews] DESC);
 GO
 
 -- =========================
@@ -1046,6 +1070,40 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_MANAGER')
 IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_ADMIN')
     INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
     VALUES ('ROLE_ADMIN', 'ADMIN', N'System administrator account');
+GO
+
+INSERT INTO dbo.[LANGUAGE] ([languageId], [name])
+SELECT seed.[languageId], seed.[name]
+FROM (VALUES
+    (N'VN', N'Tiếng Việt'),
+    (N'EN_SUB_VN', N'Tiếng Anh phụ đề tiếng Việt'),
+    (N'EN_DUB_VN', N'Tiếng Anh lồng tiếng Việt'),
+    (N'KR_SUB_VN', N'Tiếng Hàn phụ đề tiếng Việt'),
+    (N'JP_SUB_VN', N'Tiếng Nhật phụ đề tiếng Việt'),
+    (N'TH_SUB_VN', N'Tiếng Thái phụ đề tiếng Việt'),
+    (N'CN_SUB_VN', N'Tiếng Trung phụ đề tiếng Việt')
+) AS seed([languageId], [name])
+WHERE NOT EXISTS (
+    SELECT 1 FROM dbo.[LANGUAGE] AS existing
+    WHERE existing.[languageId] = seed.[languageId]
+);
+
+INSERT INTO dbo.[GENRE] ([name])
+SELECT seed.[name]
+FROM (VALUES
+    (N'Hành động'),
+    (N'Hài hước'),
+    (N'Khoa học viễn tưởng'),
+    (N'Tâm lý - Tình cảm'),
+    (N'Hoạt hình'),
+    (N'Phiêu lưu'),
+    (N'Gia đình'),
+    (N'Siêu anh hùng')
+) AS seed([name])
+WHERE NOT EXISTS (
+    SELECT 1 FROM dbo.[GENRE] AS existing
+    WHERE existing.[name] = seed.[name]
+);
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_NORMAL')
@@ -1105,47 +1163,70 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_DOCTOR_STRANGE_3')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_DOCTOR_STRANGE_3', N'Doctor Strange 3', 120, N'Hanh dong, Vien tuong',
-         N'Tieng Anh - Phu de Tieng Viet', '2026-05-01', 'T16',
+        ('MOV_DOCTOR_STRANGE_3', N'Doctor Strange 3', 120,
+         N'EN_SUB_VN', '2026-05-01', 'T16',
          N'Phan phim tiep theo ve Phu Thuy Toi Thuong.',
          'https://image.example.com/doctor-strange-3.jpg',
          'https://youtube.com/watch?v=doctor-strange-3', 'NOW_SHOWING');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_LAT_MAT_8')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_LAT_MAT_8', N'Lat Mat 8', 115, N'Hai, Gia dinh, Tam ly',
-         N'Tieng Viet', '2026-04-28', 'P',
+        ('MOV_LAT_MAT_8', N'Lat Mat 8', 115,
+         N'VN', '2026-04-28', 'P',
          N'Tac pham dien anh moi voi cau chuyen gia dinh va hanh trinh hoa giai.',
          'https://image.example.com/lat-mat-8.jpg',
          'https://youtube.com/watch?v=lat-mat-8', 'NOW_SHOWING');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_AVENGERS_SECRET_WARS')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_AVENGERS_SECRET_WARS', N'Avengers: Secret Wars', 150, N'Hanh dong, Sieu anh hung',
-         N'Tieng Anh - Phu de Tieng Viet', '2026-06-20', 'T13',
+        ('MOV_AVENGERS_SECRET_WARS', N'Avengers: Secret Wars', 150,
+         N'EN_SUB_VN', '2026-06-20', 'T13',
          N'Biet doi sieu anh hung doi mat moi de doa da vu tru.',
          'https://image.example.com/avengers-secret-wars.jpg',
          'https://youtube.com/watch?v=avengers-secret-wars', 'NOW_SHOWING');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_DORAEMON_2026')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_DORAEMON_2026', N'Doraemon Movie 2026', 105, N'Hoat hinh, Phieu luu, Gia dinh',
-         N'Long tieng Viet', '2026-06-01', 'P',
+        ('MOV_DORAEMON_2026', N'Doraemon Movie 2026', 105,
+         N'VN', '2026-06-01', 'P',
          N'Doraemon va nhom ban trong chuyen phieu luu moi.',
          'https://image.example.com/doraemon-2026.jpg',
          'https://youtube.com/watch?v=doraemon-2026', 'NOW_SHOWING');
+GO
+
+INSERT INTO dbo.[MOVIE_GENRE] ([movieId], [genreId])
+SELECT mapping.[movieId], genre.[genreId]
+FROM (VALUES
+    (N'MOV_DOCTOR_STRANGE_3', N'Hành động'),
+    (N'MOV_DOCTOR_STRANGE_3', N'Khoa học viễn tưởng'),
+    (N'MOV_AVENGERS_SECRET_WARS', N'Hành động'),
+    (N'MOV_AVENGERS_SECRET_WARS', N'Siêu anh hùng'),
+    (N'MOV_LAT_MAT_8', N'Hài hước'),
+    (N'MOV_LAT_MAT_8', N'Gia đình'),
+    (N'MOV_LAT_MAT_8', N'Tâm lý - Tình cảm'),
+    (N'MOV_DORAEMON_2026', N'Hoạt hình'),
+    (N'MOV_DORAEMON_2026', N'Phiêu lưu'),
+    (N'MOV_DORAEMON_2026', N'Gia đình')
+) AS mapping([movieId], [genreName])
+INNER JOIN dbo.[MOVIE] AS movie ON movie.[movieId] = mapping.[movieId]
+INNER JOIN dbo.[GENRE] AS genre ON genre.[name] = mapping.[genreName]
+WHERE NOT EXISTS (
+    SELECT 1 FROM dbo.[MOVIE_GENRE] AS existing
+    WHERE existing.[movieId] = mapping.[movieId]
+      AND existing.[genreId] = genre.[genreId]
+);
 GO
 
 DECLARE @RoomId NVARCHAR(50);

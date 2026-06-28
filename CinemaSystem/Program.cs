@@ -75,6 +75,12 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.Configure<CinemaSystem.Application.Settings.CinemaProcessingSettings>(
     builder.Configuration.GetSection("CinemaProcessingSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.AuthSettings>(
+    builder.Configuration.GetSection("AuthSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.SecuritySettings>(
+    builder.Configuration.GetSection("SecuritySettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.EmailTemplatesSettings>(
+    builder.Configuration.GetSection("EmailTemplates"));
 builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
 var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
@@ -117,9 +123,13 @@ var jwtSettings = new JwtSettings
     Audience = builder.Configuration["JwtSettings:Audience"] ?? "CinemaSystem.Api",
     Secret = builder.Configuration["JwtSettings:Secret"] ?? string.Empty
 };
-var jwtSecret = string.IsNullOrWhiteSpace(jwtSettings.Secret)
-    ? "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM"
-    : jwtSettings.Secret;
+if (string.IsNullOrWhiteSpace(jwtSettings.Secret))
+{
+    throw new InvalidOperationException(
+        "JwtSettings:Secret must be configured through appsettings, user secrets, or environment variables.");
+}
+
+var jwtSecret = jwtSettings.Secret;
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

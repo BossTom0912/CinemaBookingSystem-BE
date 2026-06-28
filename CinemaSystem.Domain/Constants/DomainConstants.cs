@@ -20,8 +20,9 @@ public static class DomainConstants
         public const string Closed = "CLOSED";
         public const string Completed = "COMPLETED";
         public const string ProcessingUnstable = "PROCESSING_UNSTABLE";
-        public const string Archived = "ARCHIVED";
-        public const string Showing = "SHOWING";
+        public const string Archived = "ARCHIVED"; // Consider using INACTIVE for MOVIE
+        public const string Suspended = "SUSPENDED";
+        public const string NowShowing = "NOW_SHOWING";
         public const string ComingSoon = "COMING_SOON";
         public const string Booked = "BOOKED";
     }
@@ -33,5 +34,48 @@ public static class DomainConstants
         public const string Success = "SUCCESS";
         public const string Failed = "FAILED";
         public const string Requested = "REQUESTED";
+    }
+
+    public static class TicketStatus
+    {
+        public const string Generated = "GENERATED";
+        public const string Unused = "UNUSED";
+        public const string CheckedIn = "CHECKED_IN";
+        public const string Cancelled = "CANCELLED";
+        public const string Refunded = "REFUNDED";
+    }
+
+    public static class PaymentStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+        public const string Cancelled = "CANCELLED";
+        public const string Expired = "EXPIRED";
+    }
+
+    public static class AgeRating
+    {
+        public const string P = "P";
+        public const string K = "K";
+        public const string T13 = "T13";
+        public const string T16 = "T16";
+        public const string T18 = "T18";
+        public const string C = "C";
+
+        public static readonly string[] ValidRatings = { P, K, T13, T16, T18, C };
+    }
+
+    public static class Language
+    {
+        public const string VN = "VN"; // Tiếng Việt
+        public const string EN_SUB_VN = "EN_SUB_VN"; // Tiếng Anh phụ đề tiếng Việt
+        public const string EN_DUB_VN = "EN_DUB_VN"; // Tiếng Anh lồng tiếng Việt
+        public const string KR_SUB_VN = "KR_SUB_VN"; // Tiếng Hàn phụ đề tiếng Việt
+        public const string JP_SUB_VN = "JP_SUB_VN"; // Tiếng Nhật phụ đề tiếng Việt
+        public const string TH_SUB_VN = "TH_SUB_VN"; // Tiếng Thái phụ đề tiếng Việt
+        public const string CN_SUB_VN = "CN_SUB_VN"; // Tiếng Trung phụ đề tiếng Việt
+
+        public static readonly string[] ValidLanguages = { VN, EN_SUB_VN, EN_DUB_VN, KR_SUB_VN, JP_SUB_VN, TH_SUB_VN, CN_SUB_VN };
     }
 }

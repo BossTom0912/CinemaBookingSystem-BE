@@ -97,7 +97,29 @@ public sealed class BookingsController : ControllerBase
         return StatusCode(result.StatusCode, response);
     }
 
+    [HttpGet("{bookingId}/confirm-time-change")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ConfirmTimeChange(
+        string bookingId,
+        [FromQuery] bool accept,
+        [FromQuery] string token,
+        CancellationToken cancellationToken)
+    {
+        var result = await _bookingService.ConfirmTimeChangeAsync(
+            bookingId,
+            accept,
+            token,
+            cancellationToken);
 
+        var response = result.Success
+            ? ApiResponse<bool>.Ok(result.Data, result.Message)
+            : ApiResponse<bool>.Fail(
+                result.Message,
+                result.ErrorCode,
+                result.Errors);
+
+        return StatusCode(result.StatusCode, response);
+    }
 
     private string? GetUserId()
     {

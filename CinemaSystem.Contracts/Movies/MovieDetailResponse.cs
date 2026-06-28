@@ -8,7 +8,7 @@ public sealed class MovieDetailResponse
 
     public int DurationMinutes { get; init; }
 
-    public string? Genre { get; init; }
+    public List<string>? Genres { get; init; }
 
     public string? Language { get; init; }
 
@@ -27,4 +27,6 @@ public sealed class MovieDetailResponse
     public int ViewCount { get; init; }
 
     public string? AgeRating { get; init; }
+
+    public string? Director { get; init; }
 }

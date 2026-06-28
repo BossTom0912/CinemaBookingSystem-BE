@@ -398,6 +398,8 @@ public sealed class SeatServiceUnitTests
       dbContext,
       new Mock<Hangfire.IBackgroundJobClient>().Object,
       new Mock<IAdminRefundService>().Object,
+      Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
+      Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
       lockStoreMock.Object);
 
     await Assert.ThrowsAsync<DbUpdateException>(() =>
@@ -454,6 +456,8 @@ public sealed class SeatServiceUnitTests
       dbContext,
       new Mock<Hangfire.IBackgroundJobClient>().Object,
       new Mock<IAdminRefundService>().Object,
+      Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
+      Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
       lockStore);
     var request = new LockSeatRequest { ShowtimeId = ShowtimeId, SeatId = SeatId };
 
@@ -560,6 +564,8 @@ public sealed class SeatServiceUnitTests
         dbContext,
         new Mock<Hangfire.IBackgroundJobClient>().Object,
         new Mock<IAdminRefundService>().Object,
+        Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
+        Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
         lockStoreMock.Object);
 
       return new UnitTestFixture(dbContext, lockStoreMock, service);

@@ -20,7 +20,7 @@ public sealed class RequestedFlowApiIntegrationTests
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     [Fact]
-    public async Task DeleteMovie_WithShowtimesOnJune27And28_MovesPaidBookingToRefundPending()
+    public async Task DeleteMovie_WithFutureShowtimes_MovesPaidBookingToRefundPending()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedBaseDataAsync(factory);
@@ -32,8 +32,8 @@ public sealed class RequestedFlowApiIntegrationTests
         using var form = new MultipartFormDataContent();
         AddFormField(form, "Title", "Requested Flow Movie");
         AddFormField(form, "DurationMinutes", "120");
-        AddFormField(form, "Genre", "Drama");
-        AddFormField(form, "Language", "Vietnamese");
+        AddFormField(form, "GenreIds", "1");
+        AddFormField(form, "Language", "VN");
         AddFormField(form, "ReleaseDate", "2026-06-26");
         AddFormField(form, "AgeRating", "T13");
         AddFormField(form, "Description", "Movie created by requested refund flow test.");
@@ -43,16 +43,18 @@ public sealed class RequestedFlowApiIntegrationTests
         var createdMovie = await DeserializeAsync<ApiResponse<MovieDetailResponse>>(createMovie);
         var movieId = createdMovie!.Data!.MovieId;
 
+        var firstStartTime = DateTime.UtcNow.Date.AddDays(1).AddHours(10);
+        var secondStartTime = firstStartTime.AddDays(1);
         var showtime27 = await CreateShowtimeAsync(
             client,
             movieId,
             "ROOM_FLOW_A",
-            new DateTime(2026, 6, 27, 10, 0, 0, DateTimeKind.Utc));
+            firstStartTime);
         var showtime28 = await CreateShowtimeAsync(
             client,
             movieId,
             "ROOM_FLOW_A",
-            new DateTime(2026, 6, 28, 10, 0, 0, DateTimeKind.Utc));
+            secondStartTime);
 
         var paidShowtimeSeatId = await GetFirstShowtimeSeatIdAsync(factory, showtime27.ShowtimeId);
         await SeedPaidBookingAsync(factory, showtime27.ShowtimeId, paidShowtimeSeatId, "BKG_PAID_27", "PAY_PAID_27");
@@ -146,7 +148,7 @@ public sealed class RequestedFlowApiIntegrationTests
         var email = Assert.Single(factory.EmailCapture.Emails);
         Assert.Equal("flow-customer@test.com", email.ToEmail);
         Assert.Equal("Unexpected Update Notification", email.Subject);
-        Assert.Contains("Start time changed to 2026-06-27 14:00", email.Body);
+        Assert.Contains("Start time changed to 27/06/2026 14:00", email.Body);
         Assert.Contains("Please wait for the cinema to handle it.", email.Body);
 
         await using var scope = factory.Services.CreateAsyncScope();
@@ -162,7 +164,7 @@ public sealed class RequestedFlowApiIntegrationTests
     }
 
     [Fact]
-    public async Task DeleteRoom_WithPaidBookedShowtime_CurrentlyCancelsAndRefundsWithoutReplacementRoom()
+    public async Task DeleteRoom_WithPaidBookedShowtime_SuspendsShowtimeForManualHandling()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedBookedRoomFlowAsync(factory);
@@ -186,11 +188,11 @@ public sealed class RequestedFlowApiIntegrationTests
 
         var showtime = await db.Showtimes.SingleAsync(item => item.ShowtimeId == "SHW_ROOM_FLOW");
         Assert.Equal("ROOM_FLOW_A", showtime.RoomId);
-        Assert.Equal(BookingConstants.ShowtimeStatus.Cancelled, showtime.Status);
+        Assert.Equal(DomainConstants.EntityStatus.Suspended, showtime.Status);
 
         var booking = await db.Bookings.SingleAsync(item => item.BookingId == "BKG_ROOM_FLOW");
-        Assert.Equal(BookingConstants.BookingStatus.RefundPending, booking.BookingStatus);
-        Assert.True(await db.Refunds.AnyAsync(item => item.BookingId == "BKG_ROOM_FLOW"));
+        Assert.Equal(BookingConstants.BookingStatus.Paid, booking.BookingStatus);
+        Assert.False(await db.Refunds.AnyAsync(item => item.BookingId == "BKG_ROOM_FLOW"));
     }
 
     private static async Task<ShowtimeResponse> CreateShowtimeAsync(
@@ -303,6 +305,16 @@ public sealed class RequestedFlowApiIntegrationTests
             PaymentProviderId = "PAYPROV_FLOW",
             ProviderName = "SEPAY_FLOW",
             ProviderStatus = DomainConstants.EntityStatus.Active
+        });
+        db.Genres.Add(new Genre
+        {
+            GenreId = 1,
+            Name = "Drama"
+        });
+        db.Languages.Add(new Language
+        {
+            LanguageId = "VN",
+            Name = "Vietnamese"
         });
 
         await db.SaveChangesAsync();

@@ -753,6 +753,20 @@ public sealed class AuthServiceTests
                 RefreshTokenDays = 7
             });
             var tokenService = new JwtTokenService(jwtOptions, clock);
+            var backgroundJobClient = new Moq.Mock<Hangfire.IBackgroundJobClient>();
+            backgroundJobClient
+                .Setup(client => client.Create(
+                    Moq.It.IsAny<Hangfire.Common.Job>(),
+                    Moq.It.IsAny<Hangfire.States.IState>()))
+                .Callback<Hangfire.Common.Job, Hangfire.States.IState>((job, _) =>
+                {
+                    var result = job.Method.Invoke(emailSender, job.Args.ToArray());
+                    if (result is Task task)
+                    {
+                        task.GetAwaiter().GetResult();
+                    }
+                })
+                .Returns("test-job");
             var service = new AuthService(
                 dbContext,
                 passwordHasher,
@@ -760,7 +774,9 @@ public sealed class AuthServiceTests
                 emailSender,
                 tokenService,
                 clock,
-                jwtOptions);
+                jwtOptions,
+                Options.Create(new CinemaSystem.Application.Settings.AuthSettings()),
+                backgroundJobClient.Object);
 
             return new TestFixture(dbContext, emailSender, otpGenerator, clock, passwordHasher, tokenService, service);
         }

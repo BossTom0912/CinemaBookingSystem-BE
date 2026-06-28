@@ -1557,7 +1557,14 @@ public sealed class ShowtimeServiceMissingCoverageTests
             return new Fixture(
                 dbContext,
                 new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
-                new ShowtimeService(dbContext, mockClock.Object, mockOptions, mockJobClient.Object, mockHttpContextAccessor.Object));
+                new ShowtimeService(
+                    dbContext,
+                    mockClock.Object,
+                    mockOptions,
+                    Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
+                    Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+                    mockJobClient.Object,
+                    mockHttpContextAccessor.Object));
         }
 
         public async Task SeedCinemaAsync()

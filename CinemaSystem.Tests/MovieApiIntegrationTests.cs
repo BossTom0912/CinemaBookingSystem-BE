@@ -31,7 +31,7 @@ public sealed class MovieApiIntegrationTests
         Assert.True(body!.Success);
         Assert.Single(body.Data!.Items);
         Assert.Equal("Test Movie", body.Data.Items[0].MovieNameVn);
-        Assert.Equal("Action", body.Data.Items[0].Genre);
+        Assert.Contains("Action", body.Data.Items[0].Genres!);
         Assert.Equal("HOT", body.Data.Items[0].Highlight);
     }
 
@@ -59,16 +59,27 @@ public sealed class MovieApiIntegrationTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        db.Movies.Add(new Movie
+        var genre = new Genre
+        {
+            GenreId = 1,
+            Name = "Action"
+        };
+        var movie = new Movie
         {
             MovieId = "MOV_01",
             Title = "Test Movie",
             DurationMinutes = 120,
-            Genre = "Action",
             MovieStatus = "NOW_SHOWING",
             Highlight = "HOT",
             ReleaseDate = DateOnly.FromDateTime(DateTime.UtcNow)
+        };
+        movie.MovieGenres.Add(new MovieGenre
+        {
+            MovieId = movie.MovieId,
+            GenreId = genre.GenreId,
+            Genre = genre
         });
+        db.Movies.Add(movie);
         await db.SaveChangesAsync();
     }
 }

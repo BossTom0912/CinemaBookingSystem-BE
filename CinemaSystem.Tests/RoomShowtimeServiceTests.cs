@@ -375,7 +375,14 @@ public sealed class RoomShowtimeServiceTests
                     Moq.It.IsAny<CancellationToken>()))
                 .Returns(Task.FromResult(CinemaSystem.Application.Common.ServiceResult<bool>.Ok(true)));
             var roomService = new RoomService(dbContext, refundService.Object);
-            var showtimeService = new ShowtimeService(dbContext, mockClock.Object, Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings()), new Moq.Mock<Hangfire.IBackgroundJobClient>().Object, new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object);
+            var showtimeService = new ShowtimeService(
+                dbContext,
+                mockClock.Object,
+                Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings()),
+                Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
+                Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+                new Moq.Mock<Hangfire.IBackgroundJobClient>().Object,
+                new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object);
             return new Fixture(dbContext, roomService, showtimeService);
         }
 

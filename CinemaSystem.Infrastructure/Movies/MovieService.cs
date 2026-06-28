@@ -17,8 +17,6 @@ namespace CinemaSystem.Infrastructure.Movies;
 
 public sealed class MovieService : IMovieService
 {
-    private const string ProhibitedAgeRating = "C";
-
     private readonly CinemaDbContext _dbContext;
     private readonly IAdminRefundService _refundService;
     private readonly IFileStorageService _fileStorageService;
@@ -34,14 +32,20 @@ public sealed class MovieService : IMovieService
         string? status,
         int pageIndex,
         int pageSize,
+        string? genre,
         bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var query = _dbContext.Movies.AsNoTracking();
+        var query = _dbContext.Movies.Include(m => m.MovieGenres).ThenInclude(mg => mg.Genre).AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(genre))
+        {
+            query = query.Where(m => m.MovieGenres.Any(mg => mg.Genre.Name.Contains(genre)));
+        }
 
         if (!includeDeleted)
         {
-            query = query.Where(movie => movie.MovieStatus != DomainConstants.EntityStatus.Inactive && movie.AgeRating != ProhibitedAgeRating);
+            query = query.Where(movie => movie.MovieStatus != DomainConstants.EntityStatus.Inactive && movie.AgeRating != DomainConstants.AgeRating.C);
         }
 
         if (!string.IsNullOrWhiteSpace(status))
@@ -60,13 +64,14 @@ public sealed class MovieService : IMovieService
             {
                 Id = movie.MovieId,
                 MovieNameVn = movie.Title,
-                Genre = movie.Genre,
+                Genres = movie.MovieGenres.Select(mg => mg.Genre.Name).ToList(),
                 Duration = movie.DurationMinutes,
                 ImagePoster = movie.PosterUrl,
                 AvgRating = movie.AverageRating,
                 Highlight = movie.Highlight,
                 ViewCount = movie.ViewCount,
-                AgeRating = movie.AgeRating
+                AgeRating = movie.AgeRating,
+                Director = movie.Director
             })
             .ToListAsync(cancellationToken);
 
@@ -82,11 +87,11 @@ public sealed class MovieService : IMovieService
         bool isAdmin,
         CancellationToken cancellationToken)
     {
-        var query = _dbContext.Movies.Where(item => item.MovieId == movieId);
+        var query = _dbContext.Movies.Include(m => m.MovieGenres).ThenInclude(mg => mg.Genre).Where(item => item.MovieId == movieId);
 
         if (!isAdmin)
         {
-            query = query.Where(item => item.MovieStatus != DomainConstants.EntityStatus.Inactive && item.AgeRating != ProhibitedAgeRating);
+            query = query.Where(item => item.MovieStatus != DomainConstants.EntityStatus.Inactive && item.AgeRating != DomainConstants.AgeRating.C);
         }
 
         var movie = await query.FirstOrDefaultAsync(cancellationToken);
@@ -157,8 +162,8 @@ public sealed class MovieService : IMovieService
             MovieId = movie.MovieId,
             Title = movie.Title,
             DurationMinutes = movie.DurationMinutes,
-            Genre = movie.Genre,
-            Language = movie.Language,
+            Genres = movie.MovieGenres.Select(mg => mg.Genre.Name).ToList(),
+            Language = movie.LanguageId,
             ReleaseDate = movie.ReleaseDate,
             AvgRating = movie.AverageRating,
             Description = movie.Description,
@@ -166,7 +171,8 @@ public sealed class MovieService : IMovieService
             TrailerUrl = movie.TrailerUrl,
             MovieStatus = movie.MovieStatus,
             ViewCount = movie.ViewCount,
-            AgeRating = movie.AgeRating
+            AgeRating = movie.AgeRating,
+            Director = movie.Director
         };
     }
 
@@ -176,6 +182,70 @@ public sealed class MovieService : IMovieService
         string? posterFileName,
         CancellationToken cancellationToken)
     {
+        // 1. Check title duplication
+        var exists = await _dbContext.Movies.AnyAsync(m => m.Title == request.Title, cancellationToken);
+        if (exists)
+        {
+            return ServiceResult<MovieDetailResponse>.Fail(400, "A movie with this title already exists.", "MOVIE_TITLE_DUPLICATED");
+        }
+
+        // 2. Validate AgeRating
+        if (!string.IsNullOrEmpty(request.AgeRating) && !DomainConstants.AgeRating.ValidRatings.Contains(request.AgeRating.ToUpperInvariant()))
+        {
+            return ServiceResult<MovieDetailResponse>.Fail(400, "Invalid Age Rating. Allowed values: P, K, T13, T16, T18, C.", "INVALID_AGE_RATING");
+        }
+
+        // 2.1 Validate Language
+        if (!string.IsNullOrEmpty(request.Language))
+        {
+            var validLanguage = await _dbContext.Languages.AnyAsync(l => l.LanguageId == request.Language.ToUpperInvariant(), cancellationToken);
+            if (!validLanguage)
+            {
+                return ServiceResult<MovieDetailResponse>.Fail(400, "Invalid Language.", "INVALID_LANGUAGE");
+            }
+        }
+
+        // 2.2 Validate Genres
+        var selectedGenres = new List<Genre>();
+        if (request.GenreIds != null && request.GenreIds.Any())
+        {
+            var genreIds = request.GenreIds.Distinct().ToList();
+            selectedGenres = await _dbContext.Genres
+                .Where(genre => genreIds.Contains(genre.GenreId))
+                .ToListAsync(cancellationToken);
+            if (selectedGenres.Count != genreIds.Count)
+            {
+                return ServiceResult<MovieDetailResponse>.Fail(400, "One or more provided GenreIds are invalid.", "INVALID_GENRE_ID");
+            }
+        }
+
+        // 3. Parse and Validate Date
+        DateOnly? releaseDate = null;
+        if (!string.IsNullOrWhiteSpace(request.ReleaseDate))
+        {
+            if (DateOnly.TryParse(request.ReleaseDate, out var pd))
+            {
+                releaseDate = pd;
+            }
+            else
+            {
+                return ServiceResult<MovieDetailResponse>.Fail(400, "Invalid Release Date format. Please use yyyy-MM-dd.", "INVALID_DATE_FORMAT");
+            }
+        }
+
+        // 4. Calculate Movie Status
+        string status = DomainConstants.EntityStatus.NowShowing;
+        if (!string.IsNullOrWhiteSpace(request.MovieStatus))
+        {
+            // If Admin explicitly provides a status, use it
+            status = request.MovieStatus;
+        }
+        else if (releaseDate.HasValue && releaseDate.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            // Otherwise fallback to auto-calculation based on Date
+            status = DomainConstants.EntityStatus.ComingSoon;
+        }
+
         var movieId = "MOV_" + Guid.NewGuid().ToString("N");
 
         string? posterUrl = null;
@@ -184,30 +254,50 @@ public sealed class MovieService : IMovieService
             posterUrl = await _fileStorageService.SaveFileAsync(posterStream, posterFileName, "posters", cancellationToken);
         }
 
-        DateOnly? releaseDate = null;
-        if (DateOnly.TryParse(request.ReleaseDate, out var pd))
-        {
-            releaseDate = pd;
-        }
-
         var movie = new Movie
         {
             MovieId = movieId,
             Title = request.Title,
             DurationMinutes = request.DurationMinutes,
-            Genre = request.Genre,
-            Language = request.Language,
+            LanguageId = request.Language?.ToUpperInvariant(),
             ReleaseDate = releaseDate,
-            AgeRating = request.AgeRating,
+            AgeRating = request.AgeRating?.ToUpperInvariant(),
             Description = request.Description,
             TrailerUrl = request.TrailerUrl,
             Highlight = request.Highlight,
             PosterUrl = posterUrl,
-            MovieStatus = DomainConstants.EntityStatus.Active
+            Director = request.Director,
+            MovieStatus = status
         };
 
+        if (selectedGenres.Count > 0)
+        {
+            foreach (var genre in selectedGenres)
+            {
+                movie.MovieGenres.Add(new MovieGenre
+                {
+                    MovieId = movieId,
+                    GenreId = genre.GenreId,
+                    Genre = genre
+                });
+            }
+        }
+
         _dbContext.Movies.Add(movie);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception)
+        {
+            // Rollback the uploaded file if database save fails
+            if (!string.IsNullOrEmpty(posterUrl))
+            {
+                await _fileStorageService.DeleteFileAsync(posterUrl, CancellationToken.None);
+            }
+            throw; // Rethrow to let global error handler catch it
+        }
 
         return ServiceResult<MovieDetailResponse>.Ok(ToDetailResponse(movie), "Movie created successfully.");
     }
@@ -220,10 +310,32 @@ public sealed class MovieService : IMovieService
         string actionUserId,
         CancellationToken cancellationToken)
     {
-        var movie = await _dbContext.Movies.FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
+        var movie = await _dbContext.Movies.Include(m => m.MovieGenres).ThenInclude(mg => mg.Genre).FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
         if (movie == null || movie.MovieStatus == DomainConstants.EntityStatus.Inactive)
         {
             return ServiceResult<MovieDetailResponse>.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
+        }
+
+        if (!string.IsNullOrEmpty(request.Language))
+        {
+            var validLanguage = await _dbContext.Languages.AnyAsync(l => l.LanguageId == request.Language.ToUpperInvariant(), cancellationToken);
+            if (!validLanguage)
+            {
+                return ServiceResult<MovieDetailResponse>.Fail(400, "Invalid Language.", "INVALID_LANGUAGE");
+            }
+        }
+
+        var selectedGenres = new List<Genre>();
+        if (request.GenreIds != null && request.GenreIds.Any())
+        {
+            var genreIds = request.GenreIds.Distinct().ToList();
+            selectedGenres = await _dbContext.Genres
+                .Where(genre => genreIds.Contains(genre.GenreId))
+                .ToListAsync(cancellationToken);
+            if (selectedGenres.Count != genreIds.Count)
+            {
+                return ServiceResult<MovieDetailResponse>.Fail(400, "One or more provided GenreIds are invalid.", "INVALID_GENRE_ID");
+            }
         }
 
         if (movie.DurationMinutes != request.DurationMinutes)
@@ -264,14 +376,28 @@ public sealed class MovieService : IMovieService
 
         movie.Title = request.Title;
         movie.DurationMinutes = request.DurationMinutes;
-        movie.Genre = request.Genre;
-        movie.Language = request.Language;
+        movie.LanguageId = request.Language?.ToUpperInvariant();
         movie.ReleaseDate = releaseDate;
         movie.AgeRating = request.AgeRating;
         movie.Description = request.Description;
         movie.TrailerUrl = request.TrailerUrl;
         movie.Highlight = request.Highlight;
+        movie.Director = request.Director;
         movie.MovieStatus = request.MovieStatus;
+
+        if (request.GenreIds != null)
+        {
+            movie.MovieGenres.Clear();
+            foreach (var genre in selectedGenres)
+            {
+                movie.MovieGenres.Add(new MovieGenre
+                {
+                    MovieId = movieId,
+                    GenreId = genre.GenreId,
+                    Genre = genre
+                });
+            }
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 

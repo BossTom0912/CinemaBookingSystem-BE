@@ -13,6 +13,7 @@ public interface IMovieService
         string? status,
         int pageIndex,
         int pageSize,
+        string? genre,
         bool includeDeleted,
         CancellationToken cancellationToken);
 

@@ -31,12 +31,16 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaProcessingSettings _settings;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
+    private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
-    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
+    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions, IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplatesOptions, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
     {
         _dbContext = dbContext;
         _clock = clock;
         _settings = options.Value;
+        _securitySettings = securityOptions.Value;
+        _emailTemplates = emailTemplatesOptions.Value;
         _backgroundJobClient = backgroundJobClient;
         _httpContextAccessor = httpContextAccessor;
     }
@@ -220,7 +224,32 @@ public sealed class ShowtimeService : IShowtimeService
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
-                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Unexpected Update Notification", $"Your showtime {showtime.Movie.Title} has been unexpectedly updated. Reason: {updateReason}. Please wait for the cinema to handle it.", CancellationToken.None));
+                        var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
+                        if (timeChanged && timeDiff >= 15)
+                        {
+                            var secret = _securitySettings.ConfirmationTokenSecret;
+                            using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                            var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                            var token = Convert.ToBase64String(hash);
+                            var encodedToken = System.Uri.EscapeDataString(token);
+
+                            string subject = _emailTemplates.ShowtimeTimeChangeSubject;
+                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeBody,
+                                showtime.Movie.Title,
+                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
+                                booking.BookingId,
+                                encodedToken);
+                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                        }
+                        else
+                        {
+                            string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
+                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeNoticeBody,
+                                showtime.Movie.Title,
+                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
+                                updateReason);
+                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                        }
                     }
                 }
 
@@ -280,6 +309,121 @@ public sealed class ShowtimeService : IShowtimeService
 
         var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
         return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime updated successfully.", 200);
+    }
+
+    public async Task<ServiceResult<ShowtimeResponse>> ChangeRoomAsync(
+        string showtimeId,
+        ChangeRoomRequest request,
+        CancellationToken cancellationToken)
+    {
+        var showtime = await _dbContext.Showtimes
+            .Include(s => s.ShowtimeSeats)
+                .ThenInclude(sts => sts.Seat)
+            .Include(s => s.Bookings)
+            .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
+
+        if (showtime == null)
+            return ServiceResult<ShowtimeResponse>.Fail(404, "Showtime not found.", "NOT_FOUND");
+
+        var newRoom = await _dbContext.Rooms
+            .Include(r => r.Seats)
+            .FirstOrDefaultAsync(r => r.RoomId == request.NewRoomId, cancellationToken);
+
+        if (newRoom == null)
+            return ServiceResult<ShowtimeResponse>.Fail(404, "New room not found.", "NOT_FOUND");
+
+        if (newRoom.RoomStatus != DomainConstants.EntityStatus.Active)
+            return ServiceResult<ShowtimeResponse>.Fail(400, "New room is not active.", "ROOM_INACTIVE");
+
+        var activeNewSeats = newRoom.Seats.Where(s => s.IsActive).ToList();
+
+        var seatMapping = request.SeatMapping ?? new Dictionary<string, string>();
+
+        foreach (var oldSts in showtime.ShowtimeSeats)
+        {
+            if (oldSts.SeatStatus == DomainConstants.EntityStatus.Booked || oldSts.SeatStatus == DomainConstants.EntityStatus.Paid || oldSts.BookingSeat != null)
+            {
+                string? newSeatId = null;
+                if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId))
+                {
+                    newSeatId = mappedId;
+                }
+                else
+                {
+                    var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == oldSts.Seat.SeatCode);
+                    if (equivalentSeat != null)
+                    {
+                        newSeatId = equivalentSeat.SeatId;
+                    }
+                }
+
+                if (newSeatId == null)
+                {
+                    return ServiceResult<ShowtimeResponse>.Fail(400, $"Cannot map seat {oldSts.Seat.SeatCode} to new room.", "MAPPING_FAILED");
+                }
+            }
+        }
+
+        _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
+
+        var newShowtimeSeats = new List<ShowtimeSeat>();
+        foreach (var newSeat in activeNewSeats)
+        {
+            newShowtimeSeats.Add(CreateShowtimeSeat(showtime.ShowtimeId, newSeat.SeatId));
+        }
+        await _dbContext.ShowtimeSeats.AddRangeAsync(newShowtimeSeats, cancellationToken);
+
+        // Cần gán lại SeatId cho các vé đã đặt (BookingSeat)
+        // Note: do EF Core theo dõi, ta chỉ cần update thẳng BookingSeat.ShowtimeSeatId
+        var bookingSeats = await _dbContext.BookingSeats
+            .Where(bs => showtime.Bookings.Select(b => b.BookingId).Contains(bs.BookingId))
+            .Include(bs => bs.ShowtimeSeat)
+                .ThenInclude(sts => sts.Seat)
+            .ToListAsync(cancellationToken);
+
+        foreach (var bs in bookingSeats)
+        {
+            string? newSeatId = null;
+            if (seatMapping.TryGetValue(bs.ShowtimeSeat.SeatId, out var mappedId))
+            {
+                newSeatId = mappedId;
+            }
+            else
+            {
+                var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == bs.ShowtimeSeat.Seat.SeatCode);
+                if (equivalentSeat != null) newSeatId = equivalentSeat.SeatId;
+            }
+            if (newSeatId != null)
+            {
+                var newSts = newShowtimeSeats.FirstOrDefault(sts => sts.SeatId == newSeatId);
+                if (newSts != null)
+                {
+                    bs.ShowtimeSeatId = newSts.ShowtimeSeatId;
+                    newSts.SeatStatus = DomainConstants.EntityStatus.Booked;
+                }
+            }
+        }
+
+        showtime.RoomId = request.NewRoomId;
+        showtime.Status = DomainConstants.EntityStatus.Open;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // Gửi email thông báo sơ đồ ghế mới cho khách
+        var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
+        foreach(var booking in paidBookings)
+        {
+            var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            if (!string.IsNullOrEmpty(email))
+            {
+                string subject = _emailTemplates.ShowtimeRoomChangeSubject;
+                string message = string.Format(_emailTemplates.ShowtimeRoomChangeBody, newRoom.RoomName);
+                _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, subject, message, CancellationToken.None));
+            }
+        }
+
+        var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+        return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Room changed successfully.", 200);
     }
 
     public async Task<ServiceResult<object>> DeleteShowtimeAsync(string showtimeId, CancellationToken cancellationToken)
@@ -369,26 +513,58 @@ public sealed class ShowtimeService : IShowtimeService
             }
         }
 
-        var cancellation = new ShowtimeCancellation
+        var cancellation = showtime.ShowtimeCancellation;
+        if (cancellation == null)
         {
-            ShowtimeCancellationId = NewId("STC"),
-            ShowtimeId = showtime.ShowtimeId,
-            CancelReason = cancelReason,
-            CancelledAt = _clock.UtcNow,
-            CancelledByUserId = userId,
-        };
-        _dbContext.ShowtimeCancellations.Add(cancellation);
+            cancellation = new ShowtimeCancellation
+            {
+                ShowtimeCancellationId = NewId("STC"),
+                ShowtimeId = showtime.ShowtimeId,
+                CancelReason = cancelReason,
+                CancelledAt = _clock.UtcNow,
+                CancelledByUserId = userId,
+            };
+            _dbContext.ShowtimeCancellations.Add(cancellation);
+        }
 
         foreach (var booking in paidBookings)
         {
             booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
 
+            var paymentId = booking.Payments.FirstOrDefault()?.PaymentId;
+            var paymentProviderId = booking.Payments.FirstOrDefault()?.PaymentProviderId;
+
+            if (string.IsNullOrEmpty(paymentId))
+            {
+                var dbPayment = await _dbContext.Payments
+                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
+
+                if (dbPayment != null)
+                {
+                    paymentId = dbPayment.PaymentId;
+                    paymentProviderId = dbPayment.PaymentProviderId;
+                }
+            }
+            else
+            {
+                bool paymentExists = await _dbContext.Payments.AnyAsync(p => p.PaymentId == paymentId, cancellationToken);
+                if (!paymentExists)
+                {
+                    paymentId = null;
+                }
+            }
+
+            if (string.IsNullOrEmpty(paymentId) || string.IsNullOrEmpty(paymentProviderId))
+            {
+                throw new Exception($"Cannot create refund for booking {booking.BookingId} because no valid payment or payment provider record exists in the database.");
+            }
+
             var refund = new Refund
             {
                 RefundId = NewId("REF"),
                 BookingId = booking.BookingId,
-                PaymentId = booking.Payments.FirstOrDefault()?.PaymentId ?? "UNKNOWN",
-                PaymentProviderId = booking.Payments.FirstOrDefault()?.PaymentProviderId ?? "UNKNOWN",
+                PaymentId = paymentId,
+                PaymentProviderId = paymentProviderId,
                 ShowtimeCancellationId = cancellation.ShowtimeCancellationId,
                 RefundAmount = booking.TotalAmount,
                 RefundStatus = DomainConstants.RefundStatus.Pending,
@@ -401,7 +577,9 @@ public sealed class ShowtimeService : IShowtimeService
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
             if (!string.IsNullOrEmpty(customerEmail))
             {
-                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Showtime Cancelled - Refund Initiated", "Your showtime has been cancelled. A refund has been initiated.", CancellationToken.None));
+                string subject = _emailTemplates.ShowtimeCancellationSubject;
+                string message = _emailTemplates.ShowtimeCancellationBody;
+                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
             }
         }
 
