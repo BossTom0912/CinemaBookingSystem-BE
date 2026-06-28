@@ -155,6 +155,9 @@ public sealed class AuthService : IAuthService
         _dbContext.EmailVerificationTokens.Add(verificationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Chặng tiếp theo: chuyển sang IEmailSender, runtime implementation nằm
+        // trong CinemaSystem.Infrastructure/Email (SmtpEmailSender hoặc mock).
+        // Gửi email được tách khỏi AuthService để auth không phụ thuộc SMTP cụ thể.
         var emailResult = await TrySendVerificationOtpEmailAsync(
             normalizedEmail,
             otp,
@@ -246,6 +249,9 @@ public sealed class AuthService : IAuthService
             return ServiceResult<AuthResponse>.Fail(403, "Account is not active.", "ACCOUNT_NOT_ACTIVE");
         }
 
+        // Chặng tiếp theo: IJwtTokenService được DI map sang JwtTokenService tại
+        // Infrastructure/Identity. Class đó chỉ chịu trách nhiệm tạo JWT/refresh
+        // token bảo mật; AuthService tiếp tục chịu trách nhiệm lưu token hash.
         var accessToken = _jwtTokenService.GenerateAccessToken(user.UserId, user.Email, user.Role.RoleName);
         var refreshTokenValue = _jwtTokenService.GenerateRefreshToken();
         var refreshToken = CreateRefreshToken(user.UserId, refreshTokenValue);
@@ -253,6 +259,8 @@ public sealed class AuthService : IAuthService
         _dbContext.RefreshTokens.Add(refreshToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Sau khi JwtTokenService trả token và CinemaDbContext lưu refresh-token
+        // hash, luồng quay về AuthController.Login để map API response.
         return ServiceResult<AuthResponse>.Ok(
             new AuthResponse
             {
@@ -302,6 +310,8 @@ public sealed class AuthService : IAuthService
         var newRefreshToken = CreateRefreshToken(storedToken.UserId, newRefreshTokenValue);
         _dbContext.RefreshTokens.Add(newRefreshToken);
 
+        // Chặng tiếp theo: JwtTokenService (Infrastructure/Identity) ký access
+        // token mới. Sau đó AuthService lưu việc rotate/revoke ở REFRESH_TOKEN.
         var accessToken = _jwtTokenService.GenerateAccessToken(
             storedToken.User.UserId,
             storedToken.User.Email,
@@ -481,6 +491,8 @@ public sealed class AuthService : IAuthService
         _dbContext.EmailVerificationTokens.Add(resetToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Chặng tiếp theo: adapter email trong Infrastructure/Email gửi OTP reset.
+        // Nếu adapter báo lỗi, token vừa tạo bị vô hiệu hóa trước khi trả Controller.
         var emailResult = await TrySendPasswordResetOtpEmailAsync(
             normalizedEmail,
             otp,
@@ -571,6 +583,8 @@ public sealed class AuthService : IAuthService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Không còn service kế tiếp: password hash và token revoke đã lưu xong.
+        // ServiceResult quay về AuthController.ResetPassword để trả HTTP response.
         return ServiceResult<object>.Ok(new { email = normalizedEmail }, "Password reset successfully.");
     }
 

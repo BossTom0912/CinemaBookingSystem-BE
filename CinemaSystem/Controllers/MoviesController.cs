@@ -36,7 +36,12 @@ public sealed class MoviesController : ControllerBase
         [FromQuery] string? status,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: IMovieService được DI map sang MovieService tại
+        // CinemaSystem.Infrastructure/Movies/MovieService.cs. Service query MOVIE,
+        // lọc phim không public và project entity sang DTO.
         var result = await _movieService.GetMoviesAsync(status, cancellationToken);
+
+        // Query hoàn tất thì ServiceResult quay lại đây để tạo HTTP response.
         return ToActionResult(result);
     }
 
@@ -52,7 +57,11 @@ public sealed class MoviesController : ControllerBase
         string movieId,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: MovieService (Infrastructure/Movies) kiểm movieId cùng
+        // rule public visibility trực tiếp trên CinemaDbContext.
         var result = await _movieService.GetMovieByIdAsync(movieId, cancellationToken);
+
+        // DTO hoặc lỗi MOVIE_NOT_FOUND quay lại Controller để chuẩn hóa response.
         return ToActionResult(result);
     }
 

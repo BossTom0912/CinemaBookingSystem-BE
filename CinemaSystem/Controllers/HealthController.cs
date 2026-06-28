@@ -17,6 +17,9 @@ public class HealthController : ControllerBase
     [HttpGet]
     public IActionResult Get()
     {
+        // Luồng dừng tại Controller: health chỉ kiểm API process còn sống nên
+        // không chuyển sang Application/Infrastructure hoặc truy cập database.
+        // Muốn kiểm DB, request phải đi qua DbTestController thay vì endpoint này.
         return Ok(new
         {
             status = "OK",

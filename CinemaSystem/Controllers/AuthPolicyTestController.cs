@@ -22,6 +22,9 @@ public sealed class AuthPolicyTestController : ControllerBase
     [Authorize(Policy = AuthConstants.Policies.CanBookTicket)]
     public IActionResult CustomerOnly()
     {
+        // Trước khi vào đây, AuthorizationMiddleware trong Program.cs đã đọc
+        // role claim do JwtTokenService tạo và kiểm policy CanBookTicket.
+        // Luồng dừng tại Controller vì endpoint này chỉ chứng minh policy hoạt động.
         return Ok(ApiResponse<UserProfileResponse>.Ok(CurrentUser(), "Customer policy accepted."));
     }
 
@@ -29,6 +32,8 @@ public sealed class AuthPolicyTestController : ControllerBase
     [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
     public IActionResult AdminOnly()
     {
+        // Trước khi vào đây, AuthorizationMiddleware đã yêu cầu role ADMIN.
+        // Không gọi service/DB vì đây là endpoint test policy, không phải use case.
         return Ok(ApiResponse<UserProfileResponse>.Ok(CurrentUser(), "Admin policy accepted."));
     }
 

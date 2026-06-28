@@ -42,7 +42,10 @@ public class GeminiChatbotService : IChatbotService
             return ServiceResult<ChatbotResponse>.Fail(500, "Gemini API key is not configured.", "MISSING_API_KEY");
         }
 
-        // Get context from DB
+        // Chặng tiếp theo 1: IMovieService -> MovieService trong
+        // Infrastructure/Movies và IShowtimeService -> ShowtimeService trong
+        // Infrastructure/Showtimes. Dùng interface để chatbot không query DB trực
+        // tiếp và tái sử dụng đúng rule public của hai module.
         var moviesResult = await _movieService.GetMoviesAsync(null, cancellationToken);
         var showtimesResult = await _showtimeService.GetShowtimesAsync(cancellationToken);
 
@@ -84,6 +87,9 @@ Context:
 
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={_settings.ApiKey}";
 
+        // Chặng tiếp theo 2: rời hệ thống để gọi Google Gemini bằng HttpClient.
+        // Khi API ngoài trả về, response được parse tại class này rồi quay về
+        // ChatbotController; hiện không có class lưu CHAT_HISTORY phía sau.
         var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
 
         if (!response.IsSuccessStatusCode)

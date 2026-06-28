@@ -90,12 +90,29 @@ public static class DependencyInjection
         // Controller-to-service handoff map. Each interface below is injected
         // into the matching controller; the concrete class performs the use
         // case and continues to CinemaDbContext or an external adapter.
+        // AuthController -> IAuthService -> Infrastructure/Auth/AuthService:
+        // tách HTTP khỏi account/OTP/JWT/refresh-token persistence.
         services.AddScoped<IAuthService, AuthService>();
+
+        // BookingsController.Checkout -> ICheckoutService ->
+        // Infrastructure/Bookings/CheckoutService: gom checkout transaction.
         services.AddScoped<ICheckoutService, CheckoutService>();
+
+        // AdminController -> IAdminService -> Infrastructure/Auth/AdminService:
+        // cấp tài khoản nội bộ và gửi invitation.
         services.AddScoped<IAdminService, AdminService>();
+
+        // CustomersController -> ICustomerService ->
+        // Infrastructure/Services/CustomerService: profile/credential/history.
         services.AddScoped<ICustomerService, CustomerService>();
+
+        // Catalogue controllers -> Infrastructure catalogue services:
+        // giữ EF Core query và public visibility rule ngoài API layer.
         services.AddScoped<ICinemaService, CinemaService>();
         services.AddScoped<IMovieService, MovieService>();
+
+        // BookingsController create/detail/history -> BookingService; checkout
+        // dùng CheckoutService phía trên vì hai luồng có phạm vi rule khác nhau.
         services.AddScoped<IBookingService, BookingService>();
         var redisConnectionString = configuration["Redis:ConnectionString"];
         if (string.IsNullOrWhiteSpace(redisConnectionString))
@@ -108,12 +125,16 @@ public static class DependencyInjection
                 new RedisSeatLockStore(redisConnectionString));
         }
 
+        // Rooms/Seats/Showtimes controllers -> các service theo module; concrete
+        // service tiếp tục làm việc với CinemaDbContext.
         services.AddScoped<ISeatService, SeatService>();
         services.AddScoped<SeatService>();
         services.AddScoped<IRoomService, RoomService>();
         services.AddScoped<RoomService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
         services.AddScoped<ShowtimeService>();
+        // Auth/Admin/Customer services -> adapter email/JWT/security. Các adapter
+        // được tách để đổi SMTP/crypto implementation mà không sửa controller.
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -139,6 +160,8 @@ public static class DependencyInjection
             options.DevelopmentPaymentAmountOverride = sepaySettings.DevelopmentPaymentAmountOverride;
         });
 
+        // PaymentController -> PaymentWebhookService -> HmacVerifyHelper ->
+        // PaymentService. Chỉ PaymentService sở hữu transaction thay đổi DB.
         services.AddSingleton<HmacVerifyHelper>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IPaymentWebhookService, PaymentWebhookService>();
@@ -150,6 +173,8 @@ public static class DependencyInjection
         {
             options.ApiKey = configuration["GeminiSettings:ApiKey"] ?? string.Empty;
         });
+        // ChatbotController -> GeminiChatbotService -> MovieService/ShowtimeService
+        // -> Gemini API; chatbot tái sử dụng catalogue rule qua interface.
         services.AddScoped<IChatbotService, GeminiChatbotService>();
 
         return services;

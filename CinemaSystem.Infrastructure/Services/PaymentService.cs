@@ -117,6 +117,9 @@ public class PaymentService : IPaymentService
         _db.Payments.Add(payment);
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Không gọi cổng thanh toán ở đây. DTO quay về PaymentController để
+        // frontend hiển thị thông tin chuyển khoản; chặng tiếp theo đến từ SePay
+        // qua PaymentWebhookService khi giao dịch thực sự phát sinh.
         return ToCreatePaymentResponse(payment, booking.ExpiredAt);
     }
 
@@ -180,7 +183,9 @@ public class PaymentService : IPaymentService
         if (string.Equals(payment.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase))
             return;
 
-        // Persist changes inside a transaction
+        // Chặng tiếp theo là transaction EF Core tại Persistence/CinemaDbContext.
+        // Một callback phải cập nhật payment, booking, seat và ticket nguyên tử;
+        // lỗi ở bất kỳ bước nào sẽ rollback toàn bộ trạng thái.
         await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -225,6 +230,10 @@ public class PaymentService : IPaymentService
 
             await _db.SaveChangesAsync(cancellationToken);
             await tx.CommitAsync(cancellationToken);
+
+            // Commit xong, luồng quay về PaymentWebhookService rồi
+            // PaymentController để ACK webhook. Không có email/e-ticket sender
+            // kế tiếp trên main; đó là phần use case còn thiếu đã ghi trong docs.
         }
         catch
         {

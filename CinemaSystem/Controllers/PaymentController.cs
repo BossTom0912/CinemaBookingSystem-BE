@@ -47,10 +47,17 @@ public class PaymentController : ControllerBase
             return Unauthorized(ApiResponse<object>.Fail("Unauthorized.", "UNAUTHORIZED"));
         }
 
+        // Bước tiếp theo: IPaymentService được DI map sang PaymentService tại
+        // CinemaSystem.Infrastructure/Services/PaymentService.cs. Service kiểm
+        // chủ booking/provider, tạo hoặc tái sử dụng PAYMENT PENDING rồi trả
+        // thông tin chuyển khoản SePay.
         var response = await _paymentService.CreatePaymentAsync(
             request.MapTo<Contracts.Payments.CreatePaymentRequest>(),
             userId,
             cancellationToken);
+
+        // PaymentService xử lý DB xong thì DTO quay lại đây. Bước nghiệp vụ sau
+        // đó không ở request này: SePay sẽ gọi endpoint webhook bên dưới.
         return Ok(ApiResponse<CreatePaymentResponse>.Ok(
             response.MapTo<CreatePaymentResponse>(),
             "Payment created."));
@@ -64,12 +71,21 @@ public class PaymentController : ControllerBase
         [FromHeader(Name = "x-sepay-timestamp")] string? timestampHeader = null)
     {
         var body = payload.GetRawText();
+
+        // Bước tiếp theo 1: IPaymentWebhookService -> PaymentWebhookService tại
+        // Infrastructure/Services để kiểm header, parse payload và gọi
+        // IWebhookSignatureVerifier/HmacVerifyHelper.
+        // Bước tiếp theo 2: nếu chữ ký hợp lệ, PaymentWebhookService gọi lại
+        // IPaymentService -> PaymentService.ConfirmPaymentAsync để transaction
+        // PAYMENT -> BOOKING -> SHOWTIME_SEAT -> TICKET.
         var result = await _paymentWebhookService.HandleSepayWebhookAsync(
             body,
             signatureHeader,
             timestampHeader,
             HttpContext.RequestAborted);
 
+        // Toàn bộ chuỗi xác minh/cập nhật DB xong mới quay lại Controller để ACK
+        // webhook bằng HTTP status; Controller không tự xác nhận thanh toán.
         var response = result.Success
             ? ApiResponse<object>.Ok(result.Data, result.Message)
             : ApiResponse<object>.Fail(result.Message, result.ErrorCode, result.Errors);

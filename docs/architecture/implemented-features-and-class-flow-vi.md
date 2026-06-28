@@ -677,6 +677,36 @@ với `docs/database/cinema-booking-schema.sql` và EF model.
 
 ## 11. Cách lần theo một request khi debug
 
+### 11.1 Quy ước comment trực tiếp trong code
+
+Các điểm chuyển giao quan trọng trong Controller và service dùng ba nhãn:
+
+- `Bước tiếp theo`: request hoặc dữ liệu sắp được chuyển sang interface/class
+  nào, class đó nằm trong folder/file nào và chịu trách nhiệm gì.
+- `Chặng tiếp theo`: một service đang tiếp tục gọi service/helper/adapter/DB nào
+  trong chuỗi xử lý nhiều tầng.
+- `Luồng quay về`: class hiện tại đã xử lý xong, kết quả quay về class nào hoặc
+  actor nào sẽ kích hoạt use case kế tiếp.
+
+Ví dụ luồng payment được comment trực tiếp tại:
+
+```text
+PaymentController.SepayWebhook
+  -> PaymentWebhookService.HandleSepayWebhookAsync
+  -> HmacVerifyHelper.Verify
+  -> PaymentService.ConfirmPaymentAsync
+  -> CinemaDbContext transaction
+  -> PaymentWebhookService
+  -> PaymentController
+  -> SePay nhận HTTP ACK
+```
+
+Comment giải thích đường đi và ranh giới trách nhiệm; code vẫn là nguồn đúng
+duy nhất về hành vi. Khi đổi DI mapping, tên class, folder hoặc bước use case,
+phải cập nhật comment cùng commit để tránh chỉ dẫn sai.
+
+### 11.2 Ví dụ lần theo login
+
 Ví dụ login:
 
 1. mở route trong `CinemaSystem/Controllers/AuthController.cs`;
@@ -689,6 +719,8 @@ Ví dụ login:
 6. kiểm policy tại `CinemaSystem/Program.cs`;
 7. kiểm test tại `CinemaSystem.Tests/AuthServiceTests.cs` và
    `CinemaSystem.Tests/AuthApiIntegrationTests.cs`.
+
+### 11.3 Ví dụ lần theo payment callback
 
 Ví dụ thanh toán thành công:
 

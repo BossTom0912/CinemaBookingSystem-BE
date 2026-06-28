@@ -51,6 +51,9 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
                 "INVALID_SIGNATURE");
         }
 
+        // Chặng tiếp theo: IWebhookSignatureVerifier được DI map sang
+        // HmacVerifyHelper trong Infrastructure/Services. Tách verifier để
+        // PaymentWebhookService chỉ điều phối và có thể test độc lập HMAC.
         if (!_signatureVerifier.Verify(signatureHeader, timestampHeader, payload))
         {
             return ServiceResult<object>.Fail(
@@ -68,6 +71,9 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
                 "INVALID_WEBHOOK_PAYLOAD");
         }
 
+        // Chặng tiếp theo: IPaymentService -> PaymentService trong cùng folder.
+        // PaymentService mới là class sở hữu transaction thay đổi PAYMENT,
+        // BOOKING, SHOWTIME_SEAT và TICKET; webhook service không ghi DB trực tiếp.
         await _paymentService.ConfirmPaymentAsync(
             webhook.Content,
             webhook.Amount,
@@ -75,6 +81,8 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
             payload,
             cancellationToken);
 
+        // PaymentService commit xong thì kết quả quay qua PaymentController để
+        // trả ACK cho SePay; nếu service ném lỗi, GlobalExceptionMiddleware xử lý.
         return ServiceResult<object>.Ok(null, "Payment confirmed.");
     }
 }

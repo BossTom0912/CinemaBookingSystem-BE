@@ -31,7 +31,14 @@ public class ChatbotController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Ask([FromBody] ChatbotRequest request, CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: IChatbotService được DI map sang GeminiChatbotService tại
+        // CinemaSystem.Infrastructure/Services/GeminiChatbotService.cs.
+        // Service tiếp tục gọi IMovieService/MovieService và
+        // IShowtimeService/ShowtimeService lấy context, rồi mới gọi Google Gemini.
         var result = await _chatbotService.AskAsync(request, cancellationToken);
+
+        // Gemini trả lời hoặc lỗi xong thì ServiceResult quay lại Controller;
+        // nhánh main hiện không chuyển tiếp sang class lưu CHAT_HISTORY.
         if (!result.Success)
         {
             return BadRequest(ApiResponse<object>.Fail(result.Message, result.ErrorCode ?? "ERROR"));

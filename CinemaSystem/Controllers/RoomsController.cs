@@ -33,7 +33,12 @@ public sealed class RoomsController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
     public async Task<IActionResult> GetRooms(CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: IRoomService -> RoomService tại
+        // CinemaSystem.Infrastructure/Rooms/RoomService.cs để query ROOM kèm
+        // CINEMA/SEAT. Role đã được middleware kiểm trước khi vào action.
         var result = await _roomService.GetRoomsAsync(cancellationToken);
+
+        // Service trả Contracts DTO; Controller map thành API DTO.
         return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Rooms.RoomResponse>, IReadOnlyList<RoomResponse>>());
     }
 
@@ -41,7 +46,11 @@ public sealed class RoomsController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Staff)]
     public async Task<IActionResult> GetRoomById(string roomId, CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: RoomService (Infrastructure/Rooms) đọc room/cinema/seats
+        // và áp rule ẩn room INACTIVE.
         var result = await _roomService.GetRoomByIdAsync(roomId, cancellationToken);
+
+        // RoomResponse hoặc ROOM_NOT_FOUND quay lại đây để tạo HTTP status.
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -52,10 +61,15 @@ public sealed class RoomsController : ControllerBase
         CreateRoomRequest request,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: RoomService kiểm CINEMA tồn tại + room status rồi ghi
+        // ROOM qua CinemaDbContext. Tách sang service để Controller không chứa
+        // validation nghiệp vụ hoặc SaveChangesAsync.
         var result = await _roomService.CreateRoomAsync(
             cinemaId,
             request.MapTo<Contracts.Rooms.CreateRoomRequest>(),
             cancellationToken);
+
+        // ROOM đã lưu và map DTO xong mới quay lại Controller.
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -66,10 +80,14 @@ public sealed class RoomsController : ControllerBase
         UpdateRoomRequest request,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: RoomService (Infrastructure/Rooms) kiểm tên trùng,
+        // capacity, số ghế hiện có và status trước khi cập nhật ROOM.
         var result = await _roomService.UpdateRoomAsync(
             roomId,
             request.MapTo<Contracts.Rooms.UpdateRoomRequest>(),
             cancellationToken);
+
+        // Kết quả persistence quay lại đây để map API response.
         return ToActionResult(result.MapDataTo<Contracts.Rooms.RoomResponse, RoomResponse>());
     }
 
@@ -77,7 +95,11 @@ public sealed class RoomsController : ControllerBase
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     public async Task<IActionResult> DeleteRoom(string roomId, CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: RoomService thực hiện soft delete trong
+        // Infrastructure/Rooms bằng roomStatus=INACTIVE; đây không phải xóa vật lý.
         var result = await _roomService.DeleteRoomAsync(roomId, cancellationToken);
+
+        // Service lưu DB xong thì kết quả quay lại Controller.
         return ToActionResult(result);
     }
     [HttpPost("{roomId}/generate-seats")]
@@ -96,11 +118,14 @@ public sealed class RoomsController : ControllerBase
         [FromBody] GenerateSeatsRequest request,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: RoomService kiểm room chưa có ghế và giới hạn ma trận,
+        // sau đó sinh nhiều SEAT + cập nhật ROOM.capacity trong Infrastructure.
         var result = await _roomService.GenerateSeatsAsync(
             roomId,
             request.MapTo<Contracts.Rooms.GenerateSeatsRequest>(),
             cancellationToken);
 
+        // Số ghế đã tạo hoặc lỗi validation quay lại API layer tại đây.
         return ToActionResult(result);
     }
 

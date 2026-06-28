@@ -62,6 +62,9 @@ public sealed class CheckoutService : ICheckoutService
             return requestValidation;
         }
 
+        // Chặng tiếp theo là EF Core/CinemaDbContext trong Infrastructure/
+        // Persistence. Transaction gom kiểm tra và ghi booking/F&B/voucher để
+        // không tạo dữ liệu dở dang nếu một bước phía sau thất bại.
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(
             IsolationLevel.ReadCommitted,
             cancellationToken);
@@ -167,6 +170,9 @@ public sealed class CheckoutService : ICheckoutService
                 .ToList();
             var seatSubtotal = seatResponses.Sum(item => item.Price);
 
+            // Chuyển sang helper cùng class vì F&B có query/rule riêng:
+            // FB_ITEM + CINEMA_FB_INVENTORY. Tách helper giúp luồng checkout chính
+            // chỉ điều phối và vẫn dùng chung transaction hiện tại.
             var foodResult = await LoadAndValidateFoodItemsAsync(
                 showtime.Room.CinemaId,
                 foodItems,
@@ -189,6 +195,8 @@ public sealed class CheckoutService : ICheckoutService
             decimal voucherDiscount = 0;
             if (!string.IsNullOrWhiteSpace(request.VoucherCode))
             {
+                // Chuyển sang helper ValidateVoucherAsync cùng class để kiểm
+                // VOUCHER/VOUCHER_USAGE, thời hạn, quota và số tiền tối thiểu.
                 var voucherResult = await ValidateVoucherAsync(
                     request.VoucherCode.Trim(),
                     customer.CustomerProfileId,
@@ -278,6 +286,9 @@ public sealed class CheckoutService : ICheckoutService
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
+            // Transaction kết thúc tại đây. Luồng quay về BookingsController;
+            // bước kế tiếp do client khởi tạo là PaymentController.CreatePayment,
+            // không gọi PaymentService bên trong checkout để tránh ghép hai use case.
             _logger.LogInformation(
                 "Checkout {BookingId} created for user {UserId}, showtime {ShowtimeId}, seats {SeatCount}, total {TotalAmount}.",
                 bookingId,

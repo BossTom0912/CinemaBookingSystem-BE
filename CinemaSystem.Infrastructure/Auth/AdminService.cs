@@ -128,6 +128,10 @@ public sealed class AdminService : IAdminService
         try
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
+
+            // Chặng tiếp theo: IEmailService được Program.cs map sang
+            // SmtpEmailServiceAdapter hoặc MockEmailService trong Infrastructure/
+            // Email. DB phải lưu invitation trước để OTP gửi ra có dữ liệu đối chiếu.
             await _emailService.SendInvitationAsync(normalizedEmail, invitationOtp, cancellationToken);
         }
         catch (Exception)
@@ -143,6 +147,8 @@ public sealed class AdminService : IAdminService
                 "EMAIL_SEND_FAILED");
         }
 
+        // Không còn class nghiệp vụ kế tiếp: kết quả quay về
+        // AdminController.CreateStaff để chuyển thành HTTP 201.
         return ServiceResult<object>.Ok(
             new { email = normalizedEmail, expiresAt = invitationToken.ExpiredAt },
             "Staff account created. Invitation email sent.",

@@ -35,7 +35,12 @@ public sealed class CustomersController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Bước tiếp theo: CustomerService tại Infrastructure/Services đọc
+        // USER + CUSTOMER_PROFILE qua CinemaDbContext; Controller chỉ lấy userId
+        // từ JWT và không truy vấn DB trực tiếp.
         var result = await _customerService.GetProfileAsync(userId, cancellationToken);
+
+        // Dữ liệu profile quay lại đây để bọc ApiResponse.
         return ToActionResult(result);
     }
 
@@ -45,7 +50,11 @@ public sealed class CustomersController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Bước tiếp theo: CustomerService (Infrastructure/Services) áp dụng thay
+        // đổi lên USER/CUSTOMER_PROFILE và SaveChangesAsync.
         var result = await _customerService.UpdateProfileAsync(userId, request, cancellationToken);
+
+        // Entity sau cập nhật được service map thành DTO rồi trả về Controller.
         return ToActionResult(result);
     }
 
@@ -55,7 +64,11 @@ public sealed class CustomersController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Bước tiếp theo: CustomerService kiểm password cũ, gọi password hasher
+        // tại Infrastructure/Security và lưu password hash mới vào USER.
         var result = await _customerService.ChangePasswordAsync(userId, request, cancellationToken);
+
+        // Kết quả đổi password quay lại đây; Controller không xử lý secret.
         return ToActionResult(result);
     }
 
@@ -65,7 +78,11 @@ public sealed class CustomersController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Bước tiếp theo: CustomerService kiểm email trùng, tạo OTP hash trong
+        // EMAIL_VERIFICATION_TOKEN và gọi IEmailSender tại Infrastructure/Email.
         var result = await _customerService.RequestEmailUpdateAsync(userId, request, cancellationToken);
+
+        // Email gửi xong hoặc lỗi sẽ được biểu diễn bằng ServiceResult tại đây.
         return ToActionResult(result);
     }
 
@@ -75,7 +92,11 @@ public sealed class CustomersController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Bước tiếp theo: CustomerService xác minh OTP hash và expiry trong DB,
+        // sau đó cập nhật USER.email; không tin trực tiếp email/OTP từ request.
         var result = await _customerService.VerifyEmailUpdateAsync(userId, request, cancellationToken);
+
+        // Kết quả persistence quay lại Controller để tạo HTTP response.
         return ToActionResult(result);
     }
 
@@ -85,7 +106,12 @@ public sealed class CustomersController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
+        // Bước tiếp theo: CustomerService tại Infrastructure/Services đi từ
+        // CUSTOMER_PROFILE -> BOOKING -> SHOWTIME/MOVIE/ROOM/CINEMA/SEAT để dựng
+        // lịch sử; EF query không đặt trong Controller để giữ API layer mỏng.
         var result = await _customerService.GetBookingHistoryAsync(userId, cancellationToken);
+
+        // Danh sách DTO quay lại đây để chuẩn hóa ApiResponse.
         return ToActionResult(result);
     }
 

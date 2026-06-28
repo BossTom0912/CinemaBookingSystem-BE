@@ -31,7 +31,12 @@ public sealed class CinemasController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetCinemas(CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: ICinemaService được DI map sang CinemaService tại
+        // CinemaSystem.Infrastructure/Cinemas/CinemaService.cs để query CINEMA
+        // và project sang Contracts DTO; Controller không phụ thuộc EF Core.
         var result = await _cinemaService.GetCinemasAsync(cancellationToken);
+
+        // Contracts DTO quay lại API layer, được map sang response DTO rồi trả client.
         return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Cinemas.CinemaResponse>, IReadOnlyList<CinemaResponse>>());
     }
 

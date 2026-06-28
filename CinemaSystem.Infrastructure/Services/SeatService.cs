@@ -229,6 +229,10 @@ public sealed class SeatService : ISeatService
 
         var lockedUntil = now.Add(SeatLockTtl);
         var lockKey = BuildSeatLockKey(request.ShowtimeId, request.SeatId);
+
+        // Chặng tiếp theo: ISeatLockStore được DI chọn RedisSeatLockStore hoặc
+        // InMemorySeatLockStore trong Infrastructure/Services. Lock store phải
+        // thắng trước khi ghi DB để hai request song song không cùng giữ ghế.
         var locked = await _seatLockStore.TryLockAsync(
             lockKey,
             userId,
@@ -249,9 +253,14 @@ public sealed class SeatService : ISeatService
             showtimeSeat.LockedByUserId = userId;
 
             await _dbContext.SaveChangesAsync(cancellationToken);
+
+            // Cả lock store và SHOWTIME_SEAT đã đồng bộ. Kết quả quay về
+            // SeatsController.LockSeat; checkout sau đó sẽ kiểm chính lock này.
         }
         catch
         {
+            // Chặng bù lỗi: nếu DB thất bại, quay lại ISeatLockStore release ngay
+            // để không giữ lock Redis/in-memory mà database không ghi nhận.
             await _seatLockStore.ReleaseAsync(lockKey, cancellationToken);
             throw;
         }

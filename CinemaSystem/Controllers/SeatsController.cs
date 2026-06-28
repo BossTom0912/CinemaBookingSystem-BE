@@ -44,11 +44,15 @@ public sealed class SeatsController : ControllerBase
     {
         var userId = GetUserId();
 
+        // Bước tiếp theo: ISeatService được DI map sang SeatService tại
+        // CinemaSystem.Infrastructure/Services/SeatService.cs. Service kiểm
+        // ROOM/SEAT_TYPE/trùng seat code rồi ghi SEAT bằng CinemaDbContext.
         var result = await _seatService.CreateSeatAsync(
             request.MapTo<Contracts.Seats.CreateSeatRequest>(),
             userId,
             cancellationToken);
 
+        // SEAT lưu xong hoặc lỗi rule quay lại Controller để map ApiResponse.
         return ToActionResult(result);
     }
 
@@ -67,11 +71,14 @@ public sealed class SeatsController : ControllerBase
     {
         request.SeatId = seatId;
 
+        // Bước tiếp theo: SeatService (Infrastructure/Services) kiểm seat tồn tại,
+        // seat code mới không trùng rồi cập nhật SEAT.
         var result = await _seatService.UpdateSeatAsync(
             request.MapTo<Contracts.Seats.UpdateSeatRequest>(),
             GetUserId(),
             cancellationToken);
 
+        // Kết quả SaveChangesAsync quay lại API layer tại đây.
         return ToActionResult(result);
     }
 
@@ -87,11 +94,14 @@ public sealed class SeatsController : ControllerBase
         string seatId,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: SeatService kiểm SHOWTIME_SEAT tương lai; nếu an toàn
+        // thì soft-delete bằng SEAT.isActive=false thay vì xóa vật lý.
         var result = await _seatService.DeleteSeatAsync(
             seatId,
             GetUserId(),
             cancellationToken);
 
+        // ServiceResult quay lại Controller để trả success/conflict/not-found.
         return ToActionResult(result);
     }
 
@@ -108,10 +118,13 @@ public sealed class SeatsController : ControllerBase
         string roomId,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: SeatService query SEAT theo roomId qua CinemaDbContext,
+        // sắp theo row/number rồi project sang DTO.
         var result = await _seatService.GetSeatsByRoomAsync(
             roomId,
             cancellationToken);
 
+        // Danh sách ghế quay lại đây để bọc ApiResponse.
         return ToActionResult(result);
     }
 
@@ -126,11 +139,17 @@ public sealed class SeatsController : ControllerBase
         [FromBody] LockSeatRequest request,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo 1: SeatService kiểm SHOWTIME_SEAT/BOOKING_SEAT trong DB.
+        // Bước tiếp theo 2: SeatService gọi ISeatLockStore tại Infrastructure/
+        // Services (RedisSeatLockStore nếu cấu hình Redis, nếu không dùng
+        // InMemorySeatLockStore) để chống hai client cùng giữ một ghế.
+        // Bước tiếp theo 3: lock thành công mới ghi LOCKED/lockedUntil/userId vào DB.
         var result = await _seatService.LockSeatAsync(
             request.MapTo<Contracts.Seats.LockSeatRequest>(),
             GetUserId(),
             cancellationToken);
 
+        // Cả lock store và DB hoàn tất thì LockSeatResponse mới quay lại Controller.
         return ToActionResult(result.MapDataTo<Contracts.Seats.LockSeatResponse, LockSeatResponse>());
     }
 
@@ -143,11 +162,14 @@ public sealed class SeatsController : ControllerBase
         [FromBody] UnlockSeatRequest request,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: SeatService xác nhận user là chủ lock, release
+        // ISeatLockStore rồi trả SHOWTIME_SEAT về AVAILABLE trong database.
         var result = await _seatService.UnlockSeatAsync(
             request.MapTo<Contracts.Seats.UnlockSeatRequest>(),
             GetUserId(),
             cancellationToken);
 
+        // Trạng thái sau unlock quay lại Controller để map response.
         return ToActionResult(result.MapDataTo<Contracts.Seats.UnlockSeatResponse, UnlockSeatResponse>());
     }
 
@@ -160,10 +182,14 @@ public sealed class SeatsController : ControllerBase
         string showtimeId,
         CancellationToken cancellationToken)
     {
+        // Bước tiếp theo: SeatService trước hết release lock hết hạn, sau đó query
+        // SHOWTIME_SEAT + SEAT + SEAT_TYPE + BOOKING_SEAT và chia thành ba nhóm
+        // available/locked/sold.
         var result = await _seatService.GetSeatMapAsync(
             showtimeId,
             cancellationToken);
 
+        // Seat map đã tính xong quay lại Controller để map Contracts -> API DTO.
         return ToActionResult(result.MapDataTo<Contracts.Seats.SeatMapResponse, SeatMapResponse>());
     }
 

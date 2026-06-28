@@ -26,8 +26,12 @@ public class DbTestController : ControllerBase
     [HttpGet("movies-count")]
     public async Task<IActionResult> GetMoviesCount()
     {
+        // Bước tiếp theo: ICinemaDiagnosticsService được DI map sang
+        // CinemaDiagnosticsService tại CinemaSystem.Infrastructure/Persistence;
+        // class đó dùng CinemaDbContext để COUNT bảng MOVIE.
         var count = await _diagnosticsService.GetMoviesCountAsync(HttpContext.RequestAborted);
 
+        // Count quay lại trực tiếp Controller; endpoint này không có nghiệp vụ khác.
         return Ok(new
         {
             table = "MOVIE",

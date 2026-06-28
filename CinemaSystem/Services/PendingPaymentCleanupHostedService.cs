@@ -103,6 +103,9 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        // Chu kỳ xử lý kết thúc tại đây và quay về ExecuteAsync để đợi interval
+        // tiếp theo. Không đi qua Controller vì đây là background use case do
+        // Program.cs khởi động, không phải HTTP request.
         _logger.LogInformation(
             "Cleaned up {Count} expired pending payment booking(s).",
             expiredBookings.Count);

@@ -39,9 +39,16 @@ public sealed class AdminController : ControllerBase
             return BadRequest(ApiResponse<object>.Fail("Validation failed.", "VALIDATION_ERROR"));
         }
 
+        // Bước tiếp theo: IAdminService được DI map sang AdminService tại
+        // CinemaSystem.Infrastructure/Auth/AdminService.cs. Service tạo USER,
+        // STAFF_PROFILE, invitation token rồi gọi Infrastructure/Email vì đây là
+        // luồng cấp tài khoản có persistence, không phải xử lý HTTP.
         var result = await _adminService.CreateStaffAsync(
             request.MapTo<Contracts.Auth.CreateStaffRequest>(),
             cancellationToken);
+
+        // Sau khi lưu DB/gửi invitation xong, ServiceResult quay lại đây để map
+        // thành ApiResponse và status 201/4xx/5xx.
         return ToActionResult(result);
     }
 
