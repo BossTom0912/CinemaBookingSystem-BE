@@ -4,23 +4,62 @@ public static class BookingConstants
 {
     public static class BookingStatus
     {
+        public const string Created = "CREATED";
         public const string PendingPayment = "PENDING_PAYMENT";
+        public const string Paid = "PAID";
+        public const string Cancelled = "CANCELLED";
+        public const string RefundPending = "REFUND_PENDING";
+        public const string Refunded = "REFUNDED";
+        public const string Completed = "COMPLETED";
     }
 
     public static class BookingChannel
     {
         public const string Online = "ONLINE";
+        public const string Counter = "COUNTER";
     }
 
     public static class ShowtimeStatus
     {
         public const string Open = "OPEN";
+        public const string Closed = "CLOSED";
+        public const string Cancelled = "CANCELLED";
+        public const string Completed = "COMPLETED";
     }
 
     public static class ShowtimeSeatStatus
     {
         public const string Locked = "LOCKED";
         public const string Available = "AVAILABLE";
+        public const string Booked = "BOOKED";
+        public const string Released = "RELEASED";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class PaymentStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+        public const string Cancelled = "CANCELLED";
+        public const string Expired = "EXPIRED";
+    }
+
+    public static class RefundStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+        public const string ManualRequired = "MANUAL_REQUIRED";
+    }
+
+    public static class TicketStatus
+    {
+        public const string Generated = "GENERATED";
+        public const string Unused = "UNUSED";
+        public const string CheckedIn = "CHECKED_IN";
+        public const string Cancelled = "CANCELLED";
+        public const string Refunded = "REFUNDED";
     }
 
     public static class ResourceStatus
@@ -46,6 +85,38 @@ public static class BookingConstants
     {
         public const string Amount = "AMOUNT";
         public const string Percent = "PERCENT";
+    }
+
+    public static class RefundClaimStatus
+    {
+        public const string PendingInfo = "PENDING_INFO";
+        public const string Submitted = "SUBMITTED";
+        public const string Completed = "COMPLETED";
+        public const string Expired = "EXPIRED";
+        public const string ManualRequired = "MANUAL_REQUIRED";
+        public const string Revoked = "REVOKED";
+    }
+
+    public static class AccountValidationStatus
+    {
+        public const string NotStarted = "NOT_STARTED";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class ManualRefundProcessStatus
+    {
+        public const string Open = "OPEN";
+        public const string InProgress = "IN_PROGRESS";
+        public const string Confirmed = "CONFIRMED";
+        public const string Rejected = "REJECTED";
+    }
+
+    public static class RewardPointTransactionType
+    {
+        public const string Earn = "EARN";
+        public const string Redeem = "REDEEM";
+        public const string Revert = "REVERT";
+        public const string Adjust = "ADJUST";
     }
 
     public static class ErrorCodes

@@ -23,6 +23,8 @@ Main fixes applied from the original DB.txt:
     every admin account to also have a STAFF_PROFILE row.
 16. Added voucher/promotion campaign metadata and payment audit fields for provider
     reconciliation, callbacks, and refund investigation.
+17. Added customer-assisted refund claim, short-lived claim token, bank directory,
+    customer reissue request, payout attempt, and encrypted email outbox tables.
 
 Note:
 - This reset script drops CinemaBookingDB if it already exists, then recreates it from zero.
@@ -512,6 +514,198 @@ CREATE TABLE [REFUND] (
 );
 GO
 
+CREATE TABLE [BANK_DIRECTORY] (
+    [bankCode] NVARCHAR(20) PRIMARY KEY,
+    [bankBin] NVARCHAR(20) NOT NULL,
+    [shortName] NVARCHAR(100) NOT NULL,
+    [fullName] NVARCHAR(255) NOT NULL,
+    [isActive] BIT NOT NULL DEFAULT 1,
+    [supportsAccountInquiry] BIT NOT NULL DEFAULT 0,
+    [supportsPayout] BIT NOT NULL DEFAULT 0,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [updatedAt] DATETIME2 NULL,
+
+    CONSTRAINT [UQ_BANK_DIRECTORY_BIN] UNIQUE ([bankBin])
+);
+GO
+
+CREATE TABLE [REFUND_CLAIM] (
+    [refundClaimId] NVARCHAR(50) PRIMARY KEY,
+    [refundId] NVARCHAR(50) NOT NULL,
+    [customerProfileId] NVARCHAR(50) NOT NULL,
+    [bankCode] NVARCHAR(20) NULL,
+    [claimStatus] NVARCHAR(30) NOT NULL DEFAULT 'PENDING_INFO',
+    [accountValidationStatus] NVARCHAR(30) NOT NULL DEFAULT 'NOT_STARTED',
+    [bankAccountEncrypted] VARBINARY(MAX) NULL,
+    [bankAccountLast4] NVARCHAR(4) NULL,
+    [accountHolderNameEncrypted] VARBINARY(MAX) NULL,
+    [verifiedAccountHolderNameEncrypted] VARBINARY(MAX) NULL,
+    [verificationProvider] NVARCHAR(100) NULL,
+    [verificationReferenceCode] NVARCHAR(255) NULL,
+    [verificationFailureReason] NVARCHAR(1000) NULL,
+    [expiresAt] DATETIME2 NOT NULL,
+    [submittedAt] DATETIME2 NULL,
+    [processingAt] DATETIME2 NULL,
+    [completedAt] DATETIME2 NULL,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [updatedAt] DATETIME2 NULL,
+    [rowVersion] ROWVERSION,
+
+    CONSTRAINT [UQ_REFUND_CLAIM_REFUND] UNIQUE ([refundId]),
+    CONSTRAINT [CK_REFUND_CLAIM_STATUS]
+        CHECK ([claimStatus] IN
+        (
+            'PENDING_INFO',
+            'VERIFIED',
+            'SUBMITTED',
+            'PROCESSING',
+            'COMPLETED',
+            'EXPIRED',
+            'MANUAL_REQUIRED',
+            'REVOKED'
+        )),
+    CONSTRAINT [CK_REFUND_CLAIM_ACCOUNT_VALIDATION_STATUS]
+        CHECK ([accountValidationStatus] IN
+        (
+            'NOT_STARTED',
+            'VERIFIED',
+            'FAILED',
+            'UNAVAILABLE'
+        )),
+    CONSTRAINT [FK_REFUND_CLAIM_REFUND]
+        FOREIGN KEY ([refundId]) REFERENCES [REFUND]([refundId]),
+    CONSTRAINT [FK_REFUND_CLAIM_CUSTOMER_PROFILE]
+        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
+    CONSTRAINT [FK_REFUND_CLAIM_BANK_DIRECTORY]
+        FOREIGN KEY ([bankCode]) REFERENCES [BANK_DIRECTORY]([bankCode])
+);
+GO
+
+CREATE TABLE [REFUND_CLAIM_TOKEN] (
+    [refundClaimTokenId] NVARCHAR(50) PRIMARY KEY,
+    [refundClaimId] NVARCHAR(50) NOT NULL,
+    [tokenHash] CHAR(64) NOT NULL,
+    [expiresAt] DATETIME2 NOT NULL,
+    [usedAt] DATETIME2 NULL,
+    [revokedAt] DATETIME2 NULL,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT [UQ_REFUND_CLAIM_TOKEN_HASH] UNIQUE ([tokenHash]),
+    CONSTRAINT [FK_REFUND_CLAIM_TOKEN_CLAIM]
+        FOREIGN KEY ([refundClaimId]) REFERENCES [REFUND_CLAIM]([refundClaimId])
+);
+GO
+
+CREATE TABLE [CUSTOMER_REFUND_REQUEST] (
+    [customerRefundRequestId] NVARCHAR(50) PRIMARY KEY,
+    [refundId] NVARCHAR(50) NOT NULL,
+    [customerProfileId] NVARCHAR(50) NOT NULL,
+    [ticketId] NVARCHAR(50) NULL,
+    [requestReason] NVARCHAR(1000) NOT NULL,
+    [requestStatus] NVARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    [processedByUserId] NVARCHAR(50) NULL,
+    [processedAt] DATETIME2 NULL,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT [CK_CUSTOMER_REFUND_REQUEST_STATUS]
+        CHECK ([requestStatus] IN ('PENDING', 'FULFILLED', 'REJECTED')),
+    CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_REFUND]
+        FOREIGN KEY ([refundId]) REFERENCES [REFUND]([refundId]),
+    CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_CUSTOMER_PROFILE]
+        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
+    CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_TICKET]
+        FOREIGN KEY ([ticketId]) REFERENCES [TICKET]([ticketId]),
+    CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_PROCESSED_BY_USER]
+        FOREIGN KEY ([processedByUserId]) REFERENCES [USER]([userId])
+);
+GO
+
+CREATE TABLE [MANUAL_REFUND_PROCESS] (
+    [manualRefundProcessId] NVARCHAR(50) PRIMARY KEY,
+    [refundId] NVARCHAR(50) NOT NULL,
+    [refundClaimId] NVARCHAR(50) NOT NULL,
+    [assignedToUserId] NVARCHAR(50) NULL,
+    [processStatus] NVARCHAR(30) NOT NULL DEFAULT 'OPEN',
+    [bankTransactionCode] NVARCHAR(255) NULL,
+    [transferredAmount] DECIMAL(18,2) NULL,
+    [proofUrl] NVARCHAR(1000) NULL,
+    [adminNote] NVARCHAR(1000) NULL,
+    [assignedAt] DATETIME2 NULL,
+    [confirmedAt] DATETIME2 NULL,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [rowVersion] ROWVERSION,
+
+    CONSTRAINT [UQ_MANUAL_REFUND_PROCESS_REFUND] UNIQUE ([refundId]),
+    CONSTRAINT [UQ_MANUAL_REFUND_PROCESS_CLAIM] UNIQUE ([refundClaimId]),
+    CONSTRAINT [CK_MANUAL_REFUND_PROCESS_STATUS]
+        CHECK ([processStatus] IN ('OPEN', 'IN_PROGRESS', 'CONFIRMED', 'REJECTED')),
+    CONSTRAINT [CK_MANUAL_REFUND_TRANSFERRED_AMOUNT]
+        CHECK ([transferredAmount] IS NULL OR [transferredAmount] > 0),
+    CONSTRAINT [FK_MANUAL_REFUND_PROCESS_REFUND]
+        FOREIGN KEY ([refundId]) REFERENCES [REFUND]([refundId]),
+    CONSTRAINT [FK_MANUAL_REFUND_PROCESS_CLAIM]
+        FOREIGN KEY ([refundClaimId]) REFERENCES [REFUND_CLAIM]([refundClaimId]),
+    CONSTRAINT [FK_MANUAL_REFUND_PROCESS_ASSIGNED_USER]
+        FOREIGN KEY ([assignedToUserId]) REFERENCES [USER]([userId])
+);
+GO
+
+CREATE TABLE [REFUND_PAYOUT_ATTEMPT] (
+    [refundPayoutAttemptId] NVARCHAR(50) PRIMARY KEY,
+    [refundId] NVARCHAR(50) NOT NULL,
+    [refundClaimId] NVARCHAR(50) NOT NULL,
+    [paymentProviderId] NVARCHAR(50) NOT NULL,
+    [idempotencyKey] NVARCHAR(100) NOT NULL,
+    [attemptNumber] INT NOT NULL,
+    [attemptStatus] NVARCHAR(30) NOT NULL DEFAULT 'CREATED',
+    [providerRequestId] NVARCHAR(255) NULL,
+    [providerTransactionCode] NVARCHAR(255) NULL,
+    [failureReason] NVARCHAR(1000) NULL,
+    [requestedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [respondedAt] DATETIME2 NULL,
+    [confirmedAt] DATETIME2 NULL,
+
+    CONSTRAINT [UQ_REFUND_PAYOUT_ATTEMPT_IDEMPOTENCY_KEY] UNIQUE ([idempotencyKey]),
+    CONSTRAINT [UQ_REFUND_PAYOUT_ATTEMPT_NUMBER] UNIQUE ([refundId], [attemptNumber]),
+    CONSTRAINT [CK_REFUND_PAYOUT_ATTEMPT_NUMBER] CHECK ([attemptNumber] > 0),
+    CONSTRAINT [CK_REFUND_PAYOUT_ATTEMPT_STATUS]
+        CHECK ([attemptStatus] IN
+        (
+            'CREATED',
+            'SUBMITTED',
+            'ACCEPTED',
+            'CONFIRMED',
+            'FAILED',
+            'UNKNOWN'
+        )),
+    CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_REFUND]
+        FOREIGN KEY ([refundId]) REFERENCES [REFUND]([refundId]),
+    CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_CLAIM]
+        FOREIGN KEY ([refundClaimId]) REFERENCES [REFUND_CLAIM]([refundClaimId]),
+    CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_PAYMENT_PROVIDER]
+        FOREIGN KEY ([paymentProviderId]) REFERENCES [PAYMENT_PROVIDER]([paymentProviderId])
+);
+GO
+
+CREATE TABLE [EMAIL_OUTBOX] (
+    [emailOutboxId] NVARCHAR(50) PRIMARY KEY,
+    [messageType] NVARCHAR(100) NOT NULL,
+    [recipientEmail] NVARCHAR(255) NOT NULL,
+    [relatedEntityId] NVARCHAR(50) NULL,
+    [payloadEncrypted] VARBINARY(MAX) NOT NULL,
+    [outboxStatus] NVARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    [attemptCount] INT NOT NULL DEFAULT 0,
+    [nextAttemptAt] DATETIME2 NULL,
+    [lastError] NVARCHAR(1000) NULL,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [sentAt] DATETIME2 NULL,
+
+    CONSTRAINT [CK_EMAIL_OUTBOX_STATUS]
+        CHECK ([outboxStatus] IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED')),
+    CONSTRAINT [CK_EMAIL_OUTBOX_ATTEMPT_COUNT] CHECK ([attemptCount] >= 0)
+);
+GO
+
 -- =========================
 -- 7. VOUCHER
 -- =========================
@@ -678,6 +872,11 @@ ON [REFUND]([providerRefundCode])
 WHERE [providerRefundCode] IS NOT NULL;
 GO
 
+CREATE UNIQUE INDEX [UX_MANUAL_REFUND_BANK_TRANSACTION_CODE]
+ON [MANUAL_REFUND_PROCESS]([bankTransactionCode])
+WHERE [bankTransactionCode] IS NOT NULL;
+GO
+
 -- If a review is linked to a booking, that booking can only create one review.
 CREATE UNIQUE INDEX [UX_REVIEW_BOOKING]
 ON [REVIEW]([bookingId])
@@ -710,6 +909,17 @@ CREATE INDEX [IX_BOOKING_SHOWTIME_ID] ON [BOOKING]([showtimeId]);
 CREATE INDEX [IX_BOOKING_STATUS] ON [BOOKING]([bookingStatus]);
 CREATE INDEX [IX_PAYMENT_BOOKING_ID] ON [PAYMENT]([bookingId]);
 CREATE INDEX [IX_REFUND_BOOKING_ID] ON [REFUND]([bookingId]);
+CREATE INDEX [IX_REFUND_CLAIM_CUSTOMER_PROFILE_ID] ON [REFUND_CLAIM]([customerProfileId]);
+CREATE INDEX [IX_REFUND_CLAIM_STATUS] ON [REFUND_CLAIM]([claimStatus], [expiresAt]);
+CREATE INDEX [IX_REFUND_CLAIM_TOKEN_CLAIM] ON [REFUND_CLAIM_TOKEN]([refundClaimId], [expiresAt]);
+CREATE INDEX [IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS]
+ON [CUSTOMER_REFUND_REQUEST]([customerProfileId], [requestStatus], [createdAt]);
+CREATE INDEX [IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS]
+ON [REFUND_PAYOUT_ATTEMPT]([refundId], [attemptStatus], [requestedAt]);
+CREATE INDEX [IX_MANUAL_REFUND_PROCESS_STATUS_CREATED]
+ON [MANUAL_REFUND_PROCESS]([processStatus], [createdAt]);
+CREATE INDEX [IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT]
+ON [EMAIL_OUTBOX]([outboxStatus], [nextAttemptAt], [createdAt]);
 CREATE INDEX [IX_CHECKIN_LOG_TICKET_ID] ON [CHECKIN_LOG]([ticketId]);
 CREATE INDEX [IX_CHECKIN_LOG_RAW_QR_CODE] ON [CHECKIN_LOG]([rawQrCode]) WHERE [rawQrCode] IS NOT NULL;
 CREATE INDEX [IX_NOTIFICATION_USER_READ] ON [NOTIFICATION]([userId], [isRead]);
@@ -747,6 +957,22 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_NOR
 IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_VIP')
     INSERT INTO dbo.[SEAT_TYPE] ([seatTypeId], [typeName], [extraFee])
     VALUES ('SEAT_TYPE_VIP', 'VIP', 30000.00);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'VCB')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('VCB', '970436', N'Vietcombank', N'Joint Stock Commercial Bank for Foreign Trade of Vietnam');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'MB')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('MB', '970422', N'MB Bank', N'Military Commercial Joint Stock Bank');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'TCB')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('TCB', '970407', N'Techcombank', N'Vietnam Technological and Commercial Joint Stock Bank');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'BIDV')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('BIDV', '970418', N'BIDV', N'Joint Stock Commercial Bank for Investment and Development of Vietnam');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'CTG')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('CTG', '970415', N'VietinBank', N'Vietnam Joint Stock Commercial Bank for Industry and Trade');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_SWEETBOX')
     INSERT INTO dbo.[SEAT_TYPE] ([seatTypeId], [typeName], [extraFee])

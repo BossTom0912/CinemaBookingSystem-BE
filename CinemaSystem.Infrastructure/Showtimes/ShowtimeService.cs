@@ -43,6 +43,7 @@ public sealed class ShowtimeService : IShowtimeService
     {
         var showtimes = await _dbContext.Showtimes
             .AsNoTracking()
+            .Where(item => item.Status == BookingConstants.ShowtimeStatus.Open)
             .OrderBy(item => item.StartTime)
             .Select(item => new ShowtimeResponse
             {
@@ -257,12 +258,18 @@ public sealed class ShowtimeService : IShowtimeService
             return ServiceResult<object>.Fail(409, "Showtime has refund history and cannot be permanently deleted.", "RESOURCE_HAS_REFUNDS");
         }
 
-        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
-
         if (existing.ShowtimeCancellation is not null)
         {
-            _dbContext.ShowtimeCancellations.Remove(existing.ShowtimeCancellation);
+            // SHOWTIME_CANCELLATION is an audit record containing who cancelled the
+            // showtime, when it happened, and why. It must survive even when no refund
+            // was generated.
+            return ServiceResult<object>.Fail(
+                409,
+                "Showtime has cancellation history and cannot be permanently deleted.",
+                "RESOURCE_HAS_CANCELLATION_HISTORY");
         }
+
+        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
 
         _dbContext.Showtimes.Remove(existing);
         await _dbContext.SaveChangesAsync(cancellationToken);
