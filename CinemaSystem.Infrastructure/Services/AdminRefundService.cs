@@ -22,13 +22,15 @@ public class AdminRefundService : IAdminRefundService
     private readonly ISeatLockStore _seatLockStore;
     private readonly CinemaProcessingSettings _settings;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
+    private readonly EmailTemplatesSettings _emailTemplates;
 
-    public AdminRefundService(CinemaDbContext dbContext, ISeatLockStore seatLockStore, IOptions<CinemaProcessingSettings> options, Hangfire.IBackgroundJobClient backgroundJobClient)
+    public AdminRefundService(CinemaDbContext dbContext, ISeatLockStore seatLockStore, IOptions<CinemaProcessingSettings> options, Hangfire.IBackgroundJobClient backgroundJobClient, IOptions<EmailTemplatesSettings> emailTemplatesOptions)
     {
         _dbContext = dbContext;
         _seatLockStore = seatLockStore;
         _settings = options.Value;
         _backgroundJobClient = backgroundJobClient;
+        _emailTemplates = emailTemplatesOptions.Value;
     }
 
     public async Task<ServiceResult<bool>> CancelShowtimesAndRefundAsync(string[] showtimeIds, string reason, bool forceCancel, string actionUserId, CancellationToken cancellationToken)
@@ -201,9 +203,8 @@ public class AdminRefundService : IAdminRefundService
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
-                        string subject = "Thông báo hủy suất chiếu / Showtime Cancellation Notice";
-                        string message = $"[VI] Xuất chiếu của bạn đã được hủy do sự cố: {reason}. Quý khách vui lòng chờ hệ thống hoàn tiền.\n\n" +
-                                         $"[EN] Your showtime has been cancelled due to: {reason}. Please wait for your refund to be processed.";
+                        string subject = _emailTemplates.ShowtimeCancellationSubject;
+                        string message = string.Format(_emailTemplates.ShowtimeCancellationBody, reason);
                         _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
                     }
                 }

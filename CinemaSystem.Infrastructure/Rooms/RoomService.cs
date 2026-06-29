@@ -23,11 +23,13 @@ public sealed class RoomService : IRoomService
 
     private readonly CinemaDbContext _dbContext;
     private readonly IAdminRefundService _refundService;
+    private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
-    public RoomService(CinemaDbContext dbContext, IAdminRefundService refundService)
+    public RoomService(CinemaDbContext dbContext, IAdminRefundService refundService, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
     {
         _dbContext = dbContext;
         _refundService = refundService;
+        _settings = options.Value;
     }
     public async Task<ServiceResult<RoomResponse>> CreateRoomAsync(
     string cinemaId,
@@ -146,11 +148,11 @@ public sealed class RoomService : IRoomService
                 "INVALID_COLUMNS");
         }
 
-        if (request.Rows * request.Columns > 500)
+        if (request.Rows * request.Columns > _settings.MaxRoomCapacity)
         {
             return ServiceResult<object>.Fail(
                 400,
-                "Total seats cannot exceed 500.",
+                $"Total seats cannot exceed {_settings.MaxRoomCapacity}.",
                 "CAPACITY_EXCEEDED");
         }
         var room = await _dbContext.Rooms
@@ -273,11 +275,11 @@ public sealed class RoomService : IRoomService
                 "INVALID_CAPACITY");
         }
 
-        if (request.Capacity > 500)
+        if (request.Capacity > _settings.MaxRoomCapacity)
         {
             return ServiceResult<RoomResponse>.Fail(
                 400,
-                "Capacity cannot exceed 500.",
+                $"Capacity cannot exceed {_settings.MaxRoomCapacity}.",
                 "CAPACITY_EXCEEDED");
         }
         room.Capacity = request.Capacity;

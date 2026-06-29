@@ -14,11 +14,13 @@ public class MovieHighlightClassificationJob : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<MovieHighlightClassificationJob> _logger;
+    private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
-    public MovieHighlightClassificationJob(IServiceProvider serviceProvider, ILogger<MovieHighlightClassificationJob> logger)
+    public MovieHighlightClassificationJob(IServiceProvider serviceProvider, ILogger<MovieHighlightClassificationJob> logger, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _settings = options.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -43,23 +45,23 @@ public class MovieHighlightClassificationJob : BackgroundService
 
                     if (maxViews > 0 && movie.ViewCount == maxViews)
                     {
-                        newHighlight = "POPULAR";
+                        newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.Popular;
                     }
                     else if (movie.ReleaseDate > today)
                     {
-                        newHighlight = "COMING_SOON";
+                        newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.ComingSoon;
                     }
                     else if (movie.ReleaseDate <= today && movie.ReleaseDate > today.AddDays(-14))
                     {
-                        newHighlight = "NEW";
+                        newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.New;
                     }
-                    else if (movie.TotalViews > 5000 || movie.DailyViews > 500 || movie.ViewCount >= 1000)
+                    else if (movie.TotalViews > _settings.MovieHotTotalViewThreshold || movie.DailyViews > _settings.MovieHotDailyViewThreshold || movie.ViewCount >= _settings.MovieHotViewThreshold)
                     {
-                        newHighlight = "HOT";
+                        newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.Hot;
                     }
-                    else if (movie.ViewCount >= 500)
+                    else if (movie.ViewCount >= _settings.MovieTrendingViewThreshold)
                     {
-                        newHighlight = "TRENDING";
+                        newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.Trending;
                     }
 
                     movie.Highlight = newHighlight;

@@ -20,12 +20,14 @@ public sealed class MovieService : IMovieService
     private readonly CinemaDbContext _dbContext;
     private readonly IAdminRefundService _refundService;
     private readonly IFileStorageService _fileStorageService;
+    private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
-    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService fileStorageService)
+    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService fileStorageService, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
     {
         _dbContext = dbContext;
         _refundService = refundService;
         _fileStorageService = fileStorageService;
+        _settings = options.Value;
     }
 
     public async Task<ServiceResult<PagedList<MovieResponse>>> GetMoviesAsync(
@@ -128,25 +130,25 @@ public sealed class MovieService : IMovieService
         if (movie.ViewCount >= maxViews && movie.ViewCount > 0)
         {
             var previousPopular = await _dbContext.Movies
-                .Where(m => m.Highlight == "POPULAR" && m.MovieId != movie.MovieId)
+                .Where(m => m.Highlight == DomainConstants.MovieHighlight.Popular && m.MovieId != movie.MovieId)
                 .ToListAsync(cancellationToken);
 
             foreach (var p in previousPopular)
             {
-                p.Highlight = p.ViewCount >= 1000 ? "HOT" : (p.ViewCount >= 500 ? "TRENDING" : null);
+                p.Highlight = p.ViewCount >= _settings.MovieHotViewThreshold ? DomainConstants.MovieHighlight.Hot : (p.ViewCount >= _settings.MovieTrendingViewThreshold ? DomainConstants.MovieHighlight.Trending : null);
             }
 
-            movie.Highlight = "POPULAR";
+            movie.Highlight = DomainConstants.MovieHighlight.Popular;
         }
-        else if (movie.Highlight != "POPULAR")
+        else if (movie.Highlight != DomainConstants.MovieHighlight.Popular)
         {
-            if (movie.ViewCount >= 1000)
+            if (movie.ViewCount >= _settings.MovieHotViewThreshold)
             {
-                movie.Highlight = "HOT";
+                movie.Highlight = DomainConstants.MovieHighlight.Hot;
             }
-            else if (movie.ViewCount >= 500)
+            else if (movie.ViewCount >= _settings.MovieTrendingViewThreshold)
             {
-                movie.Highlight = "TRENDING";
+                movie.Highlight = DomainConstants.MovieHighlight.Trending;
             }
         }
 

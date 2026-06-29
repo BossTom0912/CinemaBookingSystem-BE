@@ -65,6 +65,15 @@ public static class DomainConstants
 
         public static readonly string[] ValidRatings = { P, K, T13, T16, T18, C };
     }
+    
+    public static class MovieHighlight
+    {
+        public const string Popular = "POPULAR";
+        public const string Hot = "HOT";
+        public const string Trending = "TRENDING";
+        public const string ComingSoon = "COMING_SOON";
+        public const string New = "NEW";
+    }
 
     public static class Language
     {

@@ -24,7 +24,6 @@ public sealed class SeatService : ISeatService
     private const string SeatAvailable = DomainConstants.EntityStatus.Available;
     private const string SeatLocked = DomainConstants.EntityStatus.Locked;
     private const string SeatBooked = DomainConstants.EntityStatus.Booked;
-    private static readonly TimeSpan SeatLockTtl = TimeSpan.FromMinutes(10);
 
     private readonly CinemaDbContext _dbContext;
     private readonly ISeatLockStore _seatLockStore;
@@ -32,6 +31,7 @@ public sealed class SeatService : ISeatService
     private readonly IAdminRefundService _refundService;
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
+    private readonly CinemaSystem.Infrastructure.Configuration.BookingSettings _bookingSettings;
 
     public SeatService(
         CinemaDbContext dbContext,
@@ -39,6 +39,7 @@ public sealed class SeatService : ISeatService
         IAdminRefundService refundService,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplatesOptions,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Infrastructure.Configuration.BookingSettings> bookingOptions,
         ISeatLockStore? seatLockStore = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
@@ -46,6 +47,7 @@ public sealed class SeatService : ISeatService
         _refundService = refundService;
         _securitySettings = securityOptions.Value;
         _emailTemplates = emailTemplatesOptions.Value;
+        _bookingSettings = bookingOptions.Value;
         _seatLockStore = seatLockStore ?? new InMemorySeatLockStore();
     }
 
@@ -354,12 +356,13 @@ public sealed class SeatService : ISeatService
                 "SEAT_LOCKED");
         }
 
-        var lockedUntil = now.Add(SeatLockTtl);
+        var seatLockTtl = TimeSpan.FromMinutes(_bookingSettings.PendingPaymentExpiryMinutes);
+        var lockedUntil = now.Add(seatLockTtl);
         var lockKey = BuildSeatLockKey(request.ShowtimeId, request.SeatId);
         var locked = await _seatLockStore.TryLockAsync(
             lockKey,
             userId,
-            SeatLockTtl,
+            seatLockTtl,
             cancellationToken);
         if (!locked)
         {
@@ -392,7 +395,7 @@ public sealed class SeatService : ISeatService
                 SeatStatus = showtimeSeat.SeatStatus,
                 LockedUntil = lockedUntil
             },
-            "Seat locked for 10 minutes.");
+            $"Seat locked for {_bookingSettings.PendingPaymentExpiryMinutes} minutes.");
     }
 
     public async Task<ServiceResult<UnlockSeatResponse>> UnlockSeatAsync(

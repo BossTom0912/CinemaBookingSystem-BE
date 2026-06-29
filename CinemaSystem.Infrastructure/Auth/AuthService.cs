@@ -82,7 +82,7 @@ public sealed class AuthService : IAuthService
             return ServiceResult<object>.Fail(409, "Email already exists.", "DUPLICATE_EMAIL");
         }
 
-        var passwordValidationError = ValidatePassword(request.Password);
+        var passwordValidationError = PasswordValidator.Validate(request.Password, _authSettings);
         if (passwordValidationError is not null)
         {
             return ServiceResult<object>.Fail(400, passwordValidationError, "WEAK_PASSWORD");
@@ -574,7 +574,7 @@ public sealed class AuthService : IAuthService
 
     public async Task<ServiceResult<object>> ResetPasswordAsync(ResetPasswordRequest request, CancellationToken cancellationToken)
     {
-        var passwordValidationError = ValidatePassword(request.NewPassword);
+        var passwordValidationError = PasswordValidator.Validate(request.NewPassword, _authSettings);
         if (passwordValidationError is not null)
         {
             return ServiceResult<object>.Fail(400, passwordValidationError, "WEAK_PASSWORD");
@@ -976,18 +976,5 @@ public sealed class AuthService : IAuthService
         return $"{prefix}_{Guid.NewGuid():N}";
     }
 
-    private static string? ValidatePassword(string password)
-    {
-        if (password.Length < 8)
-        {
-            return "Password must contain at least 8 characters.";
-        }
 
-        if (!password.Any(char.IsUpper) || !password.Any(char.IsLower) || !password.Any(char.IsDigit))
-        {
-            return "Password must contain uppercase, lowercase, and numeric characters.";
-        }
-
-        return null;
-    }
 }

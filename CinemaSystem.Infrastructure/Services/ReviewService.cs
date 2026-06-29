@@ -21,13 +21,15 @@ public class ReviewService : IReviewService
     private readonly IAiModerationService _aiService;
     private readonly IMovieService _movieService;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
+    private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
-    public ReviewService(CinemaDbContext dbContext, IAiModerationService aiService, IMovieService movieService, Hangfire.IBackgroundJobClient backgroundJobClient)
+    public ReviewService(CinemaDbContext dbContext, IAiModerationService aiService, IMovieService movieService, Hangfire.IBackgroundJobClient backgroundJobClient, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
     {
         _dbContext = dbContext;
         _aiService = aiService;
         _movieService = movieService;
         _backgroundJobClient = backgroundJobClient;
+        _settings = options.Value;
     }
 
     public async Task<ServiceResult<ReviewResponse>> CreateReviewAsync(string userId, CreateReviewRequest request, CancellationToken cancellationToken = default)
@@ -202,19 +204,19 @@ public class ReviewService : IReviewService
                         { 
                             IsBlockedOrFailed = true, 
                             StatusCode = 400, 
-                            Message = $"{aiResponse.ModeratorMessage} Đây là lời cảnh báo. Nếu vi phạm lần nữa, tài khoản của bạn sẽ bị khóa 1 tuần!",
+                            Message = $"{aiResponse.ModeratorMessage} Đây là lời cảnh báo. Nếu vi phạm lần nữa, tài khoản của bạn sẽ bị khóa {_settings.ReviewSpamLockoutWarningDays} ngày!",
                             AiResult = aiResponse
                         };
                     }
                     else
                     {
                         userProfile.IsBlocked = true;
-                        userProfile.BlockedUntil = DateTime.UtcNow.AddMinutes(1);
+                        userProfile.BlockedUntil = DateTime.UtcNow.AddMinutes(_settings.ReviewSpamLockoutMinutes);
                         return new ModerationHandlerResult 
                         { 
                             IsBlockedOrFailed = true, 
                             StatusCode = 403, 
-                            Message = "Tài khoản của bạn đã bị khóa 1 phút do vi phạm quy định bình luận nhiều lần.",
+                            Message = $"Tài khoản của bạn đã bị khóa {_settings.ReviewSpamLockoutMinutes} phút do vi phạm quy định bình luận nhiều lần.",
                             AiResult = aiResponse
                         };
                     }

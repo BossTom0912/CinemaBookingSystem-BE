@@ -99,7 +99,7 @@ public sealed class CustomerService : ICustomerService
             return ServiceResult<object>.Fail(400, "Invalid old password.", "INVALID_OLD_PASSWORD");
         }
 
-        var passwordValidationError = ValidatePassword(request.NewPassword);
+        var passwordValidationError = PasswordValidator.Validate(request.NewPassword, _authSettings);
         if (passwordValidationError is not null)
         {
             return ServiceResult<object>.Fail(400, passwordValidationError, "WEAK_PASSWORD");
@@ -260,14 +260,5 @@ public sealed class CustomerService : ICustomerService
             Status = user.Status,
             EmailVerified = user.EmailVerified
         };
-    }
-
-    private static string? ValidatePassword(string password)
-    {
-        if (password.Length < 8) return "Password must be at least 8 characters.";
-        if (!password.Any(char.IsUpper)) return "Password must contain an uppercase letter.";
-        if (!password.Any(char.IsLower)) return "Password must contain a lowercase letter.";
-        if (!password.Any(char.IsDigit)) return "Password must contain a digit.";
-        return null;
     }
 }
