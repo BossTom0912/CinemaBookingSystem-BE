@@ -248,6 +248,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors("FrontendCors");
+app.UseStaticFiles();
 
 // Request handoff order: JwtBearer first builds User/role claims from the
 // access token; authorization policies then decide whether the selected
