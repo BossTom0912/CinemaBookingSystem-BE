@@ -93,6 +93,7 @@ public static class DependencyInjection
         // AuthController -> IAuthService -> Infrastructure/Auth/AuthService:
         // tách HTTP khỏi account/OTP/JWT/refresh-token persistence.
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ICinemaScopeAuthorizationService, CinemaScopeAuthorizationService>();
 
         // BookingsController.Checkout -> ICheckoutService ->
         // Infrastructure/Bookings/CheckoutService: gom checkout transaction.

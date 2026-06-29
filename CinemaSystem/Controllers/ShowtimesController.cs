@@ -23,10 +23,15 @@ namespace CinemaSystem.Controllers;
 public sealed class ShowtimesController : ControllerBase
 {
     private readonly IShowtimeService _showtimeService;
+    private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
-    public ShowtimesController(IShowtimeService showtimeService)
+    public ShowtimesController(
+        IShowtimeService showtimeService,
+        ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
     {
         _showtimeService = showtimeService;
+        _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService
+            ?? throw new ArgumentNullException(nameof(cinemaScopeAuthorizationService));
     }
 
     [HttpGet]
@@ -62,6 +67,12 @@ public sealed class ShowtimesController : ControllerBase
     {
         // Bước tiếp theo: ShowtimeService kiểm MOVIE/ROOM/CINEMA, thời gian tương
         // lai và overlap; sau đó tạo SHOWTIME + SHOWTIME_SEAT trong Infrastructure.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, request.RoomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _showtimeService.CreateShowtimeAsync(
             request.MapTo<Contracts.Showtimes.CreateShowtimeRequest>(),
             cancellationToken);
@@ -79,6 +90,18 @@ public sealed class ShowtimesController : ControllerBase
     {
         // Bước tiếp theo: ShowtimeService kiểm booking hiện có và chạy lại rule
         // overlap. Nếu đổi room, service xóa/sinh lại SHOWTIME_SEAT.
+        var currentScope = await _cinemaScopeAuthorizationService.AuthorizeShowtimeAsync(User, showtimeId, cancellationToken);
+        if (!currentScope.Allowed)
+        {
+            return ToActionResult(currentScope);
+        }
+
+        var targetRoomScope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, request.RoomId, cancellationToken);
+        if (!targetRoomScope.Allowed)
+        {
+            return ToActionResult(targetRoomScope);
+        }
+
         var result = await _showtimeService.UpdateShowtimeAsync(
             showtimeId,
             request.MapTo<Contracts.Showtimes.UpdateShowtimeRequest>(),
@@ -94,6 +117,12 @@ public sealed class ShowtimesController : ControllerBase
     {
         // Bước tiếp theo: ShowtimeService chỉ hard-delete khi chưa có booking/
         // refund history. Đây KHÔNG phải luồng cancel showtime + refund UC003.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeShowtimeAsync(User, showtimeId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _showtimeService.DeleteShowtimeAsync(showtimeId, cancellationToken);
 
         // Xóa DB xong hoặc bị chặn bởi rule thì ServiceResult quay lại đây.
@@ -106,6 +135,12 @@ public sealed class ShowtimesController : ControllerBase
             ? ApiResponse<T>.Ok(result.Data, result.Message)
             : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
 
+        return StatusCode(result.StatusCode, response);
+    }
+
+    private ObjectResult ToActionResult(CinemaScopeAuthorizationResult result)
+    {
+        var response = ApiResponse<object>.Fail(result.Message, result.ErrorCode);
         return StatusCode(result.StatusCode, response);
     }
 }

@@ -123,5 +123,7 @@ public sealed class SeatCrudApiIntegrationTests
     });
     db.SeatTypes.Add(new SeatType { SeatTypeId = "SEAT_TYPE_STANDARD", TypeName = "STANDARD", ExtraFee = 0 });
     await db.SaveChangesAsync();
+    await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_E2E");
+    await CinemaScopeTestData.SeedStaffScopeAsync(factory, "CIN_E2E");
   }
 }

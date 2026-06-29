@@ -81,13 +81,22 @@ public sealed class RoomService : IRoomService
         var response = ToResponse(room);
         return ServiceResult<RoomResponse>.Ok(response, "Room created successfully.", 201);
     }
-    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(CancellationToken cancellationToken)
+    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(
+        string? cinemaScopeId,
+        CancellationToken cancellationToken)
     {
-        var rooms = await _dbContext.Rooms
+        IQueryable<Room> query = _dbContext.Rooms
             .AsNoTracking()
             .Where(room => room.RoomStatus != "INACTIVE")
             .Include(room => room.Cinema)
-            .Include(room => room.Seats)
+            .Include(room => room.Seats);
+
+        if (!string.IsNullOrWhiteSpace(cinemaScopeId))
+        {
+            query = query.Where(room => room.CinemaId == cinemaScopeId);
+        }
+
+        var rooms = await query
             .OrderBy(room => room.Cinema.CinemaName)
             .ThenBy(room => room.RoomName)
             .Select(room => ToResponse(room))

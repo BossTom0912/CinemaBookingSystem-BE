@@ -23,11 +23,16 @@ namespace CinemaSystem.Controllers;
 public sealed class SeatsController : ControllerBase
 {
     private readonly ISeatService _seatService;
+    private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
-    public SeatsController(ISeatService seatService)
+    public SeatsController(
+        ISeatService seatService,
+        ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
     {
         _seatService = seatService
             ?? throw new ArgumentNullException(nameof(seatService));
+        _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService
+            ?? throw new ArgumentNullException(nameof(cinemaScopeAuthorizationService));
     }
 
     /// <summary>
@@ -42,6 +47,12 @@ public sealed class SeatsController : ControllerBase
         [FromBody] CreateSeatRequest request,
         CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, request.RoomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var userId = GetUserId();
 
         // Bước tiếp theo: ISeatService được DI map sang SeatService tại
@@ -73,6 +84,12 @@ public sealed class SeatsController : ControllerBase
 
         // Bước tiếp theo: SeatService (Infrastructure/Services) kiểm seat tồn tại,
         // seat code mới không trùng rồi cập nhật SEAT.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeSeatAsync(User, seatId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _seatService.UpdateSeatAsync(
             request.MapTo<Contracts.Seats.UpdateSeatRequest>(),
             GetUserId(),
@@ -96,6 +113,12 @@ public sealed class SeatsController : ControllerBase
     {
         // Bước tiếp theo: SeatService kiểm SHOWTIME_SEAT tương lai; nếu an toàn
         // thì soft-delete bằng SEAT.isActive=false thay vì xóa vật lý.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeSeatAsync(User, seatId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _seatService.DeleteSeatAsync(
             seatId,
             GetUserId(),
@@ -120,6 +143,12 @@ public sealed class SeatsController : ControllerBase
     {
         // Bước tiếp theo: SeatService query SEAT theo roomId qua CinemaDbContext,
         // sắp theo row/number rồi project sang DTO.
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeRoomAsync(User, roomId, cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _seatService.GetSeatsByRoomAsync(
             roomId,
             cancellationToken);
@@ -211,6 +240,18 @@ public sealed class SeatsController : ControllerBase
                 result.Message,
                 result.ErrorCode,
                 result.Errors);
+
+        return StatusCode(
+            result.StatusCode,
+            response);
+    }
+
+    private ObjectResult ToActionResult(
+        CinemaScopeAuthorizationResult result)
+    {
+        var response = ApiResponse<object>.Fail(
+            result.Message,
+            result.ErrorCode);
 
         return StatusCode(
             result.StatusCode,

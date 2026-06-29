@@ -5,7 +5,9 @@ namespace CinemaSystem.Application.Interfaces;
 
 public interface IRoomService
 {
-    Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(CancellationToken cancellationToken);
+    Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(
+        string? cinemaScopeId,
+        CancellationToken cancellationToken);
 
 
     Task<ServiceResult<RoomResponse>> GetRoomByIdAsync(string roomId, CancellationToken cancellationToken);
