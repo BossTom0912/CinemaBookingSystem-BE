@@ -28,6 +28,7 @@
     <Folder Include="Filters\" />
     <Folder Include="Hubs\" />
     <Folder Include="Extensions\" />
+    <Folder Include="wwwroot\images\" />
   </ItemGroup>
 
 </Project>

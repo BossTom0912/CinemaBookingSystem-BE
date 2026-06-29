@@ -244,7 +244,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors("FrontendCors");
-
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
