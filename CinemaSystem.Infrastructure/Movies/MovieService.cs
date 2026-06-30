@@ -73,6 +73,7 @@ public sealed class MovieService : IMovieService
                 Highlight = movie.Highlight,
                 ViewCount = movie.ViewCount,
                 AgeRating = movie.AgeRating,
+                MovieStatus = movie.MovieStatus,
                 Director = movie.Director
             })
             .ToListAsync(cancellationToken);

@@ -12,6 +12,8 @@ public sealed class MovieResponse
 
     public int Duration { get; init; }
 
+    public string MovieStatus { get; init; } = string.Empty;
+
     public string? ImagePoster { get; init; }
 
     public decimal AvgRating { get; init; }
