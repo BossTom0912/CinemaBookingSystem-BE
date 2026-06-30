@@ -15,6 +15,8 @@ public class UpdateMovieRequest
 
     public List<int>? GenreIds { get; set; }
 
+    public List<string>? GenreNames { get; set; }
+
     [MaxLength(50)]
     public string? Language { get; set; }
 

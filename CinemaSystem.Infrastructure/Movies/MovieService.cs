@@ -208,12 +208,35 @@ public sealed class MovieService : IMovieService
         }
 
         // 2.2 Validate Genres
+        var finalGenreIds = new HashSet<int>();
         if (request.GenreIds != null && request.GenreIds.Any())
         {
             var validGenreCount = await _dbContext.Genres.CountAsync(g => request.GenreIds.Contains(g.GenreId), cancellationToken);
             if (validGenreCount != request.GenreIds.Distinct().Count())
             {
                 return ServiceResult<MovieDetailResponse>.Fail(400, "One or more provided GenreIds are invalid.", "INVALID_GENRE_ID");
+            }
+            foreach (var id in request.GenreIds) finalGenreIds.Add(id);
+        }
+
+        if (request.GenreNames != null && request.GenreNames.Any())
+        {
+            foreach (var genreName in request.GenreNames.Distinct())
+            {
+                if (string.IsNullOrWhiteSpace(genreName)) continue;
+                var trimmedName = genreName.Trim();
+                var existingGenre = await _dbContext.Genres.FirstOrDefaultAsync(g => g.Name.ToLower() == trimmedName.ToLower(), cancellationToken);
+                if (existingGenre != null)
+                {
+                    finalGenreIds.Add(existingGenre.GenreId);
+                }
+                else
+                {
+                    var newGenre = new Genre { Name = trimmedName };
+                    _dbContext.Genres.Add(newGenre);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    finalGenreIds.Add(newGenre.GenreId);
+                }
             }
         }
 
@@ -268,9 +291,9 @@ public sealed class MovieService : IMovieService
             MovieStatus = status
         };
 
-        if (request.GenreIds != null)
+        if (finalGenreIds.Any())
         {
-            foreach (var genreId in request.GenreIds.Distinct())
+            foreach (var genreId in finalGenreIds)
             {
                 movie.MovieGenres.Add(new MovieGenre { MovieId = movieId, GenreId = genreId });
             }
@@ -318,12 +341,35 @@ public sealed class MovieService : IMovieService
             }
         }
 
+        var finalGenreIds = new HashSet<int>();
         if (request.GenreIds != null && request.GenreIds.Any())
         {
             var validGenreCount = await _dbContext.Genres.CountAsync(g => request.GenreIds.Contains(g.GenreId), cancellationToken);
             if (validGenreCount != request.GenreIds.Distinct().Count())
             {
                 return ServiceResult<MovieDetailResponse>.Fail(400, "One or more provided GenreIds are invalid.", "INVALID_GENRE_ID");
+            }
+            foreach (var id in request.GenreIds) finalGenreIds.Add(id);
+        }
+
+        if (request.GenreNames != null && request.GenreNames.Any())
+        {
+            foreach (var genreName in request.GenreNames.Distinct())
+            {
+                if (string.IsNullOrWhiteSpace(genreName)) continue;
+                var trimmedName = genreName.Trim();
+                var existingGenre = await _dbContext.Genres.FirstOrDefaultAsync(g => g.Name.ToLower() == trimmedName.ToLower(), cancellationToken);
+                if (existingGenre != null)
+                {
+                    finalGenreIds.Add(existingGenre.GenreId);
+                }
+                else
+                {
+                    var newGenre = new Genre { Name = trimmedName };
+                    _dbContext.Genres.Add(newGenre);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    finalGenreIds.Add(newGenre.GenreId);
+                }
             }
         }
 
@@ -374,10 +420,10 @@ public sealed class MovieService : IMovieService
         movie.Director = request.Director;
         movie.MovieStatus = request.MovieStatus;
 
-        if (request.GenreIds != null)
+        if (request.GenreIds != null || request.GenreNames != null)
         {
             movie.MovieGenres.Clear();
-            foreach (var genreId in request.GenreIds.Distinct())
+            foreach (var genreId in finalGenreIds)
             {
                 movie.MovieGenres.Add(new MovieGenre { MovieId = movieId, GenreId = genreId });
             }
