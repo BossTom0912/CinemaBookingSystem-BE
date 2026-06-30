@@ -1,38 +1,12 @@
-﻿
 -- ==========================================
 -- FILE: cinema-booking-schema.sql
 -- ==========================================
 /*
 ============================================================
-CinemaBookingDB - FIXED VERSION FOR SQL SERVER
+CinemaBookingDB - CLEAN & UNIFIED SCHEMA
 ============================================================
-Main fixes applied from the original DB.txt:
-1. Replaced FLOAT money fields with DECIMAL(18,2).
-2. Replaced NVARCHAR date/time fields with DATE or DATETIME2.
-3. Added NOT NULL for mandatory foreign keys and core business fields.
-4. Added UNIQUE constraints to prevent duplicate email, duplicate seat, duplicate ticket, duplicate voucher usage, etc.
-5. Added CHECK constraints for enum/status fields.
-6. Added BIT fields for boolean values such as emailVerified and isRead.
-7. Added EMAIL_VERIFICATION_TOKEN for register + email verification in Sprint 1.
-8. Added REFRESH_TOKEN for logout/session revocation support.
-9. Added filtered indexes for one successful payment per booking and unique nullable values.
-10. Added indexes for common FK/search columns.
-11. Added customer/staff profile fields required by the legacy Movie-Theater SRS
-    while keeping USER focused on authentication data.
-12. Added token purpose/attempt count so email verification OTP and password reset
-    OTP can share one token table without mixing flows.
-13. Store refresh token hashes instead of raw refresh tokens.
-14. Added counter-sale support for Staff selling tickets at the cinema counter.
-15. Added cancellation actor by USER so Manager/Admin cancellation does not require
-    every admin account to also have a STAFF_PROFILE row.
-16. Added voucher/promotion campaign metadata and payment audit fields for provider
-    reconciliation, callbacks, and refund investigation.
-
-Note:
-- This reset script drops CinemaBookingDB if it already exists, then recreates it from zero.
-  Use this while designing the database. Do not use it on production data unless you have a backup.
-- Showtime overlap validation still needs to be handled in backend service/transaction because
-  SQL Server CHECK/UNIQUE constraints cannot fully prevent time-range overlap by themselves.
+This script completely replaces all fragmented alterations and 
+creates the entire database structure smoothly from scratch.
 ============================================================
 */
 
@@ -53,7 +27,7 @@ USE [CinemaBookingDB];
 GO
 
 -- =========================
--- 1. BASE TABLES
+-- 1. BASE DICTIONARY TABLES
 -- =========================
 
 CREATE TABLE [ROLE] (
@@ -73,8 +47,7 @@ CREATE TABLE [CINEMA] (
     [phoneNumber] NVARCHAR(30) NULL,
     [cinemaStatus] NVARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
 
-    CONSTRAINT [CK_CINEMA_STATUS]
-        CHECK ([cinemaStatus] IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE'))
+    CONSTRAINT [CK_CINEMA_STATUS] CHECK ([cinemaStatus] IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE'))
 );
 GO
 
@@ -88,30 +61,15 @@ CREATE TABLE [SEAT_TYPE] (
 );
 GO
 
-CREATE TABLE [MOVIE] (
-    [movieId] NVARCHAR(50) PRIMARY KEY,
-    [title] NVARCHAR(255) NOT NULL,
-    [durationMinutes] INT NOT NULL,
-    [genre] NVARCHAR(255) NULL,
-    [language] NVARCHAR(100) NULL,
-    [releaseDate] DATE NULL,
-    [ageRating] NVARCHAR(30) NULL,
-    [description] NVARCHAR(MAX) NULL,
-    [posterUrl] NVARCHAR(1000) NULL,
-    [trailerUrl] NVARCHAR(1000) NULL,
-    [highlight] NVARCHAR(30) NULL,
-    [viewCount] INT NOT NULL DEFAULT 0,
-    [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
-    [viewCount] INT NOT NULL DEFAULT 0,
-    [averageRating] DECIMAL(3,2) NOT NULL DEFAULT 0.00,
-    [totalReviews] INT NOT NULL DEFAULT 0,
-    [totalViews] INT NOT NULL DEFAULT 0,
-    [dailyViews] INT NOT NULL DEFAULT 0,
+CREATE TABLE [LANGUAGE] (
+    [languageId] NVARCHAR(50) PRIMARY KEY,
+    [name] NVARCHAR(100) NOT NULL
+);
+GO
 
-    CONSTRAINT [CK_MOVIE_DURATION] CHECK ([durationMinutes] > 0),
-    CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK ([highlight] IS NULL OR [highlight] IN ('HOT', 'NEW', 'TRENDING')),
-    CONSTRAINT [CK_MOVIE_STATUS]
-        CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED'))
+CREATE TABLE [GENRE] (
+    [genreId] INT IDENTITY(1,1) PRIMARY KEY,
+    [name] NVARCHAR(100) NOT NULL
 );
 GO
 
@@ -122,8 +80,57 @@ CREATE TABLE [PAYMENT_PROVIDER] (
     [providerStatus] NVARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT [UQ_PAYMENT_PROVIDER_NAME] UNIQUE ([providerName]),
-    CONSTRAINT [CK_PAYMENT_PROVIDER_STATUS]
-        CHECK ([providerStatus] IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE'))
+    CONSTRAINT [CK_PAYMENT_PROVIDER_STATUS] CHECK ([providerStatus] IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE'))
+);
+GO
+
+CREATE TABLE [FB_ITEM] (
+    [fbItemId] NVARCHAR(50) PRIMARY KEY,
+    [itemName] NVARCHAR(255) NOT NULL,
+    [price] DECIMAL(18,2) NOT NULL,
+    [itemStatus] NVARCHAR(30) NOT NULL DEFAULT 'AVAILABLE',
+
+    CONSTRAINT [CK_FB_ITEM_PRICE] CHECK ([price] >= 0),
+    CONSTRAINT [CK_FB_ITEM_STATUS] CHECK ([itemStatus] IN ('AVAILABLE', 'UNAVAILABLE', 'INACTIVE'))
+);
+GO
+
+-- =========================
+-- 2. MOVIE & VOUCHER TABLES
+-- =========================
+
+CREATE TABLE [MOVIE] (
+    [movieId] NVARCHAR(50) PRIMARY KEY,
+    [title] NVARCHAR(255) NOT NULL,
+    [durationMinutes] INT NOT NULL,
+    [languageId] NVARCHAR(50) NULL,
+    [releaseDate] DATE NULL,
+    [ageRating] NVARCHAR(30) NULL,
+    [description] NVARCHAR(MAX) NULL,
+    [posterUrl] NVARCHAR(1000) NULL,
+    [trailerUrl] NVARCHAR(1000) NULL,
+    [director] NVARCHAR(200) NULL,
+    [highlight] NVARCHAR(30) NULL,
+    [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
+    [viewCount] INT NOT NULL DEFAULT 0,
+    [averageRating] DECIMAL(3,2) NOT NULL DEFAULT 0.00,
+    [totalReviews] INT NOT NULL DEFAULT 0,
+    [totalViews] INT NOT NULL DEFAULT 0,
+    [dailyViews] INT NOT NULL DEFAULT 0,
+
+    CONSTRAINT [CK_MOVIE_DURATION] CHECK ([durationMinutes] > 0),
+    CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK ([highlight] IS NULL OR [highlight] IN ('HOT', 'NEW', 'TRENDING')),
+    CONSTRAINT [CK_MOVIE_STATUS] CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED')),
+    CONSTRAINT [FK_MOVIE_LANGUAGE] FOREIGN KEY ([languageId]) REFERENCES [LANGUAGE]([languageId])
+);
+GO
+
+CREATE TABLE [MOVIE_GENRE] (
+    [movieId] NVARCHAR(50) NOT NULL,
+    [genreId] INT NOT NULL,
+    PRIMARY KEY ([movieId], [genreId]),
+    CONSTRAINT [FK_MOVIE_GENRE_MOVIE] FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]) ON DELETE CASCADE,
+    CONSTRAINT [FK_MOVIE_GENRE_GENRE] FOREIGN KEY ([genreId]) REFERENCES [GENRE]([genreId]) ON DELETE CASCADE
 );
 GO
 
@@ -145,37 +152,20 @@ CREATE TABLE [VOUCHER] (
     [voucherStatus] NVARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT [UQ_VOUCHER_CODE] UNIQUE ([voucherCode]),
-    CONSTRAINT [CK_VOUCHER_DISCOUNT_TYPE]
-        CHECK ([discountType] IN ('AMOUNT', 'PERCENT')),
+    CONSTRAINT [CK_VOUCHER_DISCOUNT_TYPE] CHECK ([discountType] IN ('AMOUNT', 'PERCENT')),
     CONSTRAINT [CK_VOUCHER_DISCOUNT_VALUE] CHECK ([discountValue] > 0),
-    CONSTRAINT [CK_VOUCHER_MIN_ORDER_AMOUNT]
-        CHECK ([minOrderAmount] IS NULL OR [minOrderAmount] >= 0),
-    CONSTRAINT [CK_VOUCHER_MAX_DISCOUNT_AMOUNT]
-        CHECK ([maxDiscountAmount] IS NULL OR [maxDiscountAmount] > 0),
+    CONSTRAINT [CK_VOUCHER_MIN_ORDER_AMOUNT] CHECK ([minOrderAmount] IS NULL OR [minOrderAmount] >= 0),
+    CONSTRAINT [CK_VOUCHER_MAX_DISCOUNT_AMOUNT] CHECK ([maxDiscountAmount] IS NULL OR [maxDiscountAmount] > 0),
     CONSTRAINT [CK_VOUCHER_USAGE_LIMIT] CHECK ([usageLimit] >= 0),
-    CONSTRAINT [CK_VOUCHER_PER_CUSTOMER_LIMIT]
-        CHECK ([perCustomerLimit] IS NULL OR [perCustomerLimit] > 0),
+    CONSTRAINT [CK_VOUCHER_PER_CUSTOMER_LIMIT] CHECK ([perCustomerLimit] IS NULL OR [perCustomerLimit] > 0),
     CONSTRAINT [CK_VOUCHER_USED_COUNT] CHECK ([usedCount] >= 0),
     CONSTRAINT [CK_VOUCHER_DATE_RANGE] CHECK ([endDate] > [startDate]),
-    CONSTRAINT [CK_VOUCHER_STATUS]
-        CHECK ([voucherStatus] IN ('ACTIVE', 'INACTIVE', 'EXPIRED'))
-);
-GO
-
-CREATE TABLE [FB_ITEM] (
-    [fbItemId] NVARCHAR(50) PRIMARY KEY,
-    [itemName] NVARCHAR(255) NOT NULL,
-    [price] DECIMAL(18,2) NOT NULL,
-    [itemStatus] NVARCHAR(30) NOT NULL DEFAULT 'AVAILABLE',
-
-    CONSTRAINT [CK_FB_ITEM_PRICE] CHECK ([price] >= 0),
-    CONSTRAINT [CK_FB_ITEM_STATUS]
-        CHECK ([itemStatus] IN ('AVAILABLE', 'UNAVAILABLE', 'INACTIVE'))
+    CONSTRAINT [CK_VOUCHER_STATUS] CHECK ([voucherStatus] IN ('ACTIVE', 'INACTIVE', 'EXPIRED'))
 );
 GO
 
 -- =========================
--- 2. USER / AUTH / PROFILE
+-- 3. USER / AUTH / PROFILE
 -- =========================
 
 CREATE TABLE [USER] (
@@ -194,10 +184,8 @@ CREATE TABLE [USER] (
     [blockedUntil] DATETIME2 NULL,
 
     CONSTRAINT [UQ_USER_EMAIL] UNIQUE ([email]),
-    CONSTRAINT [CK_USER_STATUS]
-        CHECK ([status] IN ('PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'BANNED')),
-    CONSTRAINT [FK_USER_ROLE]
-        FOREIGN KEY ([roleId]) REFERENCES [ROLE]([roleId])
+    CONSTRAINT [CK_USER_STATUS] CHECK ([status] IN ('PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'BANNED')),
+    CONSTRAINT [FK_USER_ROLE] FOREIGN KEY ([roleId]) REFERENCES [ROLE]([roleId])
 );
 GO
 
@@ -213,14 +201,10 @@ CREATE TABLE [EMAIL_VERIFICATION_TOKEN] (
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [UQ_EMAIL_VERIFICATION_TOKEN] UNIQUE ([token]),
-    CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_PURPOSE]
-        CHECK ([purpose] IN ('EMAIL_VERIFICATION', 'PASSWORD_RESET', 'EMAIL_UPDATE', 'PHONE_UPDATE', 'REGISTER', 'FORGOT_PASSWORD', 'CHANGE_EMAIL', 'UPDATE_EMAIL')),
-    CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT]
-        CHECK ([attemptCount] >= 0),
-    CONSTRAINT [CK_EMAIL_VERIFICATION_EXPIRED_AT]
-        CHECK ([expiredAt] > [createdAt]),
-    CONSTRAINT [FK_EMAIL_VERIFICATION_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
+    CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_PURPOSE] CHECK ([purpose] IN ('EMAIL_VERIFICATION', 'PASSWORD_RESET', 'EMAIL_UPDATE', 'PHONE_UPDATE', 'REGISTER', 'FORGOT_PASSWORD', 'CHANGE_EMAIL', 'UPDATE_EMAIL')),
+    CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT] CHECK ([attemptCount] >= 0),
+    CONSTRAINT [CK_EMAIL_VERIFICATION_EXPIRED_AT] CHECK ([expiredAt] > [createdAt]),
+    CONSTRAINT [FK_EMAIL_VERIFICATION_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
 
@@ -235,8 +219,7 @@ CREATE TABLE [REFRESH_TOKEN] (
 
     CONSTRAINT [UQ_REFRESH_TOKEN_HASH] UNIQUE ([tokenHash]),
     CONSTRAINT [CK_REFRESH_TOKEN_EXPIRES_AT] CHECK ([expiresAt] > [issuedAt]),
-    CONSTRAINT [FK_REFRESH_TOKEN_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
+    CONSTRAINT [FK_REFRESH_TOKEN_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
 
@@ -252,11 +235,9 @@ CREATE TABLE [CUSTOMER_PROFILE] (
     [avatarUrl] NVARCHAR(1000) NULL,
 
     CONSTRAINT [UQ_CUSTOMER_PROFILE_USER] UNIQUE ([userId]),
-    CONSTRAINT [CK_CUSTOMER_PROFILE_MEMBER_LEVEL]
-        CHECK ([memberLevel] IN ('STANDARD', 'SILVER', 'GOLD', 'PLATINUM')),
+    CONSTRAINT [CK_CUSTOMER_PROFILE_MEMBER_LEVEL] CHECK ([memberLevel] IN ('STANDARD', 'SILVER', 'GOLD', 'PLATINUM')),
     CONSTRAINT [CK_CUSTOMER_PROFILE_REWARD_POINTS] CHECK ([rewardPoints] >= 0),
-    CONSTRAINT [FK_CUSTOMER_PROFILE_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
+    CONSTRAINT [FK_CUSTOMER_PROFILE_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
 
@@ -274,17 +255,14 @@ CREATE TABLE [STAFF_PROFILE] (
     [employmentStatus] NVARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT [UQ_STAFF_PROFILE_USER] UNIQUE ([userId]),
-    CONSTRAINT [CK_STAFF_PROFILE_EMPLOYMENT_STATUS]
-        CHECK ([employmentStatus] IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
-    CONSTRAINT [FK_STAFF_PROFILE_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId]),
-    CONSTRAINT [FK_STAFF_PROFILE_CINEMA]
-        FOREIGN KEY ([cinemaId]) REFERENCES [CINEMA]([cinemaId])
+    CONSTRAINT [CK_STAFF_PROFILE_EMPLOYMENT_STATUS] CHECK ([employmentStatus] IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')),
+    CONSTRAINT [FK_STAFF_PROFILE_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId]),
+    CONSTRAINT [FK_STAFF_PROFILE_CINEMA] FOREIGN KEY ([cinemaId]) REFERENCES [CINEMA]([cinemaId])
 );
 GO
 
 -- =========================
--- 3. CINEMA STRUCTURE
+-- 4. CINEMA STRUCTURE
 -- =========================
 
 CREATE TABLE [ROOM] (
@@ -296,10 +274,8 @@ CREATE TABLE [ROOM] (
 
     CONSTRAINT [UQ_ROOM_CINEMA_ROOM_NAME] UNIQUE ([cinemaId], [roomName]),
     CONSTRAINT [CK_ROOM_CAPACITY] CHECK ([capacity] > 0),
-    CONSTRAINT [CK_ROOM_STATUS]
-        CHECK ([roomStatus] IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE')),
-    CONSTRAINT [FK_ROOM_CINEMA]
-        FOREIGN KEY ([cinemaId]) REFERENCES [CINEMA]([cinemaId])
+    CONSTRAINT [CK_ROOM_STATUS] CHECK ([roomStatus] IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE')),
+    CONSTRAINT [FK_ROOM_CINEMA] FOREIGN KEY ([cinemaId]) REFERENCES [CINEMA]([cinemaId])
 );
 GO
 
@@ -315,15 +291,13 @@ CREATE TABLE [SEAT] (
     CONSTRAINT [UQ_SEAT_ROOM_SEAT_CODE] UNIQUE ([roomId], [seatCode]),
     CONSTRAINT [UQ_SEAT_ROOM_ROW_NUMBER] UNIQUE ([roomId], [rowLabel], [seatNumber]),
     CONSTRAINT [CK_SEAT_NUMBER] CHECK ([seatNumber] > 0),
-    CONSTRAINT [FK_SEAT_ROOM]
-        FOREIGN KEY ([roomId]) REFERENCES [ROOM]([roomId]),
-    CONSTRAINT [FK_SEAT_SEAT_TYPE]
-        FOREIGN KEY ([seatTypeId]) REFERENCES [SEAT_TYPE]([seatTypeId])
+    CONSTRAINT [FK_SEAT_ROOM] FOREIGN KEY ([roomId]) REFERENCES [ROOM]([roomId]),
+    CONSTRAINT [FK_SEAT_SEAT_TYPE] FOREIGN KEY ([seatTypeId]) REFERENCES [SEAT_TYPE]([seatTypeId])
 );
 GO
 
 -- =========================
--- 4. MOVIE / SHOWTIME
+-- 5. SHOWTIME
 -- =========================
 
 CREATE TABLE [SHOWTIME] (
@@ -338,12 +312,9 @@ CREATE TABLE [SHOWTIME] (
 
     CONSTRAINT [CK_SHOWTIME_TIME_RANGE] CHECK ([endTime] > [startTime]),
     CONSTRAINT [CK_SHOWTIME_BASE_PRICE] CHECK ([basePrice] >= 0),
-    CONSTRAINT [CK_SHOWTIME_STATUS]
-        CHECK ([status] IN ('OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED', 'SUSPENDED', 'PROCESSING_UNSTABLE')),
-    CONSTRAINT [FK_SHOWTIME_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
-    CONSTRAINT [FK_SHOWTIME_ROOM]
-        FOREIGN KEY ([roomId]) REFERENCES [ROOM]([roomId])
+    CONSTRAINT [CK_SHOWTIME_STATUS] CHECK ([status] IN ('OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED', 'SUSPENDED', 'PROCESSING_UNSTABLE')),
+    CONSTRAINT [FK_SHOWTIME_MOVIE] FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
+    CONSTRAINT [FK_SHOWTIME_ROOM] FOREIGN KEY ([roomId]) REFERENCES [ROOM]([roomId])
 );
 GO
 
@@ -357,19 +328,15 @@ CREATE TABLE [SHOWTIME_SEAT] (
     [rowVersion] ROWVERSION,
 
     CONSTRAINT [UQ_SHOWTIME_SEAT_SHOWTIME_SEAT] UNIQUE ([showtimeId], [seatId]),
-    CONSTRAINT [CK_SHOWTIME_SEAT_STATUS]
-        CHECK ([seatStatus] IN ('AVAILABLE', 'LOCKED', 'BOOKED', 'RELEASED', 'UNAVAILABLE')),
-    CONSTRAINT [FK_SHOWTIME_SEAT_SHOWTIME]
-        FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
-    CONSTRAINT [FK_SHOWTIME_SEAT_SEAT]
-        FOREIGN KEY ([seatId]) REFERENCES [SEAT]([seatId]),
-    CONSTRAINT [FK_SHOWTIME_SEAT_LOCKED_BY_USER]
-        FOREIGN KEY ([lockedByUserId]) REFERENCES [USER]([userId])
+    CONSTRAINT [CK_SHOWTIME_SEAT_STATUS] CHECK ([seatStatus] IN ('AVAILABLE', 'LOCKED', 'BOOKED', 'RELEASED', 'UNAVAILABLE')),
+    CONSTRAINT [FK_SHOWTIME_SEAT_SHOWTIME] FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
+    CONSTRAINT [FK_SHOWTIME_SEAT_SEAT] FOREIGN KEY ([seatId]) REFERENCES [SEAT]([seatId]),
+    CONSTRAINT [FK_SHOWTIME_SEAT_LOCKED_BY_USER] FOREIGN KEY ([lockedByUserId]) REFERENCES [USER]([userId])
 );
 GO
 
 -- =========================
--- 5. BOOKING / TICKET
+-- 6. BOOKING / TICKET
 -- =========================
 
 CREATE TABLE [BOOKING] (
@@ -386,19 +353,13 @@ CREATE TABLE [BOOKING] (
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     [expiredAt] DATETIME2 NULL,
 
-    CONSTRAINT [CK_BOOKING_STATUS]
-        CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE')),
-    CONSTRAINT [CK_BOOKING_CHANNEL]
-        CHECK ([bookingChannel] IN ('ONLINE', 'COUNTER')),
-    CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED]
-        CHECK ([bookingChannel] <> 'ONLINE' OR [customerProfileId] IS NOT NULL),
+    CONSTRAINT [CK_BOOKING_STATUS] CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE')),
+    CONSTRAINT [CK_BOOKING_CHANNEL] CHECK ([bookingChannel] IN ('ONLINE', 'COUNTER')),
+    CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED] CHECK ([bookingChannel] <> 'ONLINE' OR [customerProfileId] IS NOT NULL),
     CONSTRAINT [CK_BOOKING_TOTAL_AMOUNT] CHECK ([totalAmount] >= 0),
-    CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE]
-        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
-    CONSTRAINT [FK_BOOKING_SHOWTIME]
-        FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
-    CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF]
-        FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
+    CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
+    CONSTRAINT [FK_BOOKING_SHOWTIME] FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
+    CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF] FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
 );
 GO
 
@@ -410,10 +371,8 @@ CREATE TABLE [BOOKING_SEAT] (
 
     CONSTRAINT [UQ_BOOKING_SEAT_SHOWTIME_SEAT] UNIQUE ([showtimeSeatId]),
     CONSTRAINT [CK_BOOKING_SEAT_PRICE] CHECK ([seatPrice] >= 0),
-    CONSTRAINT [FK_BOOKING_SEAT_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
-    CONSTRAINT [FK_BOOKING_SEAT_SHOWTIME_SEAT]
-        FOREIGN KEY ([showtimeSeatId]) REFERENCES [SHOWTIME_SEAT]([showtimeSeatId])
+    CONSTRAINT [FK_BOOKING_SEAT_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
+    CONSTRAINT [FK_BOOKING_SEAT_SHOWTIME_SEAT] FOREIGN KEY ([showtimeSeatId]) REFERENCES [SHOWTIME_SEAT]([showtimeSeatId])
 );
 GO
 
@@ -426,10 +385,8 @@ CREATE TABLE [TICKET] (
 
     CONSTRAINT [UQ_TICKET_BOOKING_SEAT] UNIQUE ([bookingSeatId]),
     CONSTRAINT [UQ_TICKET_QR_CODE] UNIQUE ([qrCode]),
-    CONSTRAINT [CK_TICKET_STATUS]
-        CHECK ([ticketStatus] IN ('GENERATED', 'UNUSED', 'CHECKED_IN', 'CANCELLED', 'REFUNDED')),
-    CONSTRAINT [FK_TICKET_BOOKING_SEAT]
-        FOREIGN KEY ([bookingSeatId]) REFERENCES [BOOKING_SEAT]([bookingSeatId])
+    CONSTRAINT [CK_TICKET_STATUS] CHECK ([ticketStatus] IN ('GENERATED', 'UNUSED', 'CHECKED_IN', 'CANCELLED', 'REFUNDED')),
+    CONSTRAINT [FK_TICKET_BOOKING_SEAT] FOREIGN KEY ([bookingSeatId]) REFERENCES [BOOKING_SEAT]([bookingSeatId])
 );
 GO
 
@@ -442,17 +399,14 @@ CREATE TABLE [CHECKIN_LOG] (
     [failureReason] NVARCHAR(500) NULL,
     [rawQrCode] NVARCHAR(450) NULL,
 
-    CONSTRAINT [CK_CHECKIN_LOG_RESULT]
-        CHECK ([result] IN ('SUCCESS', 'FAILED')),
-    CONSTRAINT [FK_CHECKIN_LOG_TICKET]
-        FOREIGN KEY ([ticketId]) REFERENCES [TICKET]([ticketId]),
-    CONSTRAINT [FK_CHECKIN_LOG_STAFF_PROFILE]
-        FOREIGN KEY ([staffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
+    CONSTRAINT [CK_CHECKIN_LOG_RESULT] CHECK ([result] IN ('SUCCESS', 'FAILED')),
+    CONSTRAINT [FK_CHECKIN_LOG_TICKET] FOREIGN KEY ([ticketId]) REFERENCES [TICKET]([ticketId]),
+    CONSTRAINT [FK_CHECKIN_LOG_STAFF_PROFILE] FOREIGN KEY ([staffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
 );
 GO
 
 -- =========================
--- 6. PAYMENT / REFUND
+-- 7. PAYMENT / REFUND
 -- =========================
 
 CREATE TABLE [PAYMENT] (
@@ -471,12 +425,9 @@ CREATE TABLE [PAYMENT] (
     [paidAt] DATETIME2 NULL,
 
     CONSTRAINT [CK_PAYMENT_AMOUNT] CHECK ([amount] >= 0),
-    CONSTRAINT [CK_PAYMENT_STATUS]
-        CHECK ([paymentStatus] IN ('PENDING', 'SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED')),
-    CONSTRAINT [FK_PAYMENT_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
-    CONSTRAINT [FK_PAYMENT_PAYMENT_PROVIDER]
-        FOREIGN KEY ([paymentProviderId]) REFERENCES [PAYMENT_PROVIDER]([paymentProviderId])
+    CONSTRAINT [CK_PAYMENT_STATUS] CHECK ([paymentStatus] IN ('PENDING', 'SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED')),
+    CONSTRAINT [FK_PAYMENT_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
+    CONSTRAINT [FK_PAYMENT_PAYMENT_PROVIDER] FOREIGN KEY ([paymentProviderId]) REFERENCES [PAYMENT_PROVIDER]([paymentProviderId])
 );
 GO
 
@@ -489,12 +440,9 @@ CREATE TABLE [SHOWTIME_CANCELLATION] (
     [cancelledAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [UQ_SHOWTIME_CANCELLATION_SHOWTIME] UNIQUE ([showtimeId]),
-    CONSTRAINT [FK_SHOWTIME_CANCELLATION_SHOWTIME]
-        FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
-    CONSTRAINT [FK_SHOWTIME_CANCELLATION_USER]
-        FOREIGN KEY ([cancelledByUserId]) REFERENCES [USER]([userId]),
-    CONSTRAINT [FK_SHOWTIME_CANCELLATION_STAFF_PROFILE]
-        FOREIGN KEY ([cancelledByStaffId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
+    CONSTRAINT [FK_SHOWTIME_CANCELLATION_SHOWTIME] FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
+    CONSTRAINT [FK_SHOWTIME_CANCELLATION_USER] FOREIGN KEY ([cancelledByUserId]) REFERENCES [USER]([userId]),
+    CONSTRAINT [FK_SHOWTIME_CANCELLATION_STAFF_PROFILE] FOREIGN KEY ([cancelledByStaffId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
 );
 GO
 
@@ -513,21 +461,16 @@ CREATE TABLE [REFUND] (
     [refundedAt] DATETIME2 NULL,
 
     CONSTRAINT [CK_REFUND_AMOUNT] CHECK ([refundAmount] > 0),
-    CONSTRAINT [CK_REFUND_STATUS]
-        CHECK ([refundStatus] IN ('PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'REQUESTED')),
-    CONSTRAINT [FK_REFUND_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
-    CONSTRAINT [FK_REFUND_PAYMENT]
-        FOREIGN KEY ([paymentId]) REFERENCES [PAYMENT]([paymentId]),
-    CONSTRAINT [FK_REFUND_PAYMENT_PROVIDER]
-        FOREIGN KEY ([paymentProviderId]) REFERENCES [PAYMENT_PROVIDER]([paymentProviderId]),
-    CONSTRAINT [FK_REFUND_SHOWTIME_CANCELLATION]
-        FOREIGN KEY ([showtimeCancellationId]) REFERENCES [SHOWTIME_CANCELLATION]([showtimeCancellationId])
+    CONSTRAINT [CK_REFUND_STATUS] CHECK ([refundStatus] IN ('PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'REQUESTED')),
+    CONSTRAINT [FK_REFUND_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
+    CONSTRAINT [FK_REFUND_PAYMENT] FOREIGN KEY ([paymentId]) REFERENCES [PAYMENT]([paymentId]),
+    CONSTRAINT [FK_REFUND_PAYMENT_PROVIDER] FOREIGN KEY ([paymentProviderId]) REFERENCES [PAYMENT_PROVIDER]([paymentProviderId]),
+    CONSTRAINT [FK_REFUND_SHOWTIME_CANCELLATION] FOREIGN KEY ([showtimeCancellationId]) REFERENCES [SHOWTIME_CANCELLATION]([showtimeCancellationId])
 );
 GO
 
 -- =========================
--- 7. VOUCHER
+-- 8. VOUCHER USAGE / F&B BOOKING
 -- =========================
 
 CREATE TABLE [VOUCHER_USAGE] (
@@ -541,20 +484,12 @@ CREATE TABLE [VOUCHER_USAGE] (
 
     CONSTRAINT [UQ_VOUCHER_USAGE_BOOKING] UNIQUE ([bookingId]),
     CONSTRAINT [CK_VOUCHER_USAGE_DISCOUNT_AMOUNT] CHECK ([discountAmount] >= 0),
-    CONSTRAINT [CK_VOUCHER_USAGE_STATUS]
-        CHECK ([usageStatus] IN ('APPLIED', 'CONFIRMED', 'CANCELLED')),
-    CONSTRAINT [FK_VOUCHER_USAGE_VOUCHER]
-        FOREIGN KEY ([voucherId]) REFERENCES [VOUCHER]([voucherId]),
-    CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_PROFILE]
-        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
-    CONSTRAINT [FK_VOUCHER_USAGE_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
+    CONSTRAINT [CK_VOUCHER_USAGE_STATUS] CHECK ([usageStatus] IN ('APPLIED', 'CONFIRMED', 'CANCELLED')),
+    CONSTRAINT [FK_VOUCHER_USAGE_VOUCHER] FOREIGN KEY ([voucherId]) REFERENCES [VOUCHER]([voucherId]),
+    CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
+    CONSTRAINT [FK_VOUCHER_USAGE_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
 );
 GO
-
--- =========================
--- 8. F&B
--- =========================
 
 CREATE TABLE [BOOKING_FB_ITEM] (
     [bookingFBItemId] NVARCHAR(50) PRIMARY KEY,
@@ -567,10 +502,8 @@ CREATE TABLE [BOOKING_FB_ITEM] (
     CONSTRAINT [CK_BOOKING_FB_ITEM_QUANTITY] CHECK ([quantity] > 0),
     CONSTRAINT [CK_BOOKING_FB_ITEM_UNIT_PRICE] CHECK ([unitPrice] >= 0),
     CONSTRAINT [CK_BOOKING_FB_ITEM_SUBTOTAL] CHECK ([subtotal] >= 0),
-    CONSTRAINT [FK_BOOKING_FB_ITEM_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
-    CONSTRAINT [FK_BOOKING_FB_ITEM_FB_ITEM]
-        FOREIGN KEY ([fbItemId]) REFERENCES [FB_ITEM]([fbItemId])
+    CONSTRAINT [FK_BOOKING_FB_ITEM_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId]),
+    CONSTRAINT [FK_BOOKING_FB_ITEM_FB_ITEM] FOREIGN KEY ([fbItemId]) REFERENCES [FB_ITEM]([fbItemId])
 );
 GO
 
@@ -582,15 +515,13 @@ CREATE TABLE [CINEMA_FB_INVENTORY] (
 
     CONSTRAINT [UQ_CINEMA_FB_INVENTORY] UNIQUE ([cinemaId], [fbItemId]),
     CONSTRAINT [CK_CINEMA_FB_INVENTORY_QUANTITY] CHECK ([quantity] >= 0),
-    CONSTRAINT [FK_CINEMA_FB_INVENTORY_CINEMA]
-        FOREIGN KEY ([cinemaId]) REFERENCES [CINEMA]([cinemaId]),
-    CONSTRAINT [FK_CINEMA_FB_INVENTORY_FB_ITEM]
-        FOREIGN KEY ([fbItemId]) REFERENCES [FB_ITEM]([fbItemId])
+    CONSTRAINT [FK_CINEMA_FB_INVENTORY_CINEMA] FOREIGN KEY ([cinemaId]) REFERENCES [CINEMA]([cinemaId]),
+    CONSTRAINT [FK_CINEMA_FB_INVENTORY_FB_ITEM] FOREIGN KEY ([fbItemId]) REFERENCES [FB_ITEM]([fbItemId])
 );
 GO
 
 -- =========================
--- 9. REWARD / REVIEW / NOTIFICATION / AUDIT
+-- 9. REWARD / REVIEW / LOGS
 -- =========================
 
 CREATE TABLE [REWARD_POINT_TRANSACTION] (
@@ -601,13 +532,10 @@ CREATE TABLE [REWARD_POINT_TRANSACTION] (
     [points] INT NOT NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
-    CONSTRAINT [CK_REWARD_POINT_TRANSACTION_TYPE]
-        CHECK ([transactionType] IN ('EARN', 'REDEEM', 'REVERT', 'ADJUST')),
+    CONSTRAINT [CK_REWARD_POINT_TRANSACTION_TYPE] CHECK ([transactionType] IN ('EARN', 'REDEEM', 'REVERT', 'ADJUST')),
     CONSTRAINT [CK_REWARD_POINT_TRANSACTION_POINTS] CHECK ([points] <> 0),
-    CONSTRAINT [FK_REWARD_POINT_TRANSACTION_CUSTOMER_PROFILE]
-        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
-    CONSTRAINT [FK_REWARD_POINT_TRANSACTION_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
+    CONSTRAINT [FK_REWARD_POINT_TRANSACTION_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
+    CONSTRAINT [FK_REWARD_POINT_TRANSACTION_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
 );
 GO
 
@@ -618,29 +546,45 @@ CREATE TABLE [REVIEW] (
     [bookingId] NVARCHAR(50) NULL,
     [rating] INT NOT NULL,
     [comment] NVARCHAR(1000) NULL,
+    [status] NVARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    [editCount] INT NOT NULL DEFAULT 0,
+    [moderatedBy] NVARCHAR(50) NULL,
+    [rejectedReason] NVARCHAR(500) NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
     CONSTRAINT [CK_REVIEW_RATING] CHECK ([rating] BETWEEN 0 AND 5),
-    CONSTRAINT [FK_REVIEW_MODERATED_BY]
-        FOREIGN KEY ([moderatedBy]) REFERENCES [USER]([userId]),
-    CONSTRAINT [FK_REVIEW_CUSTOMER_PROFILE]
-        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
-    CONSTRAINT [FK_REVIEW_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
-    CONSTRAINT [FK_REVIEW_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
+    CONSTRAINT [CK_REVIEW_STATUS] CHECK ([status] IN ('PENDING', 'APPROVED', 'REJECTED', 'FLAGGED')),
+    CONSTRAINT [FK_REVIEW_MODERATED_BY] FOREIGN KEY ([moderatedBy]) REFERENCES [USER]([userId]),
+    CONSTRAINT [FK_REVIEW_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
+    CONSTRAINT [FK_REVIEW_MOVIE] FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
+    CONSTRAINT [FK_REVIEW_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
 );
 GO
 
-CREATE TABLE [MOVIE_VIEW_LOG] (
-    [movieViewLogId] NVARCHAR(50) PRIMARY KEY,
-    [movieId] NVARCHAR(50) NOT NULL,
-    [userId] NVARCHAR(50) NULL,
-    [viewedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    [ipAddress] NVARCHAR(100) NULL,
+CREATE TABLE [REVIEW_EDIT_HISTORY] (
+    [reviewEditHistoryId] NVARCHAR(50) PRIMARY KEY,
+    [reviewId] NVARCHAR(50) NOT NULL,
+    [oldRating] INT NOT NULL,
+    [newRating] INT NOT NULL,
+    [oldComment] NVARCHAR(1000) NULL,
+    [newComment] NVARCHAR(1000) NULL,
+    [editedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
+    CONSTRAINT [FK_REVIEW_EDIT_HISTORY_REVIEW] FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId])
+);
+GO
+
+CREATE TABLE [REVIEW_MODERATION_HISTORY] (
+    [moderationHistoryId] NVARCHAR(50) PRIMARY KEY,
+    [reviewId] NVARCHAR(50) NOT NULL,
+    [moderatedBy] NVARCHAR(50) NOT NULL,
+    [oldStatus] NVARCHAR(30) NULL,
+    [newStatus] NVARCHAR(30) NOT NULL,
+    [reason] NVARCHAR(1000) NULL,
+    [moderatedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_REVIEW] FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId]),
+    CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_USER] FOREIGN KEY ([moderatedBy]) REFERENCES [USER]([userId])
 );
 GO
 
@@ -653,10 +597,8 @@ CREATE TABLE [NOTIFICATION] (
     [isRead] BIT NOT NULL DEFAULT 0,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
-    CONSTRAINT [FK_NOTIFICATION_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId]),
-    CONSTRAINT [FK_NOTIFICATION_BOOKING]
-        FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
+    CONSTRAINT [FK_NOTIFICATION_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId]),
+    CONSTRAINT [FK_NOTIFICATION_BOOKING] FOREIGN KEY ([bookingId]) REFERENCES [BOOKING]([bookingId])
 );
 GO
 
@@ -673,82 +615,40 @@ CREATE TABLE [AUDIT_LOG] (
     [correlationId] NVARCHAR(100) NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
-    CONSTRAINT [FK_AUDIT_LOG_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
+    CONSTRAINT [FK_AUDIT_LOG_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
-
-
--- =========================
--- 9.1. NEW TABLES (CHAT / VIEW / HISTORY)
--- =========================
 
 CREATE TABLE [CHAT_HISTORY] (
     [chatHistoryId] NVARCHAR(50) PRIMARY KEY,
     [userId] NVARCHAR(50) NULL,
-    [sessionId] NVARCHAR(100) NULL,
-    [message] NVARCHAR(MAX) NOT NULL,
-    [isUserMessage] BIT NOT NULL DEFAULT 1,
+    [userMessage] NVARCHAR(MAX) NOT NULL,
+    [aiReplyMessage] NVARCHAR(MAX) NOT NULL,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
 
-    CONSTRAINT [FK_CHAT_HISTORY_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
+    CONSTRAINT [FK_CHAT_HISTORY_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
 
 CREATE TABLE [MOVIE_VIEW_LOG] (
-    [viewLogId] NVARCHAR(50) PRIMARY KEY,
+    [movieViewLogId] NVARCHAR(50) PRIMARY KEY,
     [movieId] NVARCHAR(50) NOT NULL,
     [userId] NVARCHAR(50) NULL,
-    [viewTime] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [viewedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     [ipAddress] NVARCHAR(100) NULL,
 
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
+    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE] FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId]),
+    CONSTRAINT [FK_MOVIE_VIEW_LOG_USER] FOREIGN KEY ([userId]) REFERENCES [USER]([userId])
 );
 GO
 
 CREATE TABLE [MOVIE_DAILY_VIEW] (
-    [dailyViewId] NVARCHAR(50) PRIMARY KEY,
     [movieId] NVARCHAR(50) NOT NULL,
     [viewDate] DATE NOT NULL,
     [viewCount] INT NOT NULL DEFAULT 0,
 
-    CONSTRAINT [UQ_MOVIE_DAILY_VIEW] UNIQUE ([movieId], [viewDate]),
-    CONSTRAINT [FK_MOVIE_DAILY_VIEW_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
-);
-GO
-
-CREATE TABLE [REVIEW_EDIT_HISTORY] (
-    [editHistoryId] NVARCHAR(50) PRIMARY KEY,
-    [reviewId] NVARCHAR(50) NOT NULL,
-    [oldComment] NVARCHAR(1000) NULL,
-    [newComment] NVARCHAR(1000) NULL,
-    [oldRating] INT NULL,
-    [newRating] INT NULL,
-    [editedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-
-    CONSTRAINT [FK_REVIEW_EDIT_HISTORY_REVIEW]
-        FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId])
-);
-GO
-
-CREATE TABLE [REVIEW_MODERATION_HISTORY] (
-    [moderationHistoryId] NVARCHAR(50) PRIMARY KEY,
-    [reviewId] NVARCHAR(50) NOT NULL,
-    [moderatedBy] NVARCHAR(50) NOT NULL,
-    [oldStatus] VARCHAR(20) NULL,
-    [newStatus] VARCHAR(20) NOT NULL,
-    [reason] NVARCHAR(1000) NULL,
-    [moderatedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-
-    CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_REVIEW]
-        FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId]),
-    CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_USER]
-        FOREIGN KEY ([moderatedBy]) REFERENCES [USER]([userId])
+    CONSTRAINT [PK_MOVIE_DAILY_VIEW] PRIMARY KEY ([movieId], [viewDate]),
+    CONSTRAINT [FK_MOVIE_DAILY_VIEW_MOVIE] FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
 );
 GO
 
@@ -756,34 +656,24 @@ GO
 -- 10. FILTERED UNIQUE INDEXES
 -- =========================
 
--- One booking can have many payment attempts, but only one SUCCESS payment.
 CREATE UNIQUE INDEX [UX_PAYMENT_ONE_SUCCESS_PER_BOOKING]
-ON [PAYMENT]([bookingId])
-WHERE [paymentStatus] = 'SUCCESS';
+ON [PAYMENT]([bookingId]) WHERE [paymentStatus] = 'SUCCESS';
 GO
 
--- Transaction code may be null before provider callback, but must be unique when provided.
 CREATE UNIQUE INDEX [UX_PAYMENT_TRANSACTION_CODE]
-ON [PAYMENT]([transactionCode])
-WHERE [transactionCode] IS NOT NULL;
+ON [PAYMENT]([transactionCode]) WHERE [transactionCode] IS NOT NULL;
 GO
 
--- Provider transaction code may be null before callback, but must be unique when provided.
 CREATE UNIQUE INDEX [UX_PAYMENT_PROVIDER_TRANSACTION_CODE]
-ON [PAYMENT]([providerTransactionCode])
-WHERE [providerTransactionCode] IS NOT NULL;
+ON [PAYMENT]([providerTransactionCode]) WHERE [providerTransactionCode] IS NOT NULL;
 GO
 
--- Provider refund code may be null before refund callback, but must be unique when provided.
 CREATE UNIQUE INDEX [UX_REFUND_PROVIDER_REFUND_CODE]
-ON [REFUND]([providerRefundCode])
-WHERE [providerRefundCode] IS NOT NULL;
+ON [REFUND]([providerRefundCode]) WHERE [providerRefundCode] IS NOT NULL;
 GO
 
--- If a review is linked to a booking, that booking can only create one review.
 CREATE UNIQUE INDEX [UX_REVIEW_BOOKING]
-ON [REVIEW]([bookingId])
-WHERE [bookingId] IS NOT NULL;
+ON [REVIEW]([bookingId]) WHERE [bookingId] IS NOT NULL;
 GO
 
 -- =========================
@@ -791,12 +681,8 @@ GO
 -- =========================
 
 CREATE INDEX [IX_USER_ROLE_ID] ON [USER]([roleId]);
-CREATE UNIQUE INDEX [UX_CUSTOMER_PROFILE_IDENTITY_CARD]
-ON [CUSTOMER_PROFILE]([identityCard])
-WHERE [identityCard] IS NOT NULL;
-CREATE UNIQUE INDEX [UX_STAFF_PROFILE_IDENTITY_CARD]
-ON [STAFF_PROFILE]([identityCard])
-WHERE [identityCard] IS NOT NULL;
+CREATE UNIQUE INDEX [UX_CUSTOMER_PROFILE_IDENTITY_CARD] ON [CUSTOMER_PROFILE]([identityCard]) WHERE [identityCard] IS NOT NULL;
+CREATE UNIQUE INDEX [UX_STAFF_PROFILE_IDENTITY_CARD] ON [STAFF_PROFILE]([identityCard]) WHERE [identityCard] IS NOT NULL;
 CREATE INDEX [IX_STAFF_PROFILE_CINEMA_ID] ON [STAFF_PROFILE]([cinemaId]);
 CREATE INDEX [IX_ROOM_CINEMA_ID] ON [ROOM]([cinemaId]);
 CREATE INDEX [IX_SEAT_ROOM_ID] ON [SEAT]([roomId]);
@@ -816,14 +702,15 @@ CREATE INDEX [IX_CHECKIN_LOG_TICKET_ID] ON [CHECKIN_LOG]([ticketId]);
 CREATE INDEX [IX_CHECKIN_LOG_RAW_QR_CODE] ON [CHECKIN_LOG]([rawQrCode]) WHERE [rawQrCode] IS NOT NULL;
 CREATE INDEX [IX_NOTIFICATION_USER_READ] ON [NOTIFICATION]([userId], [isRead]);
 CREATE INDEX [IX_AUDIT_LOG_USER_CREATED_AT] ON [AUDIT_LOG]([userId], [createdAt]);
+CREATE INDEX [IX_REVIEW_EDIT_HISTORY_REVIEW_ID] ON [REVIEW_EDIT_HISTORY]([reviewId]);
+CREATE INDEX [IX_REVIEW_MODERATION_HISTORY_REVIEW_ID] ON [REVIEW_MODERATION_HISTORY]([reviewId]);
+CREATE INDEX [IX_MOVIE_DAILY_VIEW_DATE] ON [MOVIE_DAILY_VIEW]([viewDate]);
+CREATE INDEX [IX_MOVIE_HIGHLIGHT_VIEWS] ON [MOVIE]([highlight], [totalViews] DESC);
 GO
 
 -- =========================
 -- 12. DEVELOPMENT SEED DATA
 -- =========================
--- This seed matches the current backend constants and EF mappings.
--- Order matters because MOVIE, SEAT, SHOWTIME and SHOWTIME_SEAT depend on
--- ROLE, CINEMA, ROOM and SEAT_TYPE foreign keys.
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_CUSTOMER')
     INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
@@ -855,6 +742,41 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_SWE
     VALUES ('SEAT_TYPE_SWEETBOX', 'SWEETBOX', 50000.00);
 GO
 
+INSERT INTO [LANGUAGE] ([languageId], [name]) VALUES
+('VN', N'Tiếng Việt'),
+('EN_SUB_VN', N'Tiếng Anh phụ đề tiếng Việt'),
+('EN_DUB_VN', N'Tiếng Anh lồng tiếng Việt'),
+('KR_SUB_VN', N'Tiếng Hàn phụ đề tiếng Việt'),
+('JP_SUB_VN', N'Tiếng Nhật phụ đề tiếng Việt'),
+('TH_SUB_VN', N'Tiếng Thái phụ đề tiếng Việt'),
+('CN_SUB_VN', N'Tiếng Trung phụ đề tiếng Việt');
+GO
+
+INSERT INTO [GENRE] ([name]) VALUES
+(N'Hành động'), (N'Hài hước'), (N'Kinh dị'), (N'Khoa học viễn tưởng'), (N'Tâm lý - Tình cảm'), (N'Hoạt hình'),
+(N'Tài liệu'), (N'Phiêu lưu'), (N'Võ thuật'), (N'Cổ trang'), (N'Kiếm hiệp'), (N'Gia đình'), (N'Hình sự'),
+(N'Trinh thám'), (N'Viễn tây (Western)'), (N'Nhạc kịch (Musical)'), (N'Thể thao'), (N'Sinh tồn'),
+(N'Hậu tận thế'), (N'Lịch sử'), (N'Tiểu sử'), (N'Thần thoại'), (N'Kỳ ảo (Fantasy)'), (N'Trào phúng (Satire)'),
+(N'Hài đen (Black Comedy)'), (N'Lãng mạn hài (Rom-com)'), (N'Giật gân (Thriller)'), (N'Tâm lý tội phạm'),
+(N'Bí ẩn (Mystery)'), (N'Siêu anh hùng'), (N'Xác sống (Zombie)'), (N'Ma cà rồng'), (N'Kịch tính (Drama)'),
+(N'Thanh xuân'), (N'Ngôn tình'), (N'Đam mỹ'), (N'Bách hợp'), (N'Cung đấu'), (N'Gia đấu'), (N'Xuyên không'),
+(N'Trọng sinh'), (N'Tiên hiệp'), (N'Huyền huyễn'), (N'Dị giới'), (N'Mạt thế'), (N'Đua xe'), (N'Thảm họa'),
+(N'Quái vật'), (N'Không gian'), (N'Du hành thời gian'), (N'Tôn giáo'), (N'Chính trị'), (N'Chiến tranh'),
+(N'Phim độc lập (Indie)'), (N'Thể nghiệm (Experimental)'), (N'Kịch câm'), (N'Mafia - Xã hội đen'),
+(N'Anime'), (N'Live-action'), (N'Chuyển thể từ Game'), (N'Chuyển thể từ Tiểu thuyết'), (N'Ẩm thực'),
+(N'Pháp lý - Tòa án'), (N'Y khoa'), (N'Tình báo - Điệp viên'), (N'Nghệ thuật (Art House)'), (N'Khoa giáo'),
+(N'Phim tương tác'), (N'Tài liệu giả tưởng (Mockumentary)'), (N'Đâm chém (Slasher)'), (N'Film Noir'),
+(N'Neo-noir'), (N'Học trường'), (N'Tuổi mới lớn (Coming-of-age)'), (N'Bí ẩn giết người (Whodunit)'),
+(N'Giật gân tâm lý'), (N'Võ thuật hài'), (N'Phép thuật'), (N'Cyberpunk'), (N'Steampunk'), (N'Bi kịch'),
+(N'Võng du (Game thực tế ảo)'), (N'Đô thị tình duyên'), (N'Hào môn thế gia'), (N'Cưới trước yêu sau'),
+(N'Oan gia ngõ hẹp'), (N'Thanh mai trúc mã'), (N'Tình yêu công sở'), (N'Tình tay ba'),
+(N'Phản anh hùng (Anti-hero)'), (N'Khảo cổ học'), (N'Viễn tưởng kỳ ảo (Science Fantasy)'),
+(N'Nhạc kịch lãng mạn'), (N'Quái thú khổng lồ (Kaiju)'), (N'Săn tiền thưởng'), (N'Truy tìm kho báu'),
+(N'Thoát hiểm (Escape)'), (N'Hài kịch tình huống (Sitcom)'), (N'Phiêu lưu không gian'),
+(N'Lãng mạn bi kịch'), (N'Ám ảnh ma quỷ'), (N'Trừ tà'), (N'Dân gian truyền thuyết'), (N'Siêu nhiên'),
+(N'Huyền bí (Occult)'), (N'Mật mã - Giải đố'), (N'Nữ quyền'), (N'Tự truyện');
+GO
+
 IF NOT EXISTS (SELECT 1 FROM dbo.[CINEMA] WHERE [cinemaId] = 'CIN_ND_Q1')
     INSERT INTO dbo.[CINEMA] ([cinemaId], [cinemaName], [address], [city], [phoneNumber], [cinemaStatus])
     VALUES ('CIN_ND_Q1', N'Rap Nguyen Du - Quan 1', N'116 Nguyen Du, Phuong Ben Thanh, Quan 1', N'Ho Chi Minh', '02838273111', 'ACTIVE');
@@ -883,47 +805,56 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_DOCTOR_STRANGE_3')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_DOCTOR_STRANGE_3', N'Doctor Strange 3', 120, N'Hanh dong, Vien tuong',
-         N'Tieng Anh - Phu de Tieng Viet', '2026-05-01', 'T16',
+        ('MOV_DOCTOR_STRANGE_3', N'Doctor Strange 3', 120, 'EN_SUB_VN', '2026-05-01', 'T16',
          N'Phan phim tiep theo ve Phu Thuy Toi Thuong.',
          'https://image.example.com/doctor-strange-3.jpg',
          'https://youtube.com/watch?v=doctor-strange-3', 'NOW_SHOWING');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_LAT_MAT_8')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_LAT_MAT_8', N'Lat Mat 8', 115, N'Hai, Gia dinh, Tam ly',
-         N'Tieng Viet', '2026-04-28', 'P',
+        ('MOV_LAT_MAT_8', N'Lat Mat 8', 115, 'VN', '2026-04-28', 'P',
          N'Tac pham dien anh moi voi cau chuyen gia dinh va hanh trinh hoa giai.',
          'https://image.example.com/lat-mat-8.jpg',
          'https://youtube.com/watch?v=lat-mat-8', 'NOW_SHOWING');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_AVENGERS_SECRET_WARS')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_AVENGERS_SECRET_WARS', N'Avengers: Secret Wars', 150, N'Hanh dong, Sieu anh hung',
-         N'Tieng Anh - Phu de Tieng Viet', '2026-06-20', 'T13',
+        ('MOV_AVENGERS_SECRET_WARS', N'Avengers: Secret Wars', 150, 'EN_SUB_VN', '2026-06-20', 'T13',
          N'Biet doi sieu anh hung doi mat moi de doa da vu tru.',
          'https://image.example.com/avengers-secret-wars.jpg',
          'https://youtube.com/watch?v=avengers-secret-wars', 'NOW_SHOWING');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_DORAEMON_2026')
     INSERT INTO dbo.[MOVIE]
-        ([movieId], [title], [durationMinutes], [genre], [language], [releaseDate],
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
          [ageRating], [description], [posterUrl], [trailerUrl], [movieStatus])
     VALUES
-        ('MOV_DORAEMON_2026', N'Doraemon Movie 2026', 105, N'Hoat hinh, Phieu luu, Gia dinh',
-         N'Long tieng Viet', '2026-06-01', 'P',
+        ('MOV_DORAEMON_2026', N'Doraemon Movie 2026', 105, 'VN', '2026-06-01', 'P',
          N'Doraemon va nhom ban trong chuyen phieu luu moi.',
          'https://image.example.com/doraemon-2026.jpg',
          'https://youtube.com/watch?v=doraemon-2026', 'NOW_SHOWING');
+GO
+
+INSERT INTO MOVIE_GENRE (movieId, genreId)
+SELECT 'MOV_DOCTOR_STRANGE_3', genreId FROM GENRE WHERE name IN (N'Hành động', N'Khoa học viễn tưởng');
+
+INSERT INTO MOVIE_GENRE (movieId, genreId)
+SELECT 'MOV_LAT_MAT_8', genreId FROM GENRE WHERE name IN (N'Hài hước', N'Gia đình', N'Tâm lý - Tình cảm');
+
+INSERT INTO MOVIE_GENRE (movieId, genreId)
+SELECT 'MOV_AVENGERS_SECRET_WARS', genreId FROM GENRE WHERE name IN (N'Hành động', N'Siêu anh hùng');
+
+INSERT INTO MOVIE_GENRE (movieId, genreId)
+SELECT 'MOV_DORAEMON_2026', genreId FROM GENRE WHERE name IN (N'Hoạt hình', N'Phiêu lưu', N'Gia đình');
 GO
 
 DECLARE @RoomId NVARCHAR(50);
@@ -1084,745 +1015,18 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT_PROVIDER] WHERE [paymentProviderId] = 
     VALUES ('PP_SEPAY', 'SEPAY', 'https://my.sepay.vn', 'ACTIVE');
 GO
 
--- ==========================================
--- FILE: profile-token-counter-sale-patch.sql
--- ==========================================
-/*
-============================================================
-CinemaBookingDB local patch - profile/token/counter-sale/audit
-============================================================
-Use this script when your local CinemaBookingDB already exists and you do not
-want to run the full reset script in DB_CinemaBookingDB.txt.
-
-What this patch adds:
-1. Customer/Staff profile fields from Movie-Theater_SRS_v1.2:
-   gender, identity card, address, avatar, and Staff date of birth.
-2. OTP purpose and attempt count:
-   EMAIL_VERIFICATION_TOKEN can safely store email verification OTP and password
-   reset OTP without mixing the two flows.
-3. Refresh token hash column:
-   REFRESH_TOKEN.token is renamed to tokenHash. Existing local values remain as-is,
-   so for a real environment revoke/delete existing refresh tokens and issue new
-   hashed tokens from backend code.
-4. Counter-sale support:
-   BOOKING can represent ONLINE booking by Customer or COUNTER sale created by Staff.
-5. Showtime cancellation actor:
-   cancellation records point to USER, with optional STAFF_PROFILE when applicable.
-6. Voucher/payment audit fields:
-   enough data to support promotion-style display, callback reconciliation, and
-   refund/payment investigation.
-7. AuditLog request metadata:
-   optional IP, user agent, correlation id, and nullable userId for background jobs.
-8. Ticket QR key length fix:
-   qrCode is limited to NVARCHAR(450) so its UNIQUE constraint is valid on SQL Server.
-
-Run order:
-- Run this after the original DB_CinemaBookingDB.txt has already created the DB.
-- Review existing data before running on anything other than local/dev.
-============================================================
-*/
-
-USE [CinemaBookingDB];
-GO
-
--- =========================
--- 1. VOUCHER / PROMOTION
--- =========================
-
-IF COL_LENGTH('dbo.VOUCHER', 'title') IS NULL
-    ALTER TABLE [VOUCHER] ADD [title] NVARCHAR(255) NULL;
-GO
-
-IF COL_LENGTH('dbo.VOUCHER', 'description') IS NULL
-    ALTER TABLE [VOUCHER] ADD [description] NVARCHAR(1000) NULL;
-GO
-
-IF COL_LENGTH('dbo.VOUCHER', 'imageUrl') IS NULL
-    ALTER TABLE [VOUCHER] ADD [imageUrl] NVARCHAR(1000) NULL;
-GO
-
-IF COL_LENGTH('dbo.VOUCHER', 'minOrderAmount') IS NULL
-    ALTER TABLE [VOUCHER] ADD [minOrderAmount] DECIMAL(18,2) NULL;
-GO
-
-IF COL_LENGTH('dbo.VOUCHER', 'maxDiscountAmount') IS NULL
-    ALTER TABLE [VOUCHER] ADD [maxDiscountAmount] DECIMAL(18,2) NULL;
-GO
-
-IF COL_LENGTH('dbo.VOUCHER', 'perCustomerLimit') IS NULL
-    ALTER TABLE [VOUCHER] ADD [perCustomerLimit] INT NULL;
-GO
-
-IF COL_LENGTH('dbo.VOUCHER', 'usedCount') IS NULL
-    ALTER TABLE [VOUCHER] ADD [usedCount] INT NOT NULL CONSTRAINT [DF_VOUCHER_USED_COUNT] DEFAULT 0;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_VOUCHER_MIN_ORDER_AMOUNT')
-    ALTER TABLE [VOUCHER] ADD CONSTRAINT [CK_VOUCHER_MIN_ORDER_AMOUNT]
-        CHECK ([minOrderAmount] IS NULL OR [minOrderAmount] >= 0);
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_VOUCHER_MAX_DISCOUNT_AMOUNT')
-    ALTER TABLE [VOUCHER] ADD CONSTRAINT [CK_VOUCHER_MAX_DISCOUNT_AMOUNT]
-        CHECK ([maxDiscountAmount] IS NULL OR [maxDiscountAmount] > 0);
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_VOUCHER_PER_CUSTOMER_LIMIT')
-    ALTER TABLE [VOUCHER] ADD CONSTRAINT [CK_VOUCHER_PER_CUSTOMER_LIMIT]
-        CHECK ([perCustomerLimit] IS NULL OR [perCustomerLimit] > 0);
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_VOUCHER_USED_COUNT')
-    ALTER TABLE [VOUCHER] ADD CONSTRAINT [CK_VOUCHER_USED_COUNT]
-        CHECK ([usedCount] >= 0);
-GO
-
--- =========================
--- 2. OTP TOKEN PURPOSE
--- =========================
-
-IF COL_LENGTH('dbo.EMAIL_VERIFICATION_TOKEN', 'purpose') IS NULL
-    ALTER TABLE [EMAIL_VERIFICATION_TOKEN] ADD [purpose] NVARCHAR(30) NOT NULL
-        CONSTRAINT [DF_EMAIL_VERIFICATION_TOKEN_PURPOSE] DEFAULT 'EMAIL_VERIFICATION';
-GO
-
-IF COL_LENGTH('dbo.EMAIL_VERIFICATION_TOKEN', 'attemptCount') IS NULL
-    ALTER TABLE [EMAIL_VERIFICATION_TOKEN] ADD [attemptCount] INT NOT NULL
-        CONSTRAINT [DF_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT] DEFAULT 0;
-GO
-
--- Drop and recreate the purpose constraint to ensure it includes EMAIL_UPDATE and PHONE_UPDATE
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_EMAIL_VERIFICATION_TOKEN_PURPOSE')
-    ALTER TABLE [EMAIL_VERIFICATION_TOKEN] DROP CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_PURPOSE];
-GO
-
-ALTER TABLE [EMAIL_VERIFICATION_TOKEN] ADD CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_PURPOSE]
-    CHECK ([purpose] IN ('EMAIL_VERIFICATION', 'PASSWORD_RESET', 'EMAIL_UPDATE', 'PHONE_UPDATE', 'REGISTER', 'FORGOT_PASSWORD', 'CHANGE_EMAIL', 'UPDATE_EMAIL'));
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT')
-    ALTER TABLE [EMAIL_VERIFICATION_TOKEN] ADD CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT]
-        CHECK ([attemptCount] >= 0);
-GO
-
--- =========================
--- 3. REFRESH TOKEN HASH
--- =========================
-
-IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_REFRESH_TOKEN')
-    ALTER TABLE [REFRESH_TOKEN] DROP CONSTRAINT [UQ_REFRESH_TOKEN];
-GO
-
-IF COL_LENGTH('dbo.REFRESH_TOKEN', 'tokenHash') IS NULL
-   AND COL_LENGTH('dbo.REFRESH_TOKEN', 'token') IS NOT NULL
-    EXEC sp_rename 'REFRESH_TOKEN.token', 'tokenHash', 'COLUMN';
-GO
-
-IF COL_LENGTH('dbo.REFRESH_TOKEN', 'tokenHash') IS NOT NULL
-    ALTER TABLE [REFRESH_TOKEN] ALTER COLUMN [tokenHash] NVARCHAR(450) NOT NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_REFRESH_TOKEN_HASH')
-   AND COL_LENGTH('dbo.REFRESH_TOKEN', 'tokenHash') IS NOT NULL
-    ALTER TABLE [REFRESH_TOKEN] ADD CONSTRAINT [UQ_REFRESH_TOKEN_HASH] UNIQUE ([tokenHash]);
-GO
-
--- Recommended for local/dev after switching backend code to hashed refresh tokens:
--- UPDATE [REFRESH_TOKEN] SET [isRevoked] = 1, [revokedAt] = SYSUTCDATETIME() WHERE [isRevoked] = 0;
-
--- =========================
--- 4. CUSTOMER / STAFF PROFILE
--- =========================
-
-IF COL_LENGTH('dbo.CUSTOMER_PROFILE', 'gender') IS NULL
-    ALTER TABLE [CUSTOMER_PROFILE] ADD [gender] NVARCHAR(20) NULL;
-GO
-
-IF COL_LENGTH('dbo.CUSTOMER_PROFILE', 'identityCard') IS NULL
-    ALTER TABLE [CUSTOMER_PROFILE] ADD [identityCard] NVARCHAR(50) NULL;
-GO
-
-IF COL_LENGTH('dbo.CUSTOMER_PROFILE', 'address') IS NULL
-    ALTER TABLE [CUSTOMER_PROFILE] ADD [address] NVARCHAR(500) NULL;
-GO
-
-IF COL_LENGTH('dbo.CUSTOMER_PROFILE', 'avatarUrl') IS NULL
-    ALTER TABLE [CUSTOMER_PROFILE] ADD [avatarUrl] NVARCHAR(1000) NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_CUSTOMER_PROFILE_IDENTITY_CARD')
-    CREATE UNIQUE INDEX [UX_CUSTOMER_PROFILE_IDENTITY_CARD]
-    ON [CUSTOMER_PROFILE]([identityCard])
-    WHERE [identityCard] IS NOT NULL;
-GO
-
-IF COL_LENGTH('dbo.STAFF_PROFILE', 'dateOfBirth') IS NULL
-    ALTER TABLE [STAFF_PROFILE] ADD [dateOfBirth] DATE NULL;
-GO
-
-IF COL_LENGTH('dbo.STAFF_PROFILE', 'gender') IS NULL
-    ALTER TABLE [STAFF_PROFILE] ADD [gender] NVARCHAR(20) NULL;
-GO
-
-IF COL_LENGTH('dbo.STAFF_PROFILE', 'identityCard') IS NULL
-    ALTER TABLE [STAFF_PROFILE] ADD [identityCard] NVARCHAR(50) NULL;
-GO
-
-IF COL_LENGTH('dbo.STAFF_PROFILE', 'address') IS NULL
-    ALTER TABLE [STAFF_PROFILE] ADD [address] NVARCHAR(500) NULL;
-GO
-
-IF COL_LENGTH('dbo.STAFF_PROFILE', 'avatarUrl') IS NULL
-    ALTER TABLE [STAFF_PROFILE] ADD [avatarUrl] NVARCHAR(1000) NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_STAFF_PROFILE_IDENTITY_CARD')
-    CREATE UNIQUE INDEX [UX_STAFF_PROFILE_IDENTITY_CARD]
-    ON [STAFF_PROFILE]([identityCard])
-    WHERE [identityCard] IS NOT NULL;
-GO
-
--- =========================
--- 5. COUNTER-SALE BOOKING
--- =========================
-
-IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_BOOKING_CUSTOMER_PROFILE')
-    ALTER TABLE [BOOKING] DROP CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE];
-GO
-
-IF COL_LENGTH('dbo.BOOKING', 'customerProfileId') IS NOT NULL
-    ALTER TABLE [BOOKING] ALTER COLUMN [customerProfileId] NVARCHAR(50) NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_BOOKING_CUSTOMER_PROFILE')
-    ALTER TABLE [BOOKING] ADD CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE]
-        FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]);
-GO
-
-IF COL_LENGTH('dbo.BOOKING', 'createdByStaffProfileId') IS NULL
-    ALTER TABLE [BOOKING] ADD [createdByStaffProfileId] NVARCHAR(50) NULL;
-GO
-
-IF COL_LENGTH('dbo.BOOKING', 'bookingChannel') IS NULL
-    ALTER TABLE [BOOKING] ADD [bookingChannel] NVARCHAR(30) NOT NULL
-        CONSTRAINT [DF_BOOKING_CHANNEL] DEFAULT 'ONLINE';
-GO
-
-IF COL_LENGTH('dbo.BOOKING', 'guestName') IS NULL
-    ALTER TABLE [BOOKING] ADD [guestName] NVARCHAR(255) NULL;
-GO
-
-IF COL_LENGTH('dbo.BOOKING', 'guestPhone') IS NULL
-    ALTER TABLE [BOOKING] ADD [guestPhone] NVARCHAR(30) NULL;
-GO
-
-IF COL_LENGTH('dbo.BOOKING', 'guestEmail') IS NULL
-    ALTER TABLE [BOOKING] ADD [guestEmail] NVARCHAR(255) NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_BOOKING_CHANNEL')
-    ALTER TABLE [BOOKING] ADD CONSTRAINT [CK_BOOKING_CHANNEL]
-        CHECK ([bookingChannel] IN ('ONLINE', 'COUNTER'));
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_BOOKING_ONLINE_CUSTOMER_REQUIRED')
-    ALTER TABLE [BOOKING] ADD CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED]
-        CHECK ([bookingChannel] <> 'ONLINE' OR [customerProfileId] IS NOT NULL);
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_BOOKING_CREATED_BY_STAFF')
-    ALTER TABLE [BOOKING] ADD CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF]
-        FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId]);
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BOOKING_CREATED_BY_STAFF_PROFILE_ID')
-    CREATE INDEX [IX_BOOKING_CREATED_BY_STAFF_PROFILE_ID] ON [BOOKING]([createdByStaffProfileId]);
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BOOKING_CHANNEL')
-    CREATE INDEX [IX_BOOKING_CHANNEL] ON [BOOKING]([bookingChannel]);
-GO
-
--- =========================
--- 6. PAYMENT AUDIT
--- =========================
-
-IF COL_LENGTH('dbo.PAYMENT', 'paymentMethod') IS NULL
-    ALTER TABLE [PAYMENT] ADD [paymentMethod] NVARCHAR(50) NULL;
-GO
-
-IF COL_LENGTH('dbo.PAYMENT', 'providerTransactionCode') IS NULL
-    ALTER TABLE [PAYMENT] ADD [providerTransactionCode] NVARCHAR(255) NULL;
-GO
-
-IF COL_LENGTH('dbo.PAYMENT', 'failureReason') IS NULL
-    ALTER TABLE [PAYMENT] ADD [failureReason] NVARCHAR(1000) NULL;
-GO
-
-IF COL_LENGTH('dbo.PAYMENT', 'rawCallbackPayload') IS NULL
-    ALTER TABLE [PAYMENT] ADD [rawCallbackPayload] NVARCHAR(MAX) NULL;
-GO
-
-IF COL_LENGTH('dbo.PAYMENT', 'updatedAt') IS NULL
-    ALTER TABLE [PAYMENT] ADD [updatedAt] DATETIME2 NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_PAYMENT_PROVIDER_TRANSACTION_CODE')
-    CREATE UNIQUE INDEX [UX_PAYMENT_PROVIDER_TRANSACTION_CODE]
-    ON [PAYMENT]([providerTransactionCode])
-    WHERE [providerTransactionCode] IS NOT NULL;
-GO
-
--- =========================
--- 7. SHOWTIME CANCELLATION ACTOR
--- =========================
-
-IF COL_LENGTH('dbo.SHOWTIME_CANCELLATION', 'cancelledByUserId') IS NULL
-    ALTER TABLE [SHOWTIME_CANCELLATION] ADD [cancelledByUserId] NVARCHAR(50) NULL;
-GO
-
-IF COL_LENGTH('dbo.SHOWTIME_CANCELLATION', 'cancelledByStaffId') IS NOT NULL
-BEGIN
-    UPDATE sc
-    SET [cancelledByUserId] = sp.[userId]
-    FROM [SHOWTIME_CANCELLATION] sc
-    INNER JOIN [STAFF_PROFILE] sp ON sp.[staffProfileId] = sc.[cancelledByStaffId]
-    WHERE sc.[cancelledByUserId] IS NULL;
-END
-GO
-
-IF EXISTS (
-    SELECT 1
-    FROM sys.columns
-    WHERE object_id = OBJECT_ID('dbo.SHOWTIME_CANCELLATION')
-      AND name = 'cancelledByUserId'
-      AND is_nullable = 1
-)
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM [SHOWTIME_CANCELLATION] WHERE [cancelledByUserId] IS NULL)
-        ALTER TABLE [SHOWTIME_CANCELLATION] ALTER COLUMN [cancelledByUserId] NVARCHAR(50) NOT NULL;
-END
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_SHOWTIME_CANCELLATION_USER')
-    ALTER TABLE [SHOWTIME_CANCELLATION] ADD CONSTRAINT [FK_SHOWTIME_CANCELLATION_USER]
-        FOREIGN KEY ([cancelledByUserId]) REFERENCES [USER]([userId]);
-GO
-
--- After cancelledByUserId is populated, Staff profile becomes optional.
-IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_SHOWTIME_CANCELLATION_STAFF_PROFILE')
-    ALTER TABLE [SHOWTIME_CANCELLATION] DROP CONSTRAINT [FK_SHOWTIME_CANCELLATION_STAFF_PROFILE];
-GO
-
-IF COL_LENGTH('dbo.SHOWTIME_CANCELLATION', 'cancelledByStaffId') IS NOT NULL
-    ALTER TABLE [SHOWTIME_CANCELLATION] ALTER COLUMN [cancelledByStaffId] NVARCHAR(50) NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_SHOWTIME_CANCELLATION_STAFF_PROFILE')
-    ALTER TABLE [SHOWTIME_CANCELLATION] ADD CONSTRAINT [FK_SHOWTIME_CANCELLATION_STAFF_PROFILE]
-        FOREIGN KEY ([cancelledByStaffId]) REFERENCES [STAFF_PROFILE]([staffProfileId]);
-GO
-
--- =========================
--- 8. VOUCHER USAGE SNAPSHOT
--- =========================
-
-IF COL_LENGTH('dbo.VOUCHER_USAGE', 'discountAmount') IS NULL
-    ALTER TABLE [VOUCHER_USAGE] ADD [discountAmount] DECIMAL(18,2) NOT NULL
-        CONSTRAINT [DF_VOUCHER_USAGE_DISCOUNT_AMOUNT] DEFAULT 0;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_VOUCHER_USAGE_DISCOUNT_AMOUNT')
-    ALTER TABLE [VOUCHER_USAGE] ADD CONSTRAINT [CK_VOUCHER_USAGE_DISCOUNT_AMOUNT]
-        CHECK ([discountAmount] >= 0);
-GO
-
--- =========================
--- 9. TICKET QR UNIQUE KEY LENGTH
--- =========================
-
-IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_TICKET_QR_CODE')
-    ALTER TABLE [TICKET] DROP CONSTRAINT [UQ_TICKET_QR_CODE];
-GO
-
-IF COL_LENGTH('dbo.TICKET', 'qrCode') IS NOT NULL
-    ALTER TABLE [TICKET] ALTER COLUMN [qrCode] NVARCHAR(450) NOT NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_TICKET_QR_CODE')
-    ALTER TABLE [TICKET] ADD CONSTRAINT [UQ_TICKET_QR_CODE] UNIQUE ([qrCode]);
-GO
-
--- =========================
--- 10. AUDIT LOG REQUEST METADATA
--- =========================
-
-IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_AUDIT_LOG_USER')
-    ALTER TABLE [AUDIT_LOG] DROP CONSTRAINT [FK_AUDIT_LOG_USER];
-GO
-
-IF COL_LENGTH('dbo.AUDIT_LOG', 'userId') IS NOT NULL
-    ALTER TABLE [AUDIT_LOG] ALTER COLUMN [userId] NVARCHAR(50) NULL;
-GO
-
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_AUDIT_LOG_USER')
-    ALTER TABLE [AUDIT_LOG] ADD CONSTRAINT [FK_AUDIT_LOG_USER]
-        FOREIGN KEY ([userId]) REFERENCES [USER]([userId]);
-GO
-
-IF COL_LENGTH('dbo.AUDIT_LOG', 'ipAddress') IS NULL
-    ALTER TABLE [AUDIT_LOG] ADD [ipAddress] NVARCHAR(100) NULL;
-GO
-
-IF COL_LENGTH('dbo.AUDIT_LOG', 'userAgent') IS NULL
-    ALTER TABLE [AUDIT_LOG] ADD [userAgent] NVARCHAR(500) NULL;
-GO
-
-IF COL_LENGTH('dbo.AUDIT_LOG', 'correlationId') IS NULL
-    ALTER TABLE [AUDIT_LOG] ADD [correlationId] NVARCHAR(100) NULL;
-GO
-
-PRINT 'CinemaBookingDB local patch completed.';
-GO
-
--- ==========================================
--- FILE: sprint-2-full-architecture.sql
--- ==========================================
--- ==========================================
--- SPRINT 2 FULL ARCHITECTURE: REVIEWS, VIEWS & HIGHLIGHTS
--- ==========================================
-
--- 1. Modify MOVIE table for Rating Aggregation and View Tracking
-ALTER TABLE [MOVIE] ADD [averageRating] DECIMAL(3,2) NOT NULL DEFAULT 0.0;
-ALTER TABLE [MOVIE] ADD [totalReviews] INT NOT NULL DEFAULT 0;
-ALTER TABLE [MOVIE] ADD [totalViews] INT NOT NULL DEFAULT 0;
-ALTER TABLE [MOVIE] ADD [dailyViews] INT NOT NULL DEFAULT 0;
-
--- 2. Modify REVIEW table constraints (already has status, but ensuring proper constraints)
-ALTER TABLE [REVIEW] ADD CONSTRAINT [CK_REVIEW_STATUS] 
-    CHECK ([status] IN ('PENDING', 'APPROVED', 'REJECTED', 'FLAGGED'));
-
--- 3. Review Edit History Table
-CREATE TABLE [REVIEW_EDIT_HISTORY] (
-    [reviewEditHistoryId] NVARCHAR(50) PRIMARY KEY,
-    [reviewId] NVARCHAR(50) NOT NULL,
-    [oldRating] INT NOT NULL,
-    [newRating] INT NOT NULL,
-    [oldComment] NVARCHAR(1000) NULL,
-    [newComment] NVARCHAR(1000) NULL,
-    [editedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    
-    CONSTRAINT [FK_REVIEW_EDIT_HISTORY_REVIEW] FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId])
-);
-GO
-
--- 4. Review Moderation History Table
-CREATE TABLE [REVIEW_MODERATION_HISTORY] (
-    [moderationHistoryId] NVARCHAR(50) PRIMARY KEY,
-    [reviewId] NVARCHAR(50) NOT NULL,
-    [oldStatus] NVARCHAR(30) NULL,
-    [newStatus] NVARCHAR(30) NOT NULL,
-    [moderatorId] NVARCHAR(50) NULL, -- 'SYSTEM_AI' or Staff UserId
-    [rejectedReason] NVARCHAR(1000) NULL,
-    [moderatedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-
-    CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_REVIEW] FOREIGN KEY ([reviewId]) REFERENCES [REVIEW]([reviewId])
-);
-GO
-
--- 5. Historical View Analytics Table
-CREATE TABLE [MOVIE_DAILY_VIEW] (
-    [movieId] NVARCHAR(50) NOT NULL,
-    [viewDate] DATE NOT NULL,
-    [viewCount] INT NOT NULL DEFAULT 0,
-
-    CONSTRAINT [PK_MOVIE_DAILY_VIEW] PRIMARY KEY ([movieId], [viewDate]),
-    CONSTRAINT [FK_MOVIE_DAILY_VIEW_MOVIE] FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
-);
-GO
-
--- 6. Indexes for Performance & Scalability
-CREATE INDEX [IX_REVIEW_EDIT_HISTORY_REVIEW_ID] ON [REVIEW_EDIT_HISTORY]([reviewId]);
-CREATE INDEX [IX_REVIEW_MODERATION_HISTORY_REVIEW_ID] ON [REVIEW_MODERATION_HISTORY]([reviewId]);
-CREATE INDEX [IX_MOVIE_DAILY_VIEW_DATE] ON [MOVIE_DAILY_VIEW]([viewDate]);
-CREATE INDEX [IX_MOVIE_HIGHLIGHT_VIEWS] ON [MOVIE]([highlight], [totalViews] DESC);
-GO
-
--- ==========================================
--- FILE: sprint-2-update-constraints.sql
--- ==========================================
-/*
-============================================================
-Sprint 2 - Update Check Constraints Patch
-============================================================
-This patch relaxes the existing CHECK constraints on SHOWTIME and BOOKING
-tables to support the new re-seat and token-based time change flows.
-It also fixes the MOVIE status constraint to support 'ARCHIVED'.
-
-Run this script directly against your [CinemaBookingDB].
-*/
-
-USE [CinemaBookingDB];
-GO
-
--- 1. Update SHOWTIME constraint
--- Drop old constraint
-ALTER TABLE [SHOWTIME] DROP CONSTRAINT [CK_SHOWTIME_STATUS];
-GO
--- Add new constraint with SUSPENDED and PROCESSING_UNSTABLE
-ALTER TABLE [SHOWTIME] ADD CONSTRAINT [CK_SHOWTIME_STATUS]
-CHECK ([status] IN ('OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED', 'SUSPENDED', 'PROCESSING_UNSTABLE'));
-GO
-
--- 2. Update BOOKING constraint
--- Drop old constraint
-ALTER TABLE [BOOKING] DROP CONSTRAINT [CK_BOOKING_STATUS];
-GO
--- Add new constraint with PROCESSING_UNSTABLE
-ALTER TABLE [BOOKING] ADD CONSTRAINT [CK_BOOKING_STATUS]
-CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE'));
-GO
-
--- 3. Update MOVIE constraint
--- Drop old constraint
-ALTER TABLE [MOVIE] DROP CONSTRAINT [CK_MOVIE_STATUS];
-GO
--- Add new constraint allowing ARCHIVED instead of just INACTIVE
-ALTER TABLE [MOVIE] ADD CONSTRAINT [CK_MOVIE_STATUS]
-CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED'));
-GO
-
-PRINT 'Sprint 2 constraints successfully applied!';
-GO
-
--- ==========================================
--- FILE: sprint-2-review-and-views.sql
--- ==========================================
--- Add view tracking and highlight features
-ALTER TABLE [MOVIE] ADD [viewCount] INT NOT NULL DEFAULT 0;
-
-CREATE TABLE [MOVIE_VIEW_LOG] (
-    [movieViewLogId] NVARCHAR(50) PRIMARY KEY,
-    [movieId] NVARCHAR(50) NOT NULL,
-    [userId] NVARCHAR(50) NULL,
-    [viewedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    [ipAddress] NVARCHAR(100) NULL,
-
-    CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
-        FOREIGN KEY ([movieId]) REFERENCES [MOVIE]([movieId])
-);
-GO
-
--- Highlight constraint (optional, but good for data integrity)
--- Highlight values: 'HOT', 'NEW', 'TRENDING'
-ALTER TABLE [MOVIE] ADD CONSTRAINT [CK_MOVIE_HIGHLIGHT] 
-    CHECK ([highlight] IS NULL OR [highlight] IN ('HOT', 'NEW', 'TRENDING'));
-GO
-
--- Review constraints were mostly handled, but we explicitly make sure
--- We already have UX_REVIEW_BOOKING in cinema-booking-schema.sql
-
--- ==========================================
--- FILE: Genre_Languge.sql
--- ==========================================
-    -- 1. Tạo bảng Danh mục Thể loại (GENRE)
-    CREATE TABLE GENRE (
-        genreId INT IDENTITY(1,1) PRIMARY KEY,
-        name NVARCHAR(100) NOT NULL
-    );
-
-    -- 2. Tạo bảng trung gian (MOVIE_GENRE)
-    CREATE TABLE MOVIE_GENRE (
-        movieId NVARCHAR(50) NOT NULL,
-        genreId INT NOT NULL,
-        PRIMARY KEY (movieId, genreId),
-        CONSTRAINT FK_MOVIE_GENRE_MOVIE FOREIGN KEY (movieId) REFERENCES MOVIE(movieId) ON DELETE CASCADE,
-        CONSTRAINT FK_MOVIE_GENRE_GENRE FOREIGN KEY (genreId) REFERENCES GENRE(genreId) ON DELETE CASCADE
-    );
-
-    -- 3. Xóa bỏ cột Genre (dạng text cũ) trong bảng MOVIE
-    ALTER TABLE MOVIE DROP COLUMN genre;
-
-    -- 4. Thêm sẵn một số thể loại cơ bản (Seed Data)
-    INSERT INTO GENRE (name) VALUES
-    (N'Hành động'),
-    (N'Hài hước'),
-    (N'Kinh dị'),
-    (N'Khoa học viễn tưởng'),
-    (N'Tâm lý - Tình cảm'),
-    (N'Hoạt hình'),
-    (N'Tài liệu'),
-    (N'Phiêu lưu'),
-(N'Võ thuật'),
-(N'Cổ trang'),
-(N'Kiếm hiệp'),
-(N'Gia đình'),
-(N'Hình sự'),
-(N'Trinh thám'),
-(N'Viễn tây (Western)'),
-(N'Nhạc kịch (Musical)'),
-(N'Thể thao'),
-(N'Sinh tồn'),
-(N'Hậu tận thế'),
-(N'Lịch sử'),
-(N'Tiểu sử'),
-(N'Thần thoại'),
-(N'Kỳ ảo (Fantasy)'),
-(N'Trào phúng (Satire)'),
-(N'Hài đen (Black Comedy)'),
-(N'Lãng mạn hài (Rom-com)'),
-(N'Giật gân (Thriller)'),
-(N'Tâm lý tội phạm'),
-(N'Bí ẩn (Mystery)'),
-(N'Siêu anh hùng'),
-(N'Xác sống (Zombie)'),
-(N'Ma cà rồng'),
-(N'Kịch tính (Drama)'),
-(N'Thanh xuân'),
-(N'Ngôn tình'),
-(N'Đam mỹ'),
-(N'Bách hợp'),
-(N'Cung đấu'),
-(N'Gia đấu'),
-(N'Xuyên không'),
-(N'Trọng sinh'),
-(N'Tiên hiệp'),
-(N'Huyền huyễn'),
-(N'Dị giới'),
-(N'Mạt thế'),
-(N'Đua xe'),
-(N'Thảm họa'),
-(N'Quái vật'),
-(N'Không gian'),
-(N'Du hành thời gian'),
-(N'Tôn giáo'),
-(N'Chính trị'),
-(N'Chiến tranh'),
-(N'Phim độc lập (Indie)'),
-(N'Thể nghiệm (Experimental)'),
-(N'Kịch câm'),
-(N'Mafia - Xã hội đen'),
-(N'Anime'),
-(N'Live-action'),
-(N'Chuyển thể từ Game'),
-(N'Chuyển thể từ Tiểu thuyết'),
-(N'Ẩm thực'),
-(N'Pháp lý - Tòa án'),
-(N'Y khoa'),
-(N'Tình báo - Điệp viên'),
-(N'Nghệ thuật (Art House)'),
-(N'Khoa giáo'),
-(N'Phim tương tác'),
-(N'Tài liệu giả tưởng (Mockumentary)'),
-(N'Đâm chém (Slasher)'),
-(N'Film Noir'),
-(N'Neo-noir'),
-(N'Học đường'),
-(N'Tuổi mới lớn (Coming-of-age)'),
-(N'Bí ẩn giết người (Whodunit)'),
-(N'Giật gân tâm lý'),
-(N'Võ thuật hài'),
-(N'Phép thuật'),
-(N'Cyberpunk'),
-(N'Steampunk'),
-(N'Bi kịch'),
-(N'Võng du (Game thực tế ảo)'),
-(N'Đô thị tình duyên'),
-(N'Hào môn thế gia'),
-(N'Cưới trước yêu sau'),
-(N'Oan gia ngõ hẹp'),
-(N'Thanh mai trúc mã'),
-(N'Tình yêu công sở'),
-(N'Tình tay ba'),
-(N'Phản anh hùng (Anti-hero)'),
-(N'Khảo cổ học'),
-(N'Viễn tưởng kỳ ảo (Science Fantasy)'),
-(N'Nhạc kịch lãng mạn'),
-(N'Quái thú khổng lồ (Kaiju)'),
-(N'Săn tiền thưởng'),
-(N'Truy tìm kho báu'),
-(N'Thoát hiểm (Escape)'),
-(N'Hài kịch tình huống (Sitcom)'),
-(N'Phiêu lưu không gian'),
-(N'Lãng mạn bi kịch'),
-(N'Ám ảnh ma quỷ'),
-(N'Trừ tà'),
-(N'Dân gian truyền thuyết'),
-(N'Siêu nhiên'),
-(N'Huyền bí (Occult)'),
-(N'Mật mã - Giải đố'),
-(N'Nữ quyền'),
-(N'Tự truyện');
-
-    -- 1. Tạo bảng Danh mục Ngôn ngữ (LANGUAGE)
-    CREATE TABLE LANGUAGE (
-        languageId NVARCHAR(50) PRIMARY KEY,
-        name NVARCHAR(100) NOT NULL
-    );
-
-    -- 2. Đổi tên cột `language` thành `languageId` trong bảng MOVIE
-    EXEC sp_rename 'MOVIE.language', 'languageId', 'COLUMN';
-
-    ALTER TABLE MOVIE ALTER COLUMN languageId NVARCHAR(50) NULL;
-
-    -- 2. Gắn lại khóa ngoại từ MOVIE(languageId) sang LANGUAGE(languageId)
-    ALTER TABLE MOVIE ADD CONSTRAINT FK_MOVIE_LANGUAGE FOREIGN KEY (languageId) REFERENCES LANGUAGE(languageId);
-
-    -- 4. Thêm sẵn các ngôn ngữ cơ bản (Seed Data) vào bảng LANGUAGE
-    INSERT INTO LANGUAGE (languageId, name) VALUES
-    ('VN', N'Tiếng Việt'),
-    ('EN_SUB_VN', N'Tiếng Anh phụ đề tiếng Việt'),
-    ('EN_DUB_VN', N'Tiếng Anh lồng tiếng Việt'),
-    ('KR_SUB_VN', N'Tiếng Hàn phụ đề tiếng Việt'),
-    ('JP_SUB_VN', N'Tiếng Nhật phụ đề tiếng Việt'),
-    ('TH_SUB_VN', N'Tiếng Thái phụ đề tiếng Việt'),
-    ('CN_SUB_VN', N'Tiếng Trung phụ đề tiếng Việt');
-
-
-
-	 ALTER TABLE MOVIE
-    ADD Director NVARCHAR(200) NULL;
--- ==========================================
--- FILE: chathistory.sql
--- ==========================================
-ALTER TABLE [CHAT_HISTORY]
-ADD 
-    [userMessage] NVARCHAR(MAX) NULL, -- Điều chỉnh kiểu dữ liệu và NOT NULL cho phù hợp với cấu hình của bạn
-    [aiReplyMessage] NVARCHAR(MAX) NULL;
-GO
-ALTER TABLE [CHAT_HISTORY]
-ALTER COLUMN [message] NVARCHAR(MAX) NULL;
-GO
--- ==========================================
--- FILE: test-customer-seed.sql
--- ==========================================
-/*
-Seed data for a local test customer.
-
-The password hash is a placeholder. Replace it with a hash generated by the
-backend password hasher when login testing is required.
-*/
-
-USE [CinemaBookingDB];
-GO
-
+-- CUSTOMER SEED
 DECLARE @CustomerRoleId NVARCHAR(50);
-
-SELECT @CustomerRoleId = [roleId]
-FROM dbo.[ROLE]
-WHERE [roleName] = 'CUSTOMER';
+SELECT @CustomerRoleId = [roleId] FROM dbo.[ROLE] WHERE [roleName] = 'CUSTOMER';
 
 IF @CustomerRoleId IS NULL
 BEGIN
     SET @CustomerRoleId = 'R01';
-
     INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
     VALUES (@CustomerRoleId, 'CUSTOMER', N'Khach hang mua ve online');
 END;
 
-IF NOT EXISTS (
-    SELECT 1 FROM dbo.[USER] WHERE [email] = 'customer@gmail.com'
-)
+IF NOT EXISTS (SELECT 1 FROM dbo.[USER] WHERE [email] = 'customer@gmail.com')
 BEGIN
     INSERT INTO dbo.[USER]
         ([userId], [roleId], [email], [passwordHash], [fullName],
@@ -1833,9 +1037,7 @@ BEGIN
          '0901234567', 'ACTIVE', 1);
 END;
 
-IF NOT EXISTS (
-    SELECT 1 FROM dbo.[CUSTOMER_PROFILE] WHERE [userId] = 'U_CUST_01'
-)
+IF NOT EXISTS (SELECT 1 FROM dbo.[CUSTOMER_PROFILE] WHERE [userId] = 'U_CUST_01')
 BEGIN
     INSERT INTO dbo.[CUSTOMER_PROFILE]
         ([customerProfileId], [userId], [memberLevel], [rewardPoints], [dateOfBirth])
@@ -1843,4 +1045,3 @@ BEGIN
         ('CP01', 'U_CUST_01', 'GOLD', 500, '2005-12-09');
 END;
 GO
-
