@@ -90,9 +90,9 @@ public class ReviewService : IReviewService
         _dbContext.Set<Review>().Add(review);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        _backgroundJobClient.Enqueue<IReviewService>(s => s.ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment));
+        var aiMessage = await ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment);
 
-        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), "Bình luận của bạn đang được duyệt.", 202);
+        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), aiMessage ?? "Đánh giá của bạn đã được ghi nhận.", 200);
     }
 
     public async Task<ServiceResult<ReviewResponse>> EditReviewAsync(string userId, string reviewId, UpdateReviewRequest request, CancellationToken cancellationToken = default)
@@ -137,15 +137,15 @@ public class ReviewService : IReviewService
         review.Status = ReviewConstants.Pending;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        _backgroundJobClient.Enqueue<IReviewService>(s => s.ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment));
+        var aiMessage = await ProcessReviewModerationAsync(review.ReviewId, userId, request.Rating, request.Comment);
 
-        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), "Bình luận của bạn đang được duyệt.", 202);
+        return ServiceResult<ReviewResponse>.Ok(MapToResponse(review), aiMessage ?? "Đánh giá của bạn đã được ghi nhận.", 200);
     }
 
-    public async Task ProcessReviewModerationAsync(string reviewId, string userId, int rating, string comment)
+    public async Task<string?> ProcessReviewModerationAsync(string reviewId, string userId, int rating, string comment)
     {
         var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId });
-        if (review == null) return;
+        if (review == null) return null;
 
         var moderationResult = await HandleModerationAsync(userId, rating, comment, CancellationToken.None);
         
@@ -153,7 +153,7 @@ public class ReviewService : IReviewService
         {
             review.Status = ReviewConstants.Rejected;
             review.RejectedReason = moderationResult.AiResult?.Reason ?? "Tài khoản vi phạm.";
-            review.ModeratedBy = "SYSTEM_AI";
+            review.ModeratedBy = null;
         }
         else
         {
@@ -161,7 +161,7 @@ public class ReviewService : IReviewService
             if (review.Status == ReviewConstants.Rejected || review.Status == ReviewConstants.Flagged)
             {
                 review.RejectedReason = moderationResult.AiResult.Reason;
-                review.ModeratedBy = "SYSTEM_AI";
+                review.ModeratedBy = null;
             }
             else
             {
@@ -169,8 +169,10 @@ public class ReviewService : IReviewService
                 review.ModeratedBy = null;
             }
         }
-
+        
         await _dbContext.SaveChangesAsync();
+
+        return moderationResult.AiResult?.ModeratorMessage;
     }
 
     private class ModerationHandlerResult
@@ -185,13 +187,13 @@ public class ReviewService : IReviewService
     {
         var aiResponse = await _aiService.ModerateReviewAsync(rating, comment, cancellationToken);
 
-        if (aiResponse.Status == ReviewConstants.Approved)
+        if (string.Equals(aiResponse.Status, ReviewConstants.Approved, StringComparison.OrdinalIgnoreCase))
         {
             return new ModerationHandlerResult { IsBlockedOrFailed = false, AiResult = aiResponse };
         }
-        else if (aiResponse.Status == ReviewConstants.Rejected || aiResponse.Status == ReviewConstants.Flagged)
+        else if (string.Equals(aiResponse.Status, ReviewConstants.Rejected, StringComparison.OrdinalIgnoreCase) || string.Equals(aiResponse.Status, ReviewConstants.Flagged, StringComparison.OrdinalIgnoreCase))
         {
-            if (aiResponse.IsSpam || aiResponse.Status == ReviewConstants.Rejected)
+            if (aiResponse.IsSpam || string.Equals(aiResponse.Status, ReviewConstants.Rejected, StringComparison.OrdinalIgnoreCase))
             {
                 var userProfile = await _dbContext.Set<User>().FindAsync(new object[] { userId }, cancellationToken);
                 if (userProfile != null)
@@ -232,8 +234,8 @@ public class ReviewService : IReviewService
 
     private string GetStatusConstant(string aiStatus)
     {
-        if (aiStatus == ReviewConstants.Rejected) return ReviewConstants.Rejected;
-        if (aiStatus == ReviewConstants.Flagged) return ReviewConstants.Flagged;
+        if (string.Equals(aiStatus, ReviewConstants.Rejected, StringComparison.OrdinalIgnoreCase)) return ReviewConstants.Rejected;
+        if (string.Equals(aiStatus, ReviewConstants.Flagged, StringComparison.OrdinalIgnoreCase)) return ReviewConstants.Flagged;
         return ReviewConstants.Approved;
     }
 

@@ -327,7 +327,7 @@ public sealed class MovieService : IMovieService
         CancellationToken cancellationToken)
     {
         var movie = await _dbContext.Movies.Include(m => m.MovieGenres).ThenInclude(mg => mg.Genre).FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
-        if (movie == null || movie.MovieStatus == DomainConstants.EntityStatus.Inactive)
+        if (movie == null)
         {
             return ServiceResult<MovieDetailResponse>.Fail(404, "Movie was not found.", "MOVIE_NOT_FOUND");
         }
