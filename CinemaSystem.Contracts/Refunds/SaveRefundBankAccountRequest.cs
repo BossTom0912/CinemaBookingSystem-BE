@@ -4,12 +4,14 @@ namespace CinemaSystem.Contracts.Refunds;
 
 public sealed class SaveRefundBankAccountRequest
 {
-    [Required, StringLength(20)]
+    [Required, StringLength(RefundContractConstants.BankCodeMaxLength)]
     public string BankCode { get; init; } = string.Empty;
 
-    [Required, RegularExpression(@"^[0-9]{6,20}$")]
+    [Required, RegularExpression(RefundContractConstants.AccountNumberPattern)]
     public string AccountNumber { get; init; } = string.Empty;
 
-    [Required, StringLength(255, MinimumLength = 2)]
+    [Required, StringLength(
+        RefundContractConstants.AccountHolderNameMaxLength,
+        MinimumLength = RefundContractConstants.AccountHolderNameMinLength)]
     public string AccountHolderName { get; init; } = string.Empty;
 }

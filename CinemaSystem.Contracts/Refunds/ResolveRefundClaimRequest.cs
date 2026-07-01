@@ -4,6 +4,8 @@ namespace CinemaSystem.Contracts.Refunds;
 
 public sealed class ResolveRefundClaimRequest
 {
-    [Required, StringLength(500, MinimumLength = 20)]
+    [Required, StringLength(
+        RefundContractConstants.ClaimTokenMaxLength,
+        MinimumLength = RefundContractConstants.ClaimTokenMinLength)]
     public string Token { get; init; } = string.Empty;
 }

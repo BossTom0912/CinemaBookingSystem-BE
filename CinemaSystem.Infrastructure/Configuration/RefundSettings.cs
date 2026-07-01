@@ -2,6 +2,12 @@ namespace CinemaSystem.Infrastructure.Configuration;
 
 public sealed class RefundSettings
 {
-    public string FrontendBaseUrl { get; set; } = "http://localhost:5173";
-    public int ClaimTokenMinutes { get; set; } = 5;
+    public const string DevelopmentFrontendBaseUrl = "http://localhost:5173";
+    public const string ClaimRoute = "/refunds/claim";
+    public const int DefaultClaimTokenMinutes = 5;
+    public const int MinimumClaimTokenMinutes = 1;
+
+    public string FrontendBaseUrl { get; set; } = DevelopmentFrontendBaseUrl;
+
+    public int ClaimTokenMinutes { get; set; } = DefaultClaimTokenMinutes;
 }

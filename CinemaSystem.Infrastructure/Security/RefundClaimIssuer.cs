@@ -19,23 +19,25 @@ public sealed class RefundClaimIssuer : IRefundClaimIssuer
 
     public RefundClaimIssue Create(string refundId, string customerProfileId, DateTime now)
     {
-        var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+        var rawToken = Convert.ToBase64String(
+                RandomNumberGenerator.GetBytes(BookingConstants.RefundPolicy.ClaimTokenEntropyBytes))
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
         var claim = new RefundClaim
         {
-            RefundClaimId = NewId("RFC"),
+            RefundClaimId = NewId(BookingConstants.EntityIdPrefix.RefundClaim),
             RefundId = refundId,
             CustomerProfileId = customerProfileId,
             ClaimStatus = BookingConstants.RefundClaimStatus.PendingInfo,
             AccountValidationStatus = BookingConstants.AccountValidationStatus.NotStarted,
-            ExpiresAt = now.AddMinutes(Math.Max(1, _settings.ClaimTokenMinutes)),
+            ExpiresAt = now.AddMinutes(
+                Math.Max(RefundSettings.MinimumClaimTokenMinutes, _settings.ClaimTokenMinutes)),
             CreatedAt = now
         };
         var token = new RefundClaimToken
         {
-            RefundClaimTokenId = NewId("RFT"),
+            RefundClaimTokenId = NewId(BookingConstants.EntityIdPrefix.RefundClaimToken),
             RefundClaimId = claim.RefundClaimId,
             TokenHash = HashToken(rawToken),
             ExpiresAt = claim.ExpiresAt,

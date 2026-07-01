@@ -97,7 +97,7 @@ public sealed class RefundService : IRefundService
                 BankCode = item.RefundClaim == null ? null : item.RefundClaim.BankCode,
                 MaskedAccountNumber = item.RefundClaim == null || item.RefundClaim.BankAccountLast4 == null
                     ? null
-                    : "******" + item.RefundClaim.BankAccountLast4,
+                    : RefundContractConstants.MaskedAccountPrefix + item.RefundClaim.BankAccountLast4,
                 WorkflowStatus = item.RefundStatus == BookingConstants.RefundStatus.Success
                     ? BookingConstants.RefundWorkflowStatus.Success
                     : item.RefundStatus == BookingConstants.RefundStatus.ManualRequired

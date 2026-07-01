@@ -52,7 +52,7 @@ public sealed class CinemaScopeAuthorizationService : ICinemaScopeAuthorizationS
             .AsNoTracking()
             .Where(profile =>
                 profile.UserId == userId
-                && profile.EmploymentStatus == ActiveEmploymentStatus)
+                && profile.EmploymentStatus == BookingConstants.ResourceStatus.Active)
             .Select(profile => profile.CinemaId)
             .FirstOrDefaultAsync(cancellationToken);
 

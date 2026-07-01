@@ -61,6 +61,31 @@ public static class BookingConstants
         public const string AwaitingCustomerInfo = "AWAITING_CUSTOMER_INFO";
     }
 
+    public static class RefundPolicy
+    {
+        public const int ClaimTokenEntropyBytes = 32;
+    }
+
+    public static class ManagerDashboard
+    {
+        public const string AllCinemasLabel = "All cinemas";
+        public const decimal PercentageMultiplier = 100m;
+        public const int OccupancyRateDecimalPlaces = 2;
+    }
+
+    public static class EntityIdPrefix
+    {
+        public const string RefundClaim = "RFC";
+        public const string RefundClaimToken = "RFT";
+        public const string ShowtimeCancellation = "SHC";
+        public const string Refund = "REF";
+        public const string Notification = "NOT";
+        public const string AuditLog = "AUD";
+        public const string RewardPointTransaction = "RPT";
+        public const string ManualRefundProcess = "MRP";
+        public const string CustomerRefundRequest = "CRR";
+    }
+
     public static class TicketStatus
     {
         public const string Generated = "GENERATED";

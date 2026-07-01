@@ -256,7 +256,7 @@ public class PaymentService : IPaymentService
                 {
                     var refund = new Refund
                     {
-                        RefundId = GenerateId("REF"),
+                        RefundId = GenerateId(BookingConstants.EntityIdPrefix.Refund),
                         BookingId = booking.BookingId,
                         PaymentId = payment.PaymentId,
                         PaymentProviderId = payment.PaymentProviderId,
@@ -306,7 +306,7 @@ public class PaymentService : IPaymentService
 
                 _db.Refunds.Add(new Refund
                 {
-                    RefundId = GenerateId("REF"),
+                    RefundId = GenerateId(BookingConstants.EntityIdPrefix.Refund),
                     BookingId = booking.BookingId,
                     PaymentId = payment.PaymentId,
                     PaymentProviderId = payment.PaymentProviderId,
@@ -329,7 +329,7 @@ public class PaymentService : IPaymentService
 
                 _db.Refunds.Add(new Refund
                 {
-                    RefundId = GenerateId("REF"),
+                    RefundId = GenerateId(BookingConstants.EntityIdPrefix.Refund),
                     BookingId = booking.BookingId,
                     PaymentId = payment.PaymentId,
                     PaymentProviderId = payment.PaymentProviderId,
@@ -407,7 +407,8 @@ public class PaymentService : IPaymentService
     {
         try
         {
-            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}/refunds/claim?t={Uri.EscapeDataString(issue.RawToken)}";
+            var link = _refundSettings.FrontendBaseUrl.TrimEnd('/')
+                + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(issue.RawToken)}";
             await _emailSender.SendEmailAsync(
                 email,
                 "Refund information required",

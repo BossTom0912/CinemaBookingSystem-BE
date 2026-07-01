@@ -142,7 +142,8 @@ public sealed class RefundClaimService : IRefundClaimService
         claim.BankCode = bank.BankCode;
         claim.Bank = bank;
         claim.BankAccountEncrypted = _protector.Protect(accountNumber);
-        claim.BankAccountLast4 = accountNumber[^Math.Min(4, accountNumber.Length)..];
+        claim.BankAccountLast4 = accountNumber[
+            ^Math.Min(RefundContractConstants.BankAccountVisibleSuffixLength, accountNumber.Length)..];
         claim.AccountHolderNameEncrypted = _protector.Protect(holderName);
         claim.AccountValidationStatus = BookingConstants.AccountValidationStatus.Unavailable;
         claim.UpdatedAt = _clock.UtcNow;
@@ -186,7 +187,7 @@ public sealed class RefundClaimService : IRefundClaimService
         {
             claim.ManualRefundProcess = new ManualRefundProcess
             {
-                ManualRefundProcessId = NewId("MRP"),
+                ManualRefundProcessId = NewId(BookingConstants.EntityIdPrefix.ManualRefundProcess),
                 RefundId = claim.RefundId,
                 RefundClaimId = claim.RefundClaimId,
                 ProcessStatus = BookingConstants.ManualRefundProcessStatus.Open,
@@ -255,7 +256,7 @@ public sealed class RefundClaimService : IRefundClaimService
         refund.RefundClaim.UpdatedAt = now;
         _db.CustomerRefundRequests.Add(new CustomerRefundRequest
         {
-            CustomerRefundRequestId = NewId("CRR"),
+            CustomerRefundRequestId = NewId(BookingConstants.EntityIdPrefix.CustomerRefundRequest),
             RefundId = refund.RefundId,
             CustomerProfileId = refund.RefundClaim.CustomerProfileId,
             TicketId = string.IsNullOrWhiteSpace(request.TicketId) ? null : request.TicketId.Trim(),
@@ -323,7 +324,9 @@ public sealed class RefundClaimService : IRefundClaimService
             ShowtimeStartTime = claim.Refund.Booking.Showtime.StartTime,
             BankCode = claim.BankCode,
             BankName = claim.Bank?.ShortName,
-            MaskedAccountNumber = claim.BankAccountLast4 is null ? null : $"******{claim.BankAccountLast4}",
+            MaskedAccountNumber = claim.BankAccountLast4 is null
+                ? null
+                : $"{RefundContractConstants.MaskedAccountPrefix}{claim.BankAccountLast4}",
             AccountHolderName = holderName,
             ExpiresAt = claim.ExpiresAt,
             SubmittedAt = claim.SubmittedAt
@@ -339,7 +342,8 @@ public sealed class RefundClaimService : IRefundClaimService
     {
         try
         {
-            var link = $"{_settings.FrontendBaseUrl.TrimEnd('/')}/refunds/claim?t={Uri.EscapeDataString(rawToken)}";
+            var link = $"{_settings.FrontendBaseUrl.TrimEnd('/')}"
+                + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(rawToken)}";
             await _emailSender.SendEmailAsync(
                 email,
                 "Provide bank information for your refund",
@@ -356,7 +360,7 @@ public sealed class RefundClaimService : IRefundClaimService
     {
         _db.AuditLogs.Add(new AuditLog
         {
-            AuditLogId = NewId("AUD"),
+            AuditLogId = NewId(BookingConstants.EntityIdPrefix.AuditLog),
             UserId = userId,
             Action = action,
             EntityName = entityName,

@@ -8,8 +8,6 @@ namespace CinemaSystem.Infrastructure.Dashboard;
 
 public sealed class ManagerDashboardService : IManagerDashboardService
 {
-    private const string AllCinemasLabel = "All cinemas";
-
     private readonly CinemaDbContext _dbContext;
 
     public ManagerDashboardService(CinemaDbContext dbContext)
@@ -178,15 +176,16 @@ public sealed class ManagerDashboardService : IManagerDashboardService
         var occupancyRate = sellableSeatCapacity == 0
             ? 0m
             : Math.Round(
-                occupiedSeats * 100m / sellableSeatCapacity,
-                2,
+                occupiedSeats * BookingConstants.ManagerDashboard.PercentageMultiplier
+                    / sellableSeatCapacity,
+                BookingConstants.ManagerDashboard.OccupancyRateDecimalPlaces,
                 MidpointRounding.AwayFromZero);
 
         return ServiceResult<ManagerDashboardResponse>.Ok(
             new ManagerDashboardResponse
             {
                 CinemaId = cinemaScopeId,
-                CinemaName = cinemaName ?? AllCinemasLabel,
+                CinemaName = cinemaName ?? BookingConstants.ManagerDashboard.AllCinemasLabel,
                 From = from,
                 To = to,
                 MovieId = movieId,
@@ -211,7 +210,7 @@ public sealed class ManagerDashboardService : IManagerDashboardService
     {
         if (cinemaScopeId is null)
         {
-            return AllCinemasLabel;
+            return BookingConstants.ManagerDashboard.AllCinemasLabel;
         }
 
         return await _dbContext.Cinemas

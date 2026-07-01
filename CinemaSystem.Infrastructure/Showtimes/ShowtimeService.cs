@@ -571,7 +571,7 @@ public sealed class ShowtimeService : IShowtimeService
 
             var refund = new Refund
             {
-                RefundId = NewId("REF"),
+                RefundId = NewId(BookingConstants.EntityIdPrefix.Refund),
                 BookingId = booking.BookingId,
                 PaymentId = paymentId,
                 PaymentProviderId = paymentProviderId,

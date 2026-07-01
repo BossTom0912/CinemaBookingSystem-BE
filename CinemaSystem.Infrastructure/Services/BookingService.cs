@@ -330,7 +330,7 @@ public sealed class BookingService : IBookingService
 
             var refund = new Refund
             {
-                RefundId = NewId("REF"),
+                RefundId = NewId(BookingConstants.EntityIdPrefix.Refund),
                 BookingId = booking.BookingId,
                 PaymentId = payment.PaymentId,
                 PaymentProviderId = payment.PaymentProviderId,

@@ -55,7 +55,9 @@ public sealed class CustomerRefundClaimsController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return Unauthorized(ApiResponse<object>.Fail("Unauthorized.", "UNAUTHORIZED"));
+            return Unauthorized(ApiResponse<object>.Fail(
+                "Unauthorized.",
+                BookingConstants.ErrorCodes.Unauthorized));
         }
         return ToActionResult(await operation(userId));
     }

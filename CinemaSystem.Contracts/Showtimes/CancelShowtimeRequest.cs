@@ -1,10 +1,11 @@
 using System.ComponentModel.DataAnnotations;
+using CinemaSystem.Contracts.Refunds;
 
 namespace CinemaSystem.Contracts.Showtimes;
 
 public sealed class CancelShowtimeRequest
 {
     [Required]
-    [MaxLength(1000)]
+    [MaxLength(RefundContractConstants.CancellationReasonMaxLength)]
     public string Reason { get; init; } = string.Empty;
 }

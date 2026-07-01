@@ -4,15 +4,22 @@ namespace CinemaSystem.Contracts.Refunds;
 
 public sealed class ManualRefundConfirmationRequest
 {
-    [Required, StringLength(255, MinimumLength = 3)]
+    [Required, StringLength(
+        RefundContractConstants.BankTransactionCodeMaxLength,
+        MinimumLength = RefundContractConstants.BankTransactionCodeMinLength)]
     public string BankTransactionCode { get; init; } = string.Empty;
 
-    [Range(typeof(decimal), "0.01", "9999999999999999")]
+    [Range(
+        typeof(decimal),
+        RefundContractConstants.MinimumRefundAmount,
+        RefundContractConstants.MaximumRefundAmount)]
     public decimal TransferredAmount { get; init; }
 
-    [Required, StringLength(1000, MinimumLength = 3)]
+    [Required, StringLength(
+        RefundContractConstants.ProofUrlMaxLength,
+        MinimumLength = RefundContractConstants.ProofUrlMinLength)]
     public string ProofUrl { get; init; } = string.Empty;
 
-    [StringLength(1000)]
+    [StringLength(RefundContractConstants.NoteMaxLength)]
     public string? Note { get; init; }
 }

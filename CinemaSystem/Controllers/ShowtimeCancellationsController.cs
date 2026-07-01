@@ -60,7 +60,9 @@ public sealed class ShowtimeCancellationsController : ControllerBase
         var userId = GetUserId();
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return Unauthorized(ApiResponse<object>.Fail("Unauthorized.", "UNAUTHORIZED"));
+            return Unauthorized(ApiResponse<object>.Fail(
+                "Unauthorized.",
+                BookingConstants.ErrorCodes.Unauthorized));
         }
 
         var result = await _showtimeCancellationService.CancelShowtimeAsync(

@@ -4,12 +4,14 @@ namespace CinemaSystem.Contracts.Refunds;
 
 public sealed class RequestRefundLinkRequest
 {
-    [Required, StringLength(50)]
+    [Required, StringLength(RefundContractConstants.EntityIdMaxLength)]
     public string BookingId { get; init; } = string.Empty;
 
-    [StringLength(50)]
+    [StringLength(RefundContractConstants.EntityIdMaxLength)]
     public string? TicketId { get; init; }
 
-    [Required, StringLength(1000, MinimumLength = 5)]
+    [Required, StringLength(
+        RefundContractConstants.RefundRequestReasonMaxLength,
+        MinimumLength = RefundContractConstants.RefundRequestReasonMinLength)]
     public string Reason { get; init; } = string.Empty;
 }

@@ -13,6 +13,9 @@ namespace CinemaSystem.Controllers;
 [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
 public sealed class AdminRefundsController : ControllerBase
 {
+    private const int DefaultPageIndex = 1;
+    private const int DefaultPageSize = 10;
+
     private readonly IAdminRefundService _adminRefundService;
     private readonly IManualRefundService _manualRefundService;
 
@@ -27,9 +30,9 @@ public sealed class AdminRefundsController : ControllerBase
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<PagedList<RefundDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetRefunds(
-        [FromQuery] string status = "PENDING",
-        [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 10,
+        [FromQuery] string status = BookingConstants.RefundStatus.Pending,
+        [FromQuery] int pageIndex = DefaultPageIndex,
+        [FromQuery] int pageSize = DefaultPageSize,
         CancellationToken cancellationToken = default)
         => ToActionResult(await _adminRefundService.GetRefundsAsync(status, pageIndex, pageSize, cancellationToken));
 
@@ -63,7 +66,9 @@ public sealed class AdminRefundsController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return Unauthorized(ApiResponse<object>.Fail("Unauthorized.", "UNAUTHORIZED"));
+            return Unauthorized(ApiResponse<object>.Fail(
+                "Unauthorized.",
+                BookingConstants.ErrorCodes.Unauthorized));
         }
 
         return ToActionResult(await operation(userId));

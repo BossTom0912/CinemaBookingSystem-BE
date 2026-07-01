@@ -61,10 +61,16 @@ public static class DependencyInjection
         services.Configure<RefundSettings>(options =>
         {
             options.FrontendBaseUrl = configuration["RefundSettings:FrontendBaseUrl"]
-                ?? "http://localhost:5173";
+                ?? RefundSettings.DevelopmentFrontendBaseUrl;
             options.ClaimTokenMinutes = ReadInt(
                 configuration["RefundSettings:ClaimTokenMinutes"],
-                5);
+                RefundSettings.DefaultClaimTokenMinutes);
+
+            if (options.ClaimTokenMinutes < RefundSettings.MinimumClaimTokenMinutes)
+            {
+                throw new InvalidOperationException(
+                    $"RefundSettings:ClaimTokenMinutes must be at least {RefundSettings.MinimumClaimTokenMinutes}.");
+            }
         });
         services.AddDataProtection();
 

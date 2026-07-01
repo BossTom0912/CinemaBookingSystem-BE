@@ -236,7 +236,7 @@ public sealed class ManualRefundService : IManualRefundService
             {
                 _db.Notifications.Add(new Notification
                 {
-                    NotificationId = NewId("NOT"),
+                    NotificationId = NewId(BookingConstants.EntityIdPrefix.Notification),
                     UserId = customerUserId,
                     BookingId = process.Refund.BookingId,
                     Title = "Refund completed",
@@ -325,7 +325,7 @@ public sealed class ManualRefundService : IManualRefundService
         booking.CustomerProfile.RewardPoints = Math.Max(0, booking.CustomerProfile.RewardPoints - amount);
         _db.RewardPointTransactions.Add(new RewardPointTransaction
         {
-            RewardTransactionId = NewId("RPT"),
+            RewardTransactionId = NewId(BookingConstants.EntityIdPrefix.RewardPointTransaction),
             CustomerProfileId = booking.CustomerProfile.CustomerProfileId,
             BookingId = booking.BookingId,
             TransactionType = BookingConstants.RewardPointTransactionType.Revert,
@@ -344,7 +344,7 @@ public sealed class ManualRefundService : IManualRefundService
     {
         _db.AuditLogs.Add(new AuditLog
         {
-            AuditLogId = NewId("AUD"),
+            AuditLogId = NewId(BookingConstants.EntityIdPrefix.AuditLog),
             UserId = userId,
             Action = action,
             EntityName = DomainConstants.AuditEntity.Refund,

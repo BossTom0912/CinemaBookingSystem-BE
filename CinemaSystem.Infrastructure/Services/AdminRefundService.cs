@@ -168,7 +168,7 @@ public class AdminRefundService : IAdminRefundService
                         var refund = new Refund
                         {
                             // Tạo ID hoàn tiền tự động
-                            RefundId = "REF_" + Guid.NewGuid().ToString("N"),
+                            RefundId = $"{BookingConstants.EntityIdPrefix.Refund}_{Guid.NewGuid():N}",
                             // Map với ID của Booking
                             BookingId = booking.BookingId,
                             // Map chính xác ID giao dịch thanh toán (Khắc phục lỗi FK_REFUND_PAYMENT)

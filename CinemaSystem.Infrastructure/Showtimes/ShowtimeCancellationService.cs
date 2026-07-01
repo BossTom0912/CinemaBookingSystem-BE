@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
@@ -64,9 +65,12 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             return Fail(400, "Cancellation reason is required.", "CANCEL_REASON_REQUIRED");
         }
 
-        if (reason.Length > 1000)
+        if (reason.Length > RefundContractConstants.CancellationReasonMaxLength)
         {
-            return Fail(400, "Cancellation reason must not exceed 1000 characters.", "CANCEL_REASON_TOO_LONG");
+            return Fail(
+                400,
+                $"Cancellation reason must not exceed {RefundContractConstants.CancellationReasonMaxLength} characters.",
+                "CANCEL_REASON_TOO_LONG");
         }
 
         var actorExists = await _dbContext.Users
@@ -117,7 +121,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             }
 
             var oldStatus = showtime.Status;
-            var cancellationId = NewId("SHC");
+            var cancellationId = NewId(BookingConstants.EntityIdPrefix.ShowtimeCancellation);
             var staffProfileId = await GetActiveStaffProfileIdAsync(userId, cancellationToken);
 
             showtime.Status = BookingConstants.ShowtimeStatus.Cancelled;
@@ -301,7 +305,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             .AsNoTracking()
             .Where(item =>
                 item.UserId == userId
-                && item.EmploymentStatus == ActiveEmploymentStatus)
+                && item.EmploymentStatus == BookingConstants.ResourceStatus.Active)
             .Select(item => item.StaffProfileId)
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -346,7 +350,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         var refund = new Refund
         {
-            RefundId = NewId("REF"),
+            RefundId = NewId(BookingConstants.EntityIdPrefix.Refund),
             BookingId = booking.BookingId,
             PaymentId = successfulPayment.PaymentId,
             PaymentProviderId = successfulPayment.PaymentProviderId,
@@ -405,7 +409,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         _dbContext.Notifications.Add(new Notification
         {
-            NotificationId = NewId("NOT"),
+            NotificationId = NewId(BookingConstants.EntityIdPrefix.Notification),
             UserId = userId,
             BookingId = booking.BookingId,
             Title = "Showtime cancelled",
@@ -446,7 +450,8 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             return;
         }
 
-        var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}/refunds/claim?t={Uri.EscapeDataString(rawToken)}";
+        var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}"
+            + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(rawToken)}";
         emails.Add(new CancellationEmail(
             email,
             "Showtime cancelled - refund information required",
@@ -492,7 +497,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     {
         return new AuditLog
         {
-            AuditLogId = NewId("AUD"),
+            AuditLogId = NewId(BookingConstants.EntityIdPrefix.AuditLog),
             UserId = userId,
             Action = DomainConstants.AuditAction.CancelShowtime,
             EntityName = DomainConstants.AuditEntity.Showtime,

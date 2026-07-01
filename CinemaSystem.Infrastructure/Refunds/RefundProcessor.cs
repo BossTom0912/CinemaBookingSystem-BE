@@ -242,7 +242,11 @@ public sealed class RefundProcessor : IRefundProcessor
                     "Refund requires manual processing",
                     $"Refund for booking {refund.BookingId} requires additional processing.",
                     now);
-                AddRefundAuditLog(refund, BookingConstants.RefundStatus.ManualRequired, 0, now);
+                AddRefundAuditLog(
+                    refund,
+                    BookingConstants.RefundStatus.ManualRequired,
+                    0,
+                    now);
                 email = CreateEmail(
                     refund,
                     "Refund requires additional processing",
@@ -328,7 +332,7 @@ public sealed class RefundProcessor : IRefundProcessor
             booking.CustomerProfile.RewardPoints - pointsToRevert);
         _dbContext.RewardPointTransactions.Add(new RewardPointTransaction
         {
-            RewardTransactionId = NewId("RPT"),
+            RewardTransactionId = NewId(BookingConstants.EntityIdPrefix.RewardPointTransaction),
             CustomerProfileId = booking.CustomerProfile.CustomerProfileId,
             BookingId = booking.BookingId,
             TransactionType = BookingConstants.RewardPointTransactionType.Revert,
@@ -353,7 +357,7 @@ public sealed class RefundProcessor : IRefundProcessor
 
         _dbContext.Notifications.Add(new Notification
         {
-            NotificationId = NewId("NOT"),
+            NotificationId = NewId(BookingConstants.EntityIdPrefix.Notification),
             UserId = userId,
             BookingId = refund.BookingId,
             Title = title,
@@ -380,7 +384,7 @@ public sealed class RefundProcessor : IRefundProcessor
 
         _dbContext.AuditLogs.Add(new AuditLog
         {
-            AuditLogId = NewId("AUD"),
+            AuditLogId = NewId(BookingConstants.EntityIdPrefix.AuditLog),
             UserId = actorUserId,
             Action = DomainConstants.AuditAction.ProcessRefund,
             EntityName = DomainConstants.AuditEntity.Refund,
@@ -477,9 +481,9 @@ public sealed class RefundProcessor : IRefundProcessor
         }
 
         var normalized = failureReason.Trim();
-        return normalized.Length <= 1000
+        return normalized.Length <= RefundContractConstants.FailureReasonMaxLength
             ? normalized
-            : normalized[..1000];
+            : normalized[..RefundContractConstants.FailureReasonMaxLength];
     }
 
     private static bool IsFinalStatus(string status)
