@@ -121,6 +121,32 @@ public sealed class BookingsController : ControllerBase
         return StatusCode(result.StatusCode, response);
     }
 
+    [HttpPost("{bookingId}/cancel")]
+    public async Task<IActionResult> CancelBooking(
+        string bookingId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _bookingService.CancelBookingAsync(
+            bookingId,
+            userId,
+            cancellationToken);
+
+        var response = result.Success
+            ? ApiResponse<bool>.Ok(result.Data, result.Message)
+            : ApiResponse<bool>.Fail(
+                result.Message,
+                result.ErrorCode,
+                result.Errors);
+
+        return StatusCode(result.StatusCode, response);
+    }
+
     private string? GetUserId()
     {
         return User.FindFirst("userId")?.Value

@@ -510,6 +510,49 @@ public sealed class BookingService : IBookingService
         }
     }
 
+    public async Task<ServiceResult<bool>> CancelBookingAsync(
+        string bookingId,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var booking = await _dbContext.Bookings
+            .Include(b => b.CustomerProfile)
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.ShowtimeSeat)
+            .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
+
+        if (booking == null)
+        {
+            return ServiceResult<bool>.Fail(404, "Booking not found.", "BOOKING_NOT_FOUND");
+        }
+
+        if (booking.CustomerProfile?.UserId != userId)
+        {
+            return ServiceResult<bool>.Fail(403, "You do not have permission to cancel this booking.", "FORBIDDEN");
+        }
+
+        if (booking.BookingStatus != DomainConstants.EntityStatus.PendingPayment)
+        {
+            return ServiceResult<bool>.Fail(400, "Only bookings in pending payment status can be cancelled.", "INVALID_STATUS");
+        }
+
+        booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
+
+        foreach (var bs in booking.BookingSeats)
+        {
+            if (bs.ShowtimeSeat != null && bs.ShowtimeSeat.SeatStatus == DomainConstants.EntityStatus.Locked && bs.ShowtimeSeat.LockedByUserId == userId)
+            {
+                bs.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
+                bs.ShowtimeSeat.LockedUntil = null;
+                bs.ShowtimeSeat.LockedByUserId = null;
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(true, "Booking cancelled successfully.");
+    }
+
     // Hàm tiện ích để tạo ID mới với tiền tố (prefix) cho các thực thể
     private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
 }
