@@ -27,7 +27,7 @@ public sealed class SmtpEmailSender : IEmailSender
             From = new MailAddress(_settings.SenderEmail, _settings.SenderName),
             Subject = subject,
             Body = body,
-            IsBodyHtml = false
+            IsBodyHtml = body.Contains("<html", StringComparison.OrdinalIgnoreCase) || body.Contains("<body", StringComparison.OrdinalIgnoreCase)
         };
         message.To.Add(toEmail);
 

@@ -52,11 +52,27 @@ public sealed class ShowtimesController : ControllerBase
     public async Task<IActionResult> UpdateShowtime(
         string showtimeId,
         UpdateShowtimeRequest request,
-        CancellationToken cancellationToken)
+        [FromQuery] bool force = false,
+        CancellationToken cancellationToken = default)
     {
         var result = await _showtimeService.UpdateShowtimeAsync(
             showtimeId,
             request.MapTo<Contracts.Showtimes.UpdateShowtimeRequest>(),
+            force,
+            cancellationToken);
+        return ToActionResult(result.MapDataTo<Contracts.Showtimes.ShowtimeResponse, ShowtimeResponse>());
+    }
+
+    [HttpPost("{showtimeId}/change-room")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
+    public async Task<IActionResult> ChangeRoom(
+        string showtimeId,
+        [FromBody] ChangeRoomRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _showtimeService.ChangeRoomAsync(
+            showtimeId,
+            request.MapTo<Contracts.Showtimes.ChangeRoomRequest>(),
             cancellationToken);
         return ToActionResult(result.MapDataTo<Contracts.Showtimes.ShowtimeResponse, ShowtimeResponse>());
     }

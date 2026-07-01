@@ -19,9 +19,21 @@ public partial class Review
 
     public DateTime CreatedAt { get; set; }
 
+    public string Status { get; set; } = null!;
+
+    public int EditCount { get; set; }
+
+    public string? RejectedReason { get; set; }
+
+    public string? ModeratedBy { get; set; }
+
     public virtual Booking? Booking { get; set; }
 
     public virtual CustomerProfile CustomerProfile { get; set; } = null!;
 
     public virtual Movie Movie { get; set; } = null!;
+
+    public virtual ICollection<ReviewEditHistory> EditHistories { get; set; } = new List<ReviewEditHistory>();
+
+    public virtual ICollection<ReviewModerationHistory> ModerationHistories { get; set; } = new List<ReviewModerationHistory>();
 }

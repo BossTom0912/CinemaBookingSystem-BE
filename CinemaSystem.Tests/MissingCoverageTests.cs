@@ -1292,10 +1292,10 @@ public sealed class PaymentServiceMissingCoverageTests
         {
             BookingId = "BOOKING_TEST",
             PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        });
+        }, "USER_TEST");
 
         // Gửi số tiền thấp hơn (60000 thay vì 120000)
-        var rawPayload = $$"""{{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}}""";
+        var rawPayload = $$"""{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}""";
         var exception = await Record.ExceptionAsync(() =>
             fixture.Service.ConfirmPaymentAsync(
                 $"Cinema {created.TransactionCode}",
@@ -1341,7 +1341,7 @@ public sealed class PaymentServiceMissingCoverageTests
             {
                 BookingId = "BOOKING_GHOST",
                 PaymentProviderId = "PAYPROV_TEST_SEPAY"
-            }));
+            }, "USER_TEST"));
 
         // Service throw InvalidOperationException (không phải NullReferenceException)
         Assert.IsType<InvalidOperationException>(exception);
@@ -1513,11 +1513,14 @@ public sealed class ShowtimeServiceMissingCoverageTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var clock = new FakeClock(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var mockClock = new Moq.Mock<IClock>();
+            mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var mockJobClient = new Moq.Mock<Hangfire.IBackgroundJobClient>();
+                        var mockOptions = Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings());
             return new Fixture(
                 dbContext,
-                new RoomService(dbContext),
-                new ShowtimeService(dbContext, clock));
+                new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
+                new ShowtimeService(dbContext, mockClock.Object, mockOptions, mockJobClient.Object));
         }
 
         public async Task SeedCinemaAsync()

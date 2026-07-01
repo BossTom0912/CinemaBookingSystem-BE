@@ -144,7 +144,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.True(created.Success);
 
-        var deleted = await fixture.RoomService.DeleteRoomAsync("ROOM_TEST", CancellationToken.None);
+        var deleted = await fixture.RoomService.DeleteRoomAsync("ROOM_TEST", "SYS", CancellationToken.None);
 
         Assert.True(deleted.Success);
         Assert.Equal(1, await fixture.DbContext.Rooms.CountAsync());
@@ -226,6 +226,7 @@ public sealed class RoomShowtimeServiceTests
                 Capacity = 20,
                 RoomStatus = "ACTIVE"
             },
+            "SYS",
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -334,6 +335,7 @@ public sealed class RoomShowtimeServiceTests
                 BasePrice = 95000,
                 Status = "OPEN"
             },
+            false,
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -361,11 +363,11 @@ public sealed class RoomShowtimeServiceTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var clock = new FakeClock(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
-            return new Fixture(
-                dbContext,
-                new RoomService(dbContext),
-                new ShowtimeService(dbContext, clock));
+            var mockClock = new Moq.Mock<IClock>();
+            mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var roomService = new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object);
+            var showtimeService = new ShowtimeService(dbContext, mockClock.Object, Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings()), new Moq.Mock<Hangfire.IBackgroundJobClient>().Object, new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object);
+            return new Fixture(dbContext, roomService, showtimeService);
         }
 
         public async Task SeedCinemaAsync()

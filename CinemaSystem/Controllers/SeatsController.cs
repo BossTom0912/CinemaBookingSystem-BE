@@ -105,6 +105,42 @@ public sealed class SeatsController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet]
+    [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]
+    [ProducesResponseType(
+        typeof(ApiResponse<PagedList<SeatResponse>>),
+        StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSeats(
+        [FromQuery] string? roomId,
+        [FromQuery] bool? isActive,
+        [FromQuery] int pageIndex = 1,
+        [FromQuery] int pageSize = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _seatService.GetSeatsAsync(
+            roomId,
+            isActive,
+            pageIndex,
+            pageSize,
+            cancellationToken);
+
+        return ToActionResult(result.MapDataTo<PagedList<Contracts.Seats.SeatResponse>, PagedList<SeatResponse>>());
+    }
+
+    [HttpGet("{seatId}")]
+    [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]
+    [ProducesResponseType(
+        typeof(ApiResponse<SeatResponse>),
+        StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSeatById(
+        string seatId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _seatService.GetSeatByIdAsync(seatId, cancellationToken);
+
+        return ToActionResult(result.MapDataTo<Contracts.Seats.SeatResponse, SeatResponse>());
+    }
+
     // Admin approval endpoints removed - approval flow centralized under admin requests controller.
 
     [Authorize(Policy = AuthConstants.Policies.CanBookTicket)]

@@ -34,6 +34,22 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<Movie> Movies { get; set; }
 
+    public virtual DbSet<MovieViewLog> MovieViewLogs { get; set; }
+
+    public virtual DbSet<MovieDailyView> MovieDailyViews { get; set; }
+
+    public virtual DbSet<Genre> Genres { get; set; }
+
+    public virtual DbSet<MovieGenre> MovieGenres { get; set; }
+
+    public virtual DbSet<Language> Languages { get; set; }
+
+    public virtual DbSet<ChatHistory> ChatHistories { get; set; }
+
+    public virtual DbSet<ReviewEditHistory> ReviewEditHistories { get; set; }
+
+    public virtual DbSet<ReviewModerationHistory> ReviewModerationHistories { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<Payment> Payments { get; set; }
@@ -461,15 +477,12 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("ageRating");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.DurationMinutes).HasColumnName("durationMinutes");
-            entity.Property(e => e.Genre)
-                .HasMaxLength(255)
-                .HasColumnName("genre");
             entity.Property(e => e.Highlight)
                 .HasMaxLength(30)
                 .HasColumnName("highlight");
-            entity.Property(e => e.Language)
-                .HasMaxLength(100)
-                .HasColumnName("language");
+            entity.Property(e => e.LanguageId)
+                .HasMaxLength(50)
+                .HasColumnName("languageId");
             entity.Property(e => e.MovieStatus)
                 .HasMaxLength(30)
                 .HasDefaultValue("COMING_SOON")
@@ -484,6 +497,159 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.TrailerUrl)
                 .HasMaxLength(1000)
                 .HasColumnName("trailerUrl");
+            entity.Property(e => e.ViewCount)
+                .HasDefaultValue(0)
+                .HasColumnName("viewCount");
+            entity.Property(e => e.AverageRating)
+                .HasColumnType("decimal(3, 2)")
+                .HasDefaultValue(0.0m)
+                .HasColumnName("averageRating");
+            entity.Property(e => e.TotalReviews)
+                .HasDefaultValue(0)
+                .HasColumnName("totalReviews");
+            entity.Property(e => e.TotalViews)
+                .HasDefaultValue(0)
+                .HasColumnName("totalViews");
+            entity.Property(e => e.DailyViews)
+                .HasDefaultValue(0)
+                .HasColumnName("dailyViews");
+
+            entity.HasOne(d => d.Language).WithMany(p => p.Movies)
+                .HasForeignKey(d => d.LanguageId)
+                .HasConstraintName("FK_MOVIE_LANGUAGE");
+        });
+
+        modelBuilder.Entity<MovieViewLog>(entity =>
+        {
+            entity.HasKey(e => e.MovieViewLogId);
+            entity.ToTable("MOVIE_VIEW_LOG");
+
+            entity.Property(e => e.MovieViewLogId)
+                .HasMaxLength(50)
+                .HasColumnName("movieViewLogId");
+            entity.Property(e => e.MovieId)
+                .HasMaxLength(50)
+                .HasColumnName("movieId");
+            entity.Property(e => e.UserId)
+                .HasMaxLength(50)
+                .HasColumnName("userId");
+            entity.Property(e => e.ViewedAt)
+                .HasDefaultValueSql("SYSUTCDATETIME()")
+                .HasColumnName("viewedAt");
+            entity.Property(e => e.IpAddress)
+                .HasMaxLength(100)
+                .HasColumnName("ipAddress");
+
+            entity.HasOne(d => d.Movie).WithMany(p => p.MovieViewLogs)
+                .HasForeignKey(d => d.MovieId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MOVIE_VIEW_LOG_MOVIE");
+        });
+
+        modelBuilder.Entity<MovieDailyView>(entity =>
+        {
+            entity.HasKey(e => new { e.MovieId, e.ViewDate });
+            entity.ToTable("MOVIE_DAILY_VIEW");
+            entity.HasIndex(e => e.ViewDate, "IX_MOVIE_DAILY_VIEW_DATE");
+            
+            entity.Property(e => e.MovieId).HasMaxLength(50).HasColumnName("movieId");
+            entity.Property(e => e.ViewDate).HasColumnName("viewDate");
+            entity.Property(e => e.ViewCount).HasDefaultValue(0).HasColumnName("viewCount");
+
+            entity.HasOne(d => d.Movie).WithMany(p => p.MovieDailyViews)
+                .HasForeignKey(d => d.MovieId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MOVIE_DAILY_VIEW_MOVIE");
+        });
+
+        modelBuilder.Entity<Genre>(entity =>
+        {
+            entity.HasKey(e => e.GenreId);
+            entity.ToTable("GENRE");
+            entity.Property(e => e.GenreId).HasColumnName("genreId");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
+        });
+
+        modelBuilder.Entity<MovieGenre>(entity =>
+        {
+            entity.HasKey(e => new { e.MovieId, e.GenreId });
+            entity.ToTable("MOVIE_GENRE");
+            entity.Property(e => e.MovieId).HasMaxLength(50).HasColumnName("movieId");
+            entity.Property(e => e.GenreId).HasColumnName("genreId");
+
+            entity.HasOne(d => d.Movie).WithMany(p => p.MovieGenres)
+                .HasForeignKey(d => d.MovieId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_MOVIE_GENRE_MOVIE");
+
+            entity.HasOne(d => d.Genre).WithMany(p => p.MovieGenres)
+                .HasForeignKey(d => d.GenreId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_MOVIE_GENRE_GENRE");
+        });
+
+        modelBuilder.Entity<Language>(entity =>
+        {
+            entity.HasKey(e => e.LanguageId);
+            entity.ToTable("LANGUAGE");
+            entity.Property(e => e.LanguageId).HasMaxLength(50).HasColumnName("languageId");
+            entity.Property(e => e.Name).HasMaxLength(100).HasColumnName("name");
+        });
+
+        modelBuilder.Entity<ChatHistory>(entity =>
+        {
+            entity.HasKey(e => e.ChatHistoryId);
+            entity.ToTable("CHAT_HISTORY");
+
+            entity.Property(e => e.ChatHistoryId).HasMaxLength(50).HasColumnName("chatHistoryId");
+            entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("userId");
+            entity.Property(e => e.UserMessage).HasColumnName("userMessage");
+            entity.Property(e => e.AiReplyMessage).HasColumnName("aiReplyMessage");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()").HasColumnName("createdAt");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_CHAT_HISTORY_USER");
+        });
+
+        modelBuilder.Entity<ReviewEditHistory>(entity =>
+        {
+            entity.HasKey(e => e.ReviewEditHistoryId);
+            entity.ToTable("REVIEW_EDIT_HISTORY");
+            entity.HasIndex(e => e.ReviewId, "IX_REVIEW_EDIT_HISTORY_REVIEW_ID");
+
+            entity.Property(e => e.ReviewEditHistoryId).HasMaxLength(50).HasColumnName("reviewEditHistoryId");
+            entity.Property(e => e.ReviewId).HasMaxLength(50).HasColumnName("reviewId");
+            entity.Property(e => e.OldRating).HasColumnName("oldRating");
+            entity.Property(e => e.NewRating).HasColumnName("newRating");
+            entity.Property(e => e.OldComment).HasMaxLength(1000).HasColumnName("oldComment");
+            entity.Property(e => e.NewComment).HasMaxLength(1000).HasColumnName("newComment");
+            entity.Property(e => e.EditedAt).HasDefaultValueSql("SYSUTCDATETIME()").HasColumnName("editedAt");
+
+            entity.HasOne(d => d.Review).WithMany(p => p.EditHistories)
+                .HasForeignKey(d => d.ReviewId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_REVIEW_EDIT_HISTORY_REVIEW");
+        });
+
+        modelBuilder.Entity<ReviewModerationHistory>(entity =>
+        {
+            entity.HasKey(e => e.ModerationHistoryId);
+            entity.ToTable("REVIEW_MODERATION_HISTORY");
+            entity.HasIndex(e => e.ReviewId, "IX_REVIEW_MODERATION_HISTORY_REVIEW_ID");
+
+            entity.Property(e => e.ModerationHistoryId).HasMaxLength(50).HasColumnName("moderationHistoryId");
+            entity.Property(e => e.ReviewId).HasMaxLength(50).HasColumnName("reviewId");
+            entity.Property(e => e.OldStatus).HasMaxLength(30).HasColumnName("oldStatus");
+            entity.Property(e => e.NewStatus).HasMaxLength(30).HasColumnName("newStatus");
+            entity.Property(e => e.ModeratorId).HasMaxLength(50).HasColumnName("moderatorId");
+            entity.Property(e => e.RejectedReason).HasMaxLength(1000).HasColumnName("rejectedReason");
+            entity.Property(e => e.ModeratedAt).HasDefaultValueSql("SYSUTCDATETIME()").HasColumnName("moderatedAt");
+
+            entity.HasOne(d => d.Review).WithMany(p => p.ModerationHistories)
+                .HasForeignKey(d => d.ReviewId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_REVIEW_MODERATION_HISTORY_REVIEW");
         });
 
         modelBuilder.Entity<Notification>(entity =>
@@ -731,6 +897,19 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("createdAt");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValueSql("('Pending')")
+                .HasColumnName("status");
+            entity.Property(e => e.EditCount)
+                .HasDefaultValue(0)
+                .HasColumnName("editCount");
+            entity.Property(e => e.RejectedReason)
+                .HasMaxLength(500)
+                .HasColumnName("rejectedReason");
+            entity.Property(e => e.ModeratedBy)
+                .HasMaxLength(50)
+                .HasColumnName("moderatedBy");
             entity.Property(e => e.CustomerProfileId)
                 .HasMaxLength(50)
                 .HasColumnName("customerProfileId");
@@ -1164,6 +1343,13 @@ public partial class CinemaDbContext : DbContext
                 .HasDefaultValue("PENDING_VERIFICATION")
                 .HasColumnName("status");
             entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
+            entity.Property(e => e.SpamViolationCount)
+                .HasDefaultValue(0)
+                .HasColumnName("spamViolationCount");
+            entity.Property(e => e.IsBlocked)
+                .HasDefaultValue(false)
+                .HasColumnName("isBlocked");
+            entity.Property(e => e.BlockedUntil).HasColumnName("blockedUntil");
 
             entity.HasOne(d => d.Role).WithMany(p => p.Users)
                 .HasForeignKey(d => d.RoleId)

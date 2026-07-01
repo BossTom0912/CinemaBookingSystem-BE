@@ -6,4 +6,5 @@ public sealed class UpdateSeatRequest
     public string RowLabel { get; set; } = default!;
     public int SeatNumber { get; set; }
     public string SeatTypeId { get; set; } = default!;
+    public bool IsActive { get; set; }
 }

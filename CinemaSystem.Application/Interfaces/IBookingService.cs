@@ -21,4 +21,10 @@ public interface IBookingService
     Task<ServiceResult<IReadOnlyList<BookingResponse>>> GetMyBookingsAsync(
         string userId,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> ConfirmTimeChangeAsync(
+        string bookingId,
+        bool accept,
+        string token,
+        CancellationToken cancellationToken);
 }

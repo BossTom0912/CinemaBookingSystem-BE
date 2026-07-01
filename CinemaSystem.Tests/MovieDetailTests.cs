@@ -43,7 +43,7 @@ public sealed class MovieDetailTests
         Assert.Equal("Dune: Part Two", movie.Title);
         Assert.Equal(166, movie.DurationMinutes);
         Assert.Equal("Sci-Fi, Adventure", movie.Genre);
-        Assert.Equal("English", movie.Language);
+        Assert.Equal("English", movie.LanguageId);
         Assert.Equal(new DateOnly(2026, 6, 15), movie.ReleaseDate);
         Assert.Equal("T13", movie.AgeRating);
         Assert.Equal("Movie description", movie.Description);
@@ -136,7 +136,7 @@ public sealed class MovieDetailTests
             Title = "Dune: Part Two",
             DurationMinutes = 166,
             Genre = "Sci-Fi, Adventure",
-            Language = "English",
+            LanguageId = "English",
             ReleaseDate = new DateOnly(2026, 6, 15),
             AgeRating = ageRating,
             Description = "Movie description",
@@ -166,7 +166,7 @@ public sealed class MovieDetailTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var service = new MovieService(dbContext);
+            var service = new MovieService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object);
             var controller = new MoviesController(service);
 
             return new TestFixture(dbContext, controller);

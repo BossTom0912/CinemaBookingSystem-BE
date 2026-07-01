@@ -1,4 +1,5 @@
 using CinemaSystem.Application.Common;
+using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Seats;
 
 namespace CinemaSystem.Application.Interfaces;
@@ -8,6 +9,18 @@ public interface ISeatService
     Task<ServiceResult<IEnumerable<SeatResponse>>> GetSeatsByRoomAsync(
         string roomId,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
+        string? roomId,
+        bool? isActive,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<SeatResponse>> GetSeatByIdAsync(
+        string seatId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<bool>> CreateSeatAsync(
         CreateSeatRequest request,
         string userId,

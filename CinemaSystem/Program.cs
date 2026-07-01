@@ -14,6 +14,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Hangfire;
+using Hangfire.InMemory;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -21,6 +23,7 @@ builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
@@ -70,6 +73,14 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.Configure<CinemaSystem.Application.Settings.CinemaProcessingSettings>(
+    builder.Configuration.GetSection("CinemaProcessingSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.AuthSettings>(
+    builder.Configuration.GetSection("AuthSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.SecuritySettings>(
+    builder.Configuration.GetSection("SecuritySettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.EmailTemplatesSettings>(
+    builder.Configuration.GetSection("EmailTemplates"));
 builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
 var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
@@ -98,6 +109,13 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
+
+builder.Services.AddHangfire(configuration => configuration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseInMemoryStorage());
+builder.Services.AddHangfireServer();
 
 var jwtSettings = new JwtSettings
 {
@@ -226,9 +244,14 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors("FrontendCors");
-
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseHangfireDashboard("/hangfire");
+}
 
 app.MapControllers();
 app.Run();

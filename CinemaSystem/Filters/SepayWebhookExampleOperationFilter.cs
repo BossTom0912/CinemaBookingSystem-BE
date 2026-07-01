@@ -26,7 +26,7 @@ public sealed class SepayWebhookExampleOperationFilter : IOperationFilter
                 {
                     Type = "number",
                     Format = "decimal",
-                    Example = new OpenApiDouble(150000)
+                    Example = new OpenApiDouble(150700)
                 },
                 ["referenceCode"] = new()
                 {
@@ -38,7 +38,7 @@ public sealed class SepayWebhookExampleOperationFilter : IOperationFilter
             Example = new OpenApiObject
             {
                 ["content"] = new OpenApiString("Thanh toan ve phim TSEPAY150K1"),
-                ["transferAmount"] = new OpenApiDouble(150000),
+                ["transferAmount"] = new OpenApiDouble(150700),
                 ["referenceCode"] = new OpenApiString("SEPAY_BANK_REF_150K_001")
             }
         };
