@@ -14,13 +14,22 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Hangfire;
+using Hangfire.InMemory;
 
+// COMPOSITION ROOT:
+// 1) Nhận configuration và đăng ký API/Swagger/auth/policy tại file này.
+// 2) Hạ tầng nghiệp vụ được chuyển tiếp sang AddInfrastructureServices trong
+//    CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs.
+// 3) Request runtime đi tiếp: middleware -> Controller trong
+//    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
@@ -70,6 +79,14 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
+builder.Services.Configure<CinemaSystem.Application.Settings.CinemaProcessingSettings>(
+    builder.Configuration.GetSection("CinemaProcessingSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.AuthSettings>(
+    builder.Configuration.GetSection("AuthSettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.SecuritySettings>(
+    builder.Configuration.GetSection("SecuritySettings"));
+builder.Services.Configure<CinemaSystem.Application.Settings.EmailTemplatesSettings>(
+    builder.Configuration.GetSection("EmailTemplates"));
 builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
 var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
@@ -98,6 +115,13 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
+
+builder.Services.AddHangfire(configuration => configuration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseInMemoryStorage());
+builder.Services.AddHangfireServer();
 
 var jwtSettings = new JwtSettings
 {
@@ -128,6 +152,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
+    // Policy chỉ định role được phép đi qua Controller. Muốn biết policy nào
+    // được dùng thật, tìm [Authorize(Policy = ...)] trong CinemaSystem/Controllers.
+    // Có policy nhưng không có Controller sử dụng thì mới chỉ là hạ tầng quyền.
     options.AddPolicy(AuthConstants.Policies.CanViewMoviesAndShowtimes, policy =>
         policy.RequireAssertion(_ => true));
     options.AddPolicy(AuthConstants.Policies.CanRegisterOrLogin, policy =>
@@ -182,6 +209,8 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    // Development đi tiếp tới Swagger UI, sau đó DatabaseMaintenanceService
+    // trong CinemaSystem.Infrastructure/Data thực hiện migrate và seed.
     app.UseSwagger();
     app.UseSwaggerUI();
 
@@ -226,14 +255,14 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors("FrontendCors");
-
-// Request handoff order: JwtBearer first builds User/role claims from the
-// access token; authorization policies then decide whether the selected
-// controller action may run. An accepted action continues through an
-// Application interface to the Infrastructure implementation registered by
-// DependencyInjection.AddInfrastructureServices above.
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseHangfireDashboard("/hangfire");
+}
 
 app.MapControllers();
 app.Run();

@@ -92,13 +92,18 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
             if (booking.VoucherUsage is not null)
             {
-                dbContext.VoucherUsages.Remove(booking.VoucherUsage);
+                booking.VoucherUsage.UsageStatus = "CANCELLED";
             }
 
-            dbContext.BookingFbItems.RemoveRange(booking.BookingFbItems);
-            dbContext.Payments.RemoveRange(booking.Payments);
-            dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
-            dbContext.Bookings.Remove(booking);
+            foreach (var payment in booking.Payments)
+            {
+                if (payment.PaymentStatus == "PENDING")
+                {
+                    payment.PaymentStatus = "EXPIRED";
+                }
+            }
+
+            booking.BookingStatus = "CANCELLED";
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

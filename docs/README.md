@@ -36,10 +36,6 @@ agents discover them there automatically.
 
 - [`database/cinema-booking-schema.sql`](database/cinema-booking-schema.sql):
   complete local database creation script.
-- [`database/profile-token-counter-sale-patch.sql`](database/profile-token-counter-sale-patch.sql):
-  incremental reference patch.
-- [`database/test-customer-seed.sql`](database/test-customer-seed.sql):
-  optional local test customer seed.
 
 ## Testing
 

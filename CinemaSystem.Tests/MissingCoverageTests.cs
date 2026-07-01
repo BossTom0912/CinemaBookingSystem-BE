@@ -1292,7 +1292,7 @@ public sealed class PaymentServiceMissingCoverageTests
         {
             BookingId = "BOOKING_TEST",
             PaymentProviderId = "PAYPROV_TEST_SEPAY"
-        }, "USR_TEST_PAYMENT");
+        }, "USER_TEST");
 
         // Gửi số tiền thấp hơn (60000 thay vì 120000)
         var rawPayload = $$"""{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}""";
@@ -1318,15 +1318,15 @@ public sealed class PaymentServiceMissingCoverageTests
         // Không tạo payment, gọi confirm với mã không tồn tại
         var exception = await Record.ExceptionAsync(() =>
             fixture.Service.ConfirmPaymentAsync(
-                "Cinema TNOTFOUND00",
+                "Cinema TX_NONEXISTENT",
                 120000m,
                 "SEP_GHOST",
-                """{"content":"Cinema TNOTFOUND00","transferAmount":120000}"""));
+                """{"content":"Cinema TX_NONEXISTENT","transferAmount":120000}"""));
 
         // Service phải throw InvalidOperationException (không phải NullReferenceException)
         Assert.NotNull(exception);
         Assert.IsType<InvalidOperationException>(exception);
-        Assert.Contains("TNOTFOUND00", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TX_NONEXISTENT", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1341,7 +1341,7 @@ public sealed class PaymentServiceMissingCoverageTests
             {
                 BookingId = "BOOKING_GHOST",
                 PaymentProviderId = "PAYPROV_TEST_SEPAY"
-            }, "USR_GHOST"));
+            }, "USER_TEST"));
 
         // Service throw InvalidOperationException (không phải NullReferenceException)
         Assert.IsType<InvalidOperationException>(exception);
@@ -1388,35 +1388,10 @@ public sealed class PaymentServiceMissingCoverageTests
                 ProviderName = "SEPAY_TEST",
                 ProviderStatus = "ACTIVE"
             });
-            DbContext.Roles.Add(new Role
-            {
-                RoleId = "ROLE_CUSTOMER",
-                RoleName = "CUSTOMER",
-                Description = "Customer"
-            });
-            DbContext.Users.Add(new User
-            {
-                UserId = "USR_TEST_PAYMENT",
-                RoleId = "ROLE_CUSTOMER",
-                Email = "test@example.com",
-                PasswordHash = "HASH",
-                FullName = "Test User",
-                Status = "ACTIVE",
-                EmailVerified = true,
-                CreatedAt = DateTime.UtcNow
-            });
-            DbContext.CustomerProfiles.Add(new CustomerProfile
-            {
-                CustomerProfileId = "CUST_PROFILE_TEST",
-                UserId = "USR_TEST_PAYMENT",
-                MemberLevel = "STANDARD",
-                RewardPoints = 0
-            });
             DbContext.Bookings.Add(new Booking
             {
                 BookingId = "BOOKING_TEST",
                 ShowtimeId = "SHOWTIME_TEST",
-                CustomerProfileId = "CUST_PROFILE_TEST",
                 BookingStatus = "PENDING_PAYMENT",
                 TotalAmount = 120000m,
                 CreatedAt = DateTime.UtcNow,
@@ -1538,11 +1513,14 @@ public sealed class ShowtimeServiceMissingCoverageTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var clock = new FakeClock(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var mockClock = new Moq.Mock<IClock>();
+            mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
+            var mockJobClient = new Moq.Mock<Hangfire.IBackgroundJobClient>();
+                        var mockOptions = Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings());
             return new Fixture(
                 dbContext,
-                new RoomService(dbContext),
-                new ShowtimeService(dbContext, clock));
+                new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
+                new ShowtimeService(dbContext, mockClock.Object, mockOptions, mockJobClient.Object));
         }
 
         public async Task SeedCinemaAsync()
