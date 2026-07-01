@@ -93,12 +93,9 @@ public static class DependencyInjection
         }
 
         services.AddScoped<ISeatService, SeatService>();
-        services.AddScoped<SeatService>();
         services.AddScoped<IRoomService, RoomService>();
-        services.AddScoped<RoomService>();
         services.AddScoped<IFileStorageService, LocalFileStorageService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
-        services.AddScoped<ShowtimeService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
