@@ -32,6 +32,7 @@ public sealed class RequestedFlowApiIntegrationTests
         using var form = new MultipartFormDataContent();
         AddFormField(form, "Title", "Requested Flow Movie");
         AddFormField(form, "DurationMinutes", "120");
+        AddFormField(form, "IsDurationConfirmed", "true");
         AddFormField(form, "GenreIds", "1");
         AddFormField(form, "Language", "VN");
         AddFormField(form, "ReleaseDate", "2026-06-26");

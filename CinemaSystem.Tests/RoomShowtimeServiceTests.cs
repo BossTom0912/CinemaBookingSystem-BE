@@ -374,7 +374,11 @@ public sealed class RoomShowtimeServiceTests
                     Moq.It.IsAny<string>(),
                     Moq.It.IsAny<CancellationToken>()))
                 .Returns(Task.FromResult(CinemaSystem.Application.Common.ServiceResult<bool>.Ok(true)));
-            var roomService = new RoomService(dbContext, refundService.Object);
+            var roomService = new RoomService(
+                dbContext,
+                refundService.Object,
+                Microsoft.Extensions.Options.Options.Create(
+                    new CinemaSystem.Application.Settings.CinemaProcessingSettings()));
             var showtimeService = new ShowtimeService(
                 dbContext,
                 mockClock.Object,

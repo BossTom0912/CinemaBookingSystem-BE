@@ -254,7 +254,9 @@ public sealed class SeatCrudServiceTests
           new Moq.Mock<Hangfire.IBackgroundJobClient>().Object,
           new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
           Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
-          Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings())));
+          Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+          Microsoft.Extensions.Options.Options.Create(
+            new CinemaSystem.Infrastructure.Configuration.BookingSettings())));
     }
   }
 }

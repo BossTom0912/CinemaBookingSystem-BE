@@ -181,7 +181,9 @@ public sealed class MovieDetailTests
             var service = new MovieService(
                 dbContext,
                 new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
-                new Moq.Mock<CinemaSystem.Application.Interfaces.IFileStorageService>().Object);
+                new Moq.Mock<CinemaSystem.Application.Interfaces.IFileStorageService>().Object,
+                Microsoft.Extensions.Options.Options.Create(
+                    new CinemaSystem.Application.Settings.CinemaProcessingSettings()));
             var controller = new MoviesController(service);
 
             return new TestFixture(dbContext, controller);

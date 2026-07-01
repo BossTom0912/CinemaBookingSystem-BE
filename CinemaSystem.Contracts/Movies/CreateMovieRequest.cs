@@ -14,6 +14,8 @@ public class CreateMovieRequest
 
     public List<int>? GenreIds { get; set; }
 
+    public List<string>? GenreNames { get; set; }
+
     [MaxLength(50)]
     public string? Language { get; set; }
 
@@ -36,4 +38,6 @@ public class CreateMovieRequest
 
     [MaxLength(30)]
     public string? MovieStatus { get; set; }
+
+    public bool IsDurationConfirmed { get; set; }
 }

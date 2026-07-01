@@ -5,84 +5,87 @@ using CinemaSystem.Application.Interfaces;
 
 namespace CinemaSystem.Infrastructure.Services;
 
-/// <summary>
-/// SePay webhook orchestration reached from
-/// <c>PaymentController.SepayWebhook</c>.
-/// </summary>
-/// <remarks>
-/// The service validates required headers, delegates HMAC verification to
-/// <see cref="IWebhookSignatureVerifier"/>, deserializes the provider payload,
-/// then hands the state-changing transaction to
-/// <see cref="IPaymentService.ConfirmPaymentAsync"/>. It does not write the
-/// database directly.
-/// </remarks>
 public sealed class PaymentWebhookService : IPaymentWebhookService
 {
+    // Khai báo dependency để xác thực chữ ký của webhook
     private readonly IWebhookSignatureVerifier _signatureVerifier;
+    // Khai báo dependency để gọi các nghiệp vụ xử lý thanh toán
     private readonly IPaymentService _paymentService;
 
+    // Khởi tạo service với các dependency injection được truyền vào
     public PaymentWebhookService(
         IWebhookSignatureVerifier signatureVerifier,
         IPaymentService paymentService)
     {
+        // Gán bộ xác thực chữ ký vào biến readonly
         _signatureVerifier = signatureVerifier;
+        // Gán service thanh toán vào biến readonly
         _paymentService = paymentService;
     }
 
+    // Phương thức xử lý webhook gửi về từ SePay
     public async Task<ServiceResult<object>> HandleSepayWebhookAsync(
         string payload,
         string? signatureHeader,
         string? timestampHeader,
         CancellationToken cancellationToken)
     {
+        // Kiểm tra xem tiêu đề (header) chữ ký có bị trống không
         if (string.IsNullOrWhiteSpace(signatureHeader))
         {
+            // Trả về kết quả thất bại (401) nếu thiếu chữ ký SePay
             return ServiceResult<object>.Fail(
                 401,
                 "Missing SePay signature.",
-                "INVALID_SIGNATURE");
+                "INVALID_WEBHOOK_SIGNATURE");
         }
 
+        // Kiểm tra xem tiêu đề thời gian (timestamp) có bị trống không
         if (string.IsNullOrWhiteSpace(timestampHeader))
         {
+            // Trả về kết quả thất bại (401) nếu thiếu thời gian của SePay
             return ServiceResult<object>.Fail(
                 401,
                 "Missing SePay timestamp.",
-                "INVALID_SIGNATURE");
+                "INVALID_WEBHOOK_SIGNATURE");
         }
 
-        // Chặng tiếp theo: IWebhookSignatureVerifier được DI map sang
-        // HmacVerifyHelper trong Infrastructure/Services. Tách verifier để
-        // PaymentWebhookService chỉ điều phối và có thể test độc lập HMAC.
+        // Thực hiện xác thực nội dung payload có khớp với chữ ký và thời gian không
         if (!_signatureVerifier.Verify(signatureHeader, timestampHeader, payload))
         {
+            // Trả về kết quả thất bại (401) nếu chữ ký không hợp lệ
             return ServiceResult<object>.Fail(
                 401,
                 "Invalid SePay signature.",
-                "INVALID_SIGNATURE");
+                "INVALID_WEBHOOK_SIGNATURE");
         }
 
+        // Giải mã chuỗi JSON (payload) thành đối tượng SepayWebhookRequest
         var webhook = JsonSerializer.Deserialize<SepayWebhookRequest>(payload);
+        // Nếu kết quả giải mã là null (chuỗi JSON không đúng cấu trúc)
         if (webhook is null)
         {
+            // Trả về lỗi định dạng (400) do dữ liệu webhook không hợp lệ
             return ServiceResult<object>.Fail(
                 400,
                 "Invalid SePay webhook payload.",
                 "INVALID_WEBHOOK_PAYLOAD");
         }
 
-        // Chặng tiếp theo: IPaymentService -> PaymentService trong cùng folder.
-        // PaymentService mới là class sở hữu transaction thay đổi PAYMENT,
-        // BOOKING, SHOWTIME_SEAT và TICKET; webhook service không ghi DB trực tiếp.
+        // Chuyển tiếp dữ liệu thanh toán đến PaymentService để tiến hành xác nhận (Confirm)
         await _paymentService.ConfirmPaymentAsync(
+            // Nội dung chuyển khoản chứa mã giao dịch
             webhook.Content,
+            // Số tiền được chuyển
             webhook.Amount,
+            // Mã giao dịch từ phía SePay cung cấp (nếu có)
             webhook.ReferenceCode,
+            // Toàn bộ chuỗi payload gốc để lưu lại log
             payload,
+            // Token hỗ trợ hủy bỏ tác vụ
             cancellationToken);
 
-        // PaymentService commit xong thì kết quả quay qua PaymentController để
-        // trả ACK cho SePay; nếu service ném lỗi, GlobalExceptionMiddleware xử lý.
+        // Trả về phản hồi thành công sau khi xác nhận thanh toán xong
         return ServiceResult<object>.Ok(null, "Payment confirmed.");
     }
 }

@@ -592,7 +592,7 @@ public sealed class PaymentMissingCoverageTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal("INVALID_SIGNATURE", body!.ErrorCode);
+        Assert.Equal("INVALID_WEBHOOK_SIGNATURE", body!.ErrorCode);
     }
 
     [Fact]
@@ -620,7 +620,7 @@ public sealed class PaymentMissingCoverageTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal("INVALID_SIGNATURE", body!.ErrorCode);
+        Assert.Equal("INVALID_WEBHOOK_SIGNATURE", body!.ErrorCode);
     }
 
     [Fact]
@@ -1383,10 +1383,7 @@ public sealed class PaymentServiceMissingCoverageTests
                     BankAccount = "123456789"
                 }),
                 new RefundClaimIssuer(
-                    Microsoft.Extensions.Options.Options.Create(new RefundSettings())),
-                new FakeEmailCapture(),
-                Microsoft.Extensions.Options.Options.Create(new RefundSettings()),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentService>.Instance);
+                    Microsoft.Extensions.Options.Options.Create(new RefundSettings())));
             return new Fixture(dbContext, service);
         }
 
@@ -1421,6 +1418,17 @@ public sealed class PaymentServiceMissingCoverageTests
                 UserId = "USR_TEST_PAYMENT",
                 MemberLevel = "STANDARD",
                 RewardPoints = 0
+            });
+            DbContext.Showtimes.Add(new Showtime
+            {
+                ShowtimeId = "SHOWTIME_TEST",
+                MovieId = "MOVIE_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = DateTime.UtcNow.AddDays(1),
+                EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
+                BasePrice = 120000m,
+                Status = "OPEN",
+                CreatedAt = DateTime.UtcNow
             });
             DbContext.Bookings.Add(new Booking
             {
@@ -1556,7 +1564,11 @@ public sealed class ShowtimeServiceMissingCoverageTests
             var mockHttpContextAccessor = new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>();
             return new Fixture(
                 dbContext,
-                new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
+                new RoomService(
+                    dbContext,
+                    new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
+                    Microsoft.Extensions.Options.Options.Create(
+                        new CinemaSystem.Application.Settings.CinemaProcessingSettings())),
                 new ShowtimeService(
                     dbContext,
                     mockClock.Object,

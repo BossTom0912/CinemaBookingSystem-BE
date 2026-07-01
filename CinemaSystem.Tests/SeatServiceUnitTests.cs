@@ -400,6 +400,8 @@ public sealed class SeatServiceUnitTests
       new Mock<IAdminRefundService>().Object,
       Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
       Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Infrastructure.Configuration.BookingSettings()),
       lockStoreMock.Object);
 
     await Assert.ThrowsAsync<DbUpdateException>(() =>
@@ -458,6 +460,8 @@ public sealed class SeatServiceUnitTests
       new Mock<IAdminRefundService>().Object,
       Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
       Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Infrastructure.Configuration.BookingSettings()),
       lockStore);
     var request = new LockSeatRequest { ShowtimeId = ShowtimeId, SeatId = SeatId };
 
@@ -566,6 +570,8 @@ public sealed class SeatServiceUnitTests
         new Mock<IAdminRefundService>().Object,
         Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
         Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+        Microsoft.Extensions.Options.Options.Create(
+          new CinemaSystem.Infrastructure.Configuration.BookingSettings()),
         lockStoreMock.Object);
 
       return new UnitTestFixture(dbContext, lockStoreMock, service);

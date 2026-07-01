@@ -14,29 +14,27 @@ using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Services;
 
-/// <summary>
-/// Runtime implementation for authenticated profile and customer-history
-/// operations reached from <c>CustomersController</c>.
-/// </summary>
-/// <remarks>
-/// Profile/password/email changes use USER, CUSTOMER_PROFILE and
-/// EMAIL_VERIFICATION_TOKEN through <c>CinemaDbContext</c>. Email-change OTPs
-/// are hashed through <see cref="IPasswordHasher"/> and sent through
-/// <see cref="IEmailSender"/>. Booking history follows EF relationships from
-/// BOOKING to showtime, movie, cinema, room and seat.
-/// </remarks>
 public sealed class CustomerService : ICustomerService
 {
+    // Hằng số đánh dấu mục đích gửi OTP là để cập nhật email
     private const string EmailUpdatePurpose = "EMAIL_UPDATE";
 
+    // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
     private readonly CinemaDbContext _dbContext;
+    // Khai báo dịch vụ hash mật khẩu
     private readonly IPasswordHasher _passwordHasher;
+    // Khai báo dịch vụ tạo mã OTP
     private readonly IOtpGenerator _otpGenerator;
+    // Khai báo dịch vụ gửi email
     private readonly IEmailSender _emailSender;
+    // Khai báo dịch vụ quản lý thời gian
     private readonly IClock _clock;
+    // Khai báo biến lưu trữ cấu hình bảo mật/xác thực
     private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
+    // Khai báo BackgroundJobClient của Hangfire để thực hiện các tiến trình chạy nền
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
 
+    // Constructor khởi tạo và tiêm (inject) các phụ thuộc cần thiết
     public CustomerService(
         CinemaDbContext dbContext,
         IPasswordHasher passwordHasher,
@@ -46,239 +44,359 @@ public sealed class CustomerService : ICustomerService
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
         Hangfire.IBackgroundJobClient backgroundJobClient)
     {
+        // Gán DbContext
         _dbContext = dbContext;
+        // Gán bộ băm mật khẩu
         _passwordHasher = passwordHasher;
+        // Gán bộ tạo OTP
         _otpGenerator = otpGenerator;
+        // Gán dịch vụ gửi email
         _emailSender = emailSender;
+        // Gán dịch vụ clock
         _clock = clock;
+        // Gán cấu hình xác thực từ tùy chọn
         _authSettings = authOptions.Value;
+        // Gán Hangfire client
         _backgroundJobClient = backgroundJobClient;
     }
 
     public async Task<ServiceResult<CustomerProfileResponse>> GetProfileAsync(string userId, CancellationToken cancellationToken)
     {
+        // Truy vấn thông tin tài khoản User dựa trên userId
         var user = await _dbContext.Users
+            // Bao gồm dữ liệu chi tiết của CustomerProfile liên quan
             .Include(u => u.CustomerProfile)
+            // Lấy ra bản ghi đầu tiên thỏa mãn
             .FirstOrDefaultAsync(u => u.UserId == userId, cancellationToken);
 
+        // Nếu không tìm thấy người dùng trong hệ thống
         if (user is null)
         {
+            // Trả về kết quả lỗi
             return ServiceResult<CustomerProfileResponse>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
+        // Map sang DTO và trả về thông tin hồ sơ người dùng thành công
         return ServiceResult<CustomerProfileResponse>.Ok(MapToProfileResponse(user));
     }
 
     public async Task<ServiceResult<CustomerProfileResponse>> UpdateProfileAsync(string userId, UpdateProfileRequest request, CancellationToken cancellationToken)
     {
+        // Truy vấn thông tin tài khoản User từ DB
         var user = await _dbContext.Users
+            // Lấy kèm thông tin CustomerProfile
             .Include(u => u.CustomerProfile)
+            // Tìm theo ID
             .FirstOrDefaultAsync(u => u.UserId == userId, cancellationToken);
 
+        // Nếu người dùng không tồn tại
         if (user is null)
         {
+            // Trả về lỗi
             return ServiceResult<CustomerProfileResponse>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
+        // Nếu có request thay đổi họ tên, tiến hành gán tên mới
         if (request.FullName is not null) user.FullName = request.FullName;
         
+        // Nếu người dùng có tồn tại hồ sơ CustomerProfile
         if (user.CustomerProfile is not null)
         {
+            // Cập nhật địa chỉ nếu có
             if (request.Address is not null) user.CustomerProfile.Address = request.Address;
+            // Cập nhật URL ảnh đại diện nếu có
             if (request.AvatarUrl is not null) user.CustomerProfile.AvatarUrl = request.AvatarUrl;
+            // Cập nhật giới tính nếu có
             if (request.Gender is not null) user.CustomerProfile.Gender = request.Gender;
+            // Cập nhật ngày sinh nếu có
             if (request.DateOfBirth is not null) user.CustomerProfile.DateOfBirth = request.DateOfBirth;
         }
 
+        // Đánh dấu thời điểm cập nhật bằng giờ UTC hiện hành
         user.UpdatedAt = _clock.UtcNow;
+        // Lưu những thay đổi vào cơ sở dữ liệu
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Map sang DTO và trả về kết quả thành công
         return ServiceResult<CustomerProfileResponse>.Ok(MapToProfileResponse(user), "Profile updated successfully.");
     }
 
     public async Task<ServiceResult<object>> ChangePasswordAsync(string userId, ChangePasswordRequest request, CancellationToken cancellationToken)
     {
+        // Tìm thông tin người dùng theo khóa chính userId
         var user = await _dbContext.Users.FindAsync(new object[] { userId }, cancellationToken);
 
+        // Nếu không tìm thấy
         if (user is null)
         {
+            // Trả về lỗi
             return ServiceResult<object>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
+        // Kiểm tra xem mật khẩu cũ nhập vào có khớp với mật khẩu đã băm trong DB hay không
         if (!_passwordHasher.VerifySecret(request.OldPassword, user.PasswordHash))
         {
+            // Nếu không khớp, trả về lỗi mật khẩu sai
             return ServiceResult<object>.Fail(400, "Invalid old password.", "INVALID_OLD_PASSWORD");
         }
 
-        var passwordValidationError = ValidatePassword(request.NewPassword);
+        // Kiểm tra xem mật khẩu mới có đạt các tiêu chuẩn an toàn (độ dài, ký tự đặc biệt...) hay không
+        var passwordValidationError = PasswordValidator.Validate(request.NewPassword, _authSettings);
+        // Nếu mật khẩu mới không hợp lệ
         if (passwordValidationError is not null)
         {
+            // Trả về nguyên nhân lỗi mật khẩu yếu
             return ServiceResult<object>.Fail(400, passwordValidationError, "WEAK_PASSWORD");
         }
 
+        // Băm mật khẩu mới để bảo mật và lưu vào đối tượng
         user.PasswordHash = _passwordHasher.HashSecret(request.NewPassword);
+        // Cập nhật thời điểm đổi mật khẩu
         user.UpdatedAt = _clock.UtcNow;
 
+        // Lưu thông tin mật khẩu mới vào cơ sở dữ liệu
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Trả về kết quả thành công
         return ServiceResult<object>.Ok(new { success = true }, "Password changed successfully.");
     }
 
     public async Task<ServiceResult<object>> RequestEmailUpdateAsync(string userId, UpdateEmailRequest request, CancellationToken cancellationToken)
     {
+        // Truy xuất người dùng từ DB
         var user = await _dbContext.Users.FindAsync(new object[] { userId }, cancellationToken);
+        // Nếu không tìm thấy
         if (user is null)
         {
+            // Trả về lỗi
             return ServiceResult<object>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
+        // Chuẩn hóa chuỗi email mới (Xóa khoảng trắng và chuyển chữ thường)
         var normalizedEmail = request.NewEmail.Trim().ToLowerInvariant();
+        // Kiểm tra xem email mới này đã được sử dụng bởi một tài khoản nào khác chưa
         if (await _dbContext.Users.AnyAsync(u => u.Email == normalizedEmail && u.UserId != userId, cancellationToken))
         {
+            // Trả về lỗi email đã tồn tại
             return ServiceResult<object>.Fail(409, "Email already in use.", "DUPLICATE_EMAIL");
         }
 
+        // Thực hiện gửi mã OTP đến email mới
         return await SendUpdateOtpAsync(user, normalizedEmail, EmailUpdatePurpose, cancellationToken);
     }
 
     public async Task<ServiceResult<object>> VerifyEmailUpdateAsync(string userId, VerifyEmailUpdateRequest request, CancellationToken cancellationToken)
     {
+        // Truy xuất thông tin người dùng từ DB
         var user = await _dbContext.Users.FindAsync(new object[] { userId }, cancellationToken);
+        // Nếu không có người dùng này
         if (user is null)
         {
+            // Trả về lỗi
             return ServiceResult<object>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
+        // Chuẩn hóa email tương tự như lúc request đổi
         var normalizedEmail = request.NewEmail.Trim().ToLowerInvariant();
+        // Tìm Token (OTP) gần nhất khớp với userId và chưa được sử dụng
         var token = await _dbContext.EmailVerificationTokens
+            // Điều kiện: đúng người dùng, đúng mục đích cập nhật email, mã chưa được sử dụng
             .Where(t => t.UserId == userId && t.Purpose == EmailUpdatePurpose && !t.IsUsed)
+            // Sắp xếp mã OTP mới tạo lên đầu
             .OrderByDescending(t => t.CreatedAt)
+            // Lấy mã mới nhất
             .FirstOrDefaultAsync(cancellationToken);
 
+        // Kiểm tra tính hợp lệ của OTP (không tồn tại, hết hạn, hoặc mã nhập vào sai)
         if (token is null || token.ExpiredAt <= _clock.UtcNow || !_passwordHasher.VerifySecret(request.Otp, token.Token))
         {
+            // Trả về lỗi nếu OTP không hợp lệ hoặc đã hết hạn
             return ServiceResult<object>.Fail(400, "Invalid or expired OTP.", "INVALID_OTP");
         }
 
+        // Đánh dấu mã OTP này đã được dùng
         token.IsUsed = true;
+        // Ghi nhận thời điểm xác thực thành công
         token.VerifiedAt = _clock.UtcNow;
+        // Tiến hành cập nhật email mới cho người dùng
         user.Email = normalizedEmail;
+        // Đánh dấu tài khoản người dùng đã verify email
         user.EmailVerified = true;
+        // Ghi lại thời gian thay đổi
         user.UpdatedAt = _clock.UtcNow;
 
+        // Lưu thông tin người dùng và token đã dùng vào Database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Trả về thành công kèm email mới cập nhật
         return ServiceResult<object>.Ok(new { email = normalizedEmail }, "Email updated successfully.");
     }
 
     public async Task<ServiceResult<List<BookingHistoryResponse>>> GetBookingHistoryAsync(string userId, CancellationToken cancellationToken)
     {
+        // Tìm hồ sơ khách hàng khớp với userId
         var profile = await _dbContext.CustomerProfiles
             .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
 
+        // Nếu hồ sơ khách hàng không tồn tại
         if (profile is null)
         {
+            // Trả về lỗi
             return ServiceResult<List<BookingHistoryResponse>>.Fail(404, "Customer profile not found.", "PROFILE_NOT_FOUND");
         }
 
+        // Truy vấn lịch sử đặt vé của người dùng
         var bookings = await _dbContext.Bookings
+            // Lấy kèm thông tin Suất chiếu
             .Include(b => b.Showtime)
+                // Lấy kèm thông tin Phim
                 .ThenInclude(s => s.Movie)
+            // Lấy kèm thông tin Suất chiếu (Nhánh 2)
             .Include(b => b.Showtime)
+                // Lấy kèm thông tin Phòng chiếu
                 .ThenInclude(s => s.Room)
+                    // Lấy kèm thông tin Rạp
                     .ThenInclude(r => r.Cinema)
+            // Lấy kèm thông tin danh sách Ghế đã đặt
             .Include(b => b.BookingSeats)
+                // Lấy chi tiết thông tin Ghế trong Suất chiếu đó
                 .ThenInclude(bs => bs.ShowtimeSeat)
+                    // Lấy thông tin thực tế của Ghế
                     .ThenInclude(ss => ss.Seat)
+                        // Lấy thông tin Loại Ghế
                         .ThenInclude(s => s.SeatType)
+            // Lọc ra các đơn đặt vé của profile khách hàng này
             .Where(b => b.CustomerProfileId == profile.CustomerProfileId)
+            // Sắp xếp các đơn đặt vé mới nhất lên trên
             .OrderByDescending(b => b.CreatedAt)
+            // Thực thi truy vấn chuyển thành danh sách (List)
             .ToListAsync(cancellationToken);
 
+        // Map danh sách các Entity sang dạng Response (DTO)
         var response = bookings.Select(b => new BookingHistoryResponse
         {
+            // Gán ID hóa đơn
             BookingId = b.BookingId,
+            // Gán ID suất chiếu
             ShowtimeId = b.ShowtimeId,
+            // Gán tựa phim
             MovieTitle = b.Showtime.Movie.Title,
+            // Gán đường dẫn poster phim
             MoviePosterUrl = b.Showtime.Movie.PosterUrl,
+            // Gán tên rạp
             CinemaName = b.Showtime.Room.Cinema.CinemaName,
+            // Gán tên phòng chiếu
             RoomName = b.Showtime.Room.RoomName,
+            // Gán thời gian chiếu phim
             StartTime = b.Showtime.StartTime,
+            // Gán tổng tiền của hóa đơn
             TotalAmount = b.TotalAmount,
+            // Gán trạng thái đặt vé (Thành công, Hủy...)
             BookingStatus = b.BookingStatus,
+            // Gán thời gian đặt vé
             CreatedAt = b.CreatedAt,
+            // Ánh xạ danh sách ghế ngồi đã chọn sang dạng Response
             Seats = b.BookingSeats.Select(bs => new BookedSeatResponse
             {
+                // Gán ID ghế ngồi
                 SeatId = bs.ShowtimeSeat.SeatId,
+                // Gán số ghế
                 SeatNumber = bs.ShowtimeSeat.Seat.SeatNumber.ToString(),
+                // Gán tên hàng (Ký tự alphabet)
                 Row = bs.ShowtimeSeat.Seat.RowLabel,
+                // Gán loại ghế (Thường, VIP, Đôi...)
                 SeatType = bs.ShowtimeSeat.Seat.SeatType.TypeName
             }).ToList()
         }).ToList();
 
+        // Trả về kết quả là danh sách lịch sử vé thành công
         return ServiceResult<List<BookingHistoryResponse>>.Ok(response);
     }
 
+    // Hàm tiện ích gửi mã OTP
     private async Task<ServiceResult<object>> SendUpdateOtpAsync(User user, string targetEmail, string purpose, CancellationToken cancellationToken)
     {
+        // Lấy thời gian UTC hiện tại
         var now = _clock.UtcNow;
+        // Sinh ngẫu nhiên mã OTP 6 chữ số
         var otp = _otpGenerator.GenerateSixDigitOtp();
+        // Khởi tạo đối tượng mã xác thực Email
         var token = new EmailVerificationToken
         {
+            // Tạo một ID ngẫu nhiên không trùng lặp cho mã xác thực này
             TokenId = $"EVT_{Guid.NewGuid():N}",
+            // Khớp mã này vào tài khoản người dùng
             UserId = user.UserId,
+            // Băm mã OTP trước khi lưu trữ xuống DB để tăng tính bảo mật
             Token = _passwordHasher.HashSecret(otp),
+            // Gán thời gian tạo là lúc này
             CreatedAt = now,
+            // Tính toán thời điểm hết hạn dựa vào cấu hình cộng thêm
             ExpiredAt = now.AddSeconds(_authSettings.OtpExpirySeconds),
+            // Khởi điểm mã xác thực là chưa dùng
             IsUsed = false,
+            // Gán mục đích gửi mã
             Purpose = purpose,
+            // Số lần thử ban đầu là 1
             AttemptCount = 1
         };
 
+        // Thêm bản ghi xác thực vào Database Context
         _dbContext.EmailVerificationTokens.Add(token);
+        // Lưu xuống Database thực tế
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Soạn nội dung Body của Email
         var body = $"Your verification OTP is: {otp}. It expires in {_authSettings.OtpExpirySeconds / 60} minutes.";
 
         try
         {
-            _backgroundJobClient.Enqueue<IEmailSender>(email =>
+            // Sử dụng Hangfire để đưa Job chạy ngầm: thực thi việc gửi Email không làm treo phiên người dùng
+            _backgroundJobClient.Enqueue<IEmailSender>(email => 
                 email.SendEmailAsync(targetEmail, "Cinema Booking - Email Update Verification", body, CancellationToken.None));
         }
         catch
         {
+            // Trả về lỗi nếu quá trình thêm Job thất bại
             return ServiceResult<object>.Fail(500, "Failed to send verification email.", "EMAIL_SEND_FAILED");
         }
 
+        // Trả về kết quả thành công và thời gian hết hạn cho FE
         return ServiceResult<object>.Ok(new { expiresAt = token.ExpiredAt }, "Verification OTP sent.");
     }
 
+    // Hàm tiện ích map User Entity sang CustomerProfileResponse DTO
     private static CustomerProfileResponse MapToProfileResponse(User user)
     {
+        // Khởi tạo DTO chứa dữ liệu cần trả về
         return new CustomerProfileResponse
         {
+            // Gán UserID
             UserId = user.UserId,
+            // Gán Profile ID (Nếu không có thì để chuỗi rỗng)
             CustomerProfileId = user.CustomerProfile?.CustomerProfileId ?? string.Empty,
+            // Gán Email
             Email = user.Email,
+            // Gán Tên đầy đủ
             FullName = user.FullName,
+            // Gán Số điện thoại
             PhoneNumber = user.PhoneNumber,
+            // Gán Địa chỉ
             Address = user.CustomerProfile?.Address,
+            // Gán ảnh đại diện
             AvatarUrl = user.CustomerProfile?.AvatarUrl,
+            // Gán giới tính
             Gender = user.CustomerProfile?.Gender,
+            // Gán Ngày sinh
             DateOfBirth = user.CustomerProfile?.DateOfBirth,
+            // Gán Hạng thành viên (Hoặc mặc định là STANDARD)
             MemberLevel = user.CustomerProfile?.MemberLevel ?? "STANDARD",
+            // Gán Điểm thưởng (Hoặc mặc định là 0)
             RewardPoints = user.CustomerProfile?.RewardPoints ?? 0,
+            // Gán trạng thái hoạt động tài khoản
             Status = user.Status,
+            // Gán cờ kiểm tra tài khoản đã xác thực Email hay chưa
             EmailVerified = user.EmailVerified
         };
-    }
-
-    private static string? ValidatePassword(string password)
-    {
-        if (password.Length < 8) return "Password must be at least 8 characters.";
-        if (!password.Any(char.IsUpper)) return "Password must contain an uppercase letter.";
-        if (!password.Any(char.IsLower)) return "Password must contain a lowercase letter.";
-        if (!password.Any(char.IsDigit)) return "Password must contain a digit.";
-        return null;
     }
 }

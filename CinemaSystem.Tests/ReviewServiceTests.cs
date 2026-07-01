@@ -33,7 +33,9 @@ public sealed class ReviewServiceTests
             dbContext,
             aiModerationService ?? new Mock<IAiModerationService>().Object,
             new Mock<IMovieService>().Object,
-            new Mock<Hangfire.IBackgroundJobClient>().Object);
+            new Mock<Hangfire.IBackgroundJobClient>().Object,
+            Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.CinemaProcessingSettings()));
     }
 
     private static void SeedCompletedBooking(CinemaDbContext dbContext)
@@ -118,7 +120,7 @@ public sealed class ReviewServiceTests
         var result = await service.CreateReviewAsync("user123", request);
 
         Assert.True(result.Success);
-        Assert.Equal("PENDING", result.Data!.Status);
+        Assert.Equal("APPROVED", result.Data!.Status);
 
         await service.ProcessReviewModerationAsync(
             result.Data.ReviewId,

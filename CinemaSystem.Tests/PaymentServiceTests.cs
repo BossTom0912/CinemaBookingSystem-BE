@@ -159,10 +159,7 @@ public sealed class PaymentServiceTests
                     BankAccount = "123456789",
                     DevelopmentPaymentAmountOverride = paymentAmountOverride
                 }),
-                new RefundClaimIssuer(Options.Create(new RefundSettings())),
-                new FakeEmailCapture(),
-                Options.Create(new RefundSettings()),
-                NullLogger<PaymentService>.Instance);
+                new RefundClaimIssuer(Options.Create(new RefundSettings())));
 
             return new Fixture(dbContext, service);
         }
@@ -199,6 +196,17 @@ public sealed class PaymentServiceTests
                 UserId = "USER_TEST",
                 MemberLevel = "BRONZE",
                 RewardPoints = 0
+            });
+            DbContext.Showtimes.Add(new Showtime
+            {
+                ShowtimeId = "SHOWTIME_TEST",
+                MovieId = "MOVIE_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = DateTime.UtcNow.AddDays(1),
+                EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
+                BasePrice = 120000m,
+                Status = "OPEN",
+                CreatedAt = DateTime.UtcNow
             });
             DbContext.Bookings.Add(new Booking
             {
