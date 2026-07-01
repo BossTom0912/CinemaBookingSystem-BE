@@ -27,4 +27,9 @@ public interface IBookingService
         bool accept,
         string token,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> CancelBookingAsync(
+        string bookingId,
+        string userId,
+        CancellationToken cancellationToken);
 }
