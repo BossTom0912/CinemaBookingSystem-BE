@@ -74,12 +74,15 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
         foreach (var booking in expiredBookings)
         {
-            foreach (var bookingSeat in booking.BookingSeats)
+            var bookingSeats = booking.BookingSeats.ToList();
+            foreach (var bookingSeat in bookingSeats)
             {
                 bookingSeat.ShowtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Available;
                 bookingSeat.ShowtimeSeat.LockedUntil = null;
                 bookingSeat.ShowtimeSeat.LockedByUserId = null;
             }
+
+            dbContext.BookingSeats.RemoveRange(bookingSeats);
 
             if (booking.VoucherUsage is not null)
             {

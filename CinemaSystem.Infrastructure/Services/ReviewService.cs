@@ -59,9 +59,6 @@ public class ReviewService : IReviewService
         if (booking.BookingStatus != DomainConstants.EntityStatus.Completed && booking.BookingStatus != DomainConstants.EntityStatus.Paid)
             return ServiceResult<ReviewResponse>.Fail(400, "Chỉ được phép đánh giá sau khi hoàn tất thanh toán hoặc xem phim.", "BOOKING_NOT_COMPLETED");
 
-        if (booking.Showtime.EndTime > DateTime.UtcNow)
-            return ServiceResult<ReviewResponse>.Fail(400, "Bạn chỉ được phép đánh giá sau khi suất chiếu kết thúc.", "SHOWTIME_NOT_ENDED");
-
         bool alreadyReviewed = await _dbContext.Set<Review>().AnyAsync(r => r.BookingId == request.BookingId, cancellationToken);
         if (alreadyReviewed)
             return ServiceResult<ReviewResponse>.Fail(400, "Bạn đã đánh giá cho vé này rồi.", "REVIEW_ALREADY_EXISTS");
@@ -243,7 +240,24 @@ public class ReviewService : IReviewService
     {
         var reviews = await _dbContext.Set<Review>()
             .AsNoTracking()
+            .Include(r => r.Movie)
+            .Include(r => r.CustomerProfile)
+                .ThenInclude(cp => cp.User)
             .Where(r => r.MovieId == movieId && r.Status == ReviewConstants.Approved)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return ServiceResult<List<ReviewResponse>>.Ok(reviews.Select(MapToResponse).ToList());
+    }
+
+    public async Task<ServiceResult<List<ReviewResponse>>> GetModerationQueueAsync(CancellationToken cancellationToken = default)
+    {
+        var reviews = await _dbContext.Set<Review>()
+            .AsNoTracking()
+            .Include(r => r.Movie)
+            .Include(r => r.CustomerProfile)
+                .ThenInclude(cp => cp.User)
+            .Where(r => r.Status == ReviewConstants.Pending || r.Status == ReviewConstants.Flagged)
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -307,7 +321,11 @@ public class ReviewService : IReviewService
             Rating = review.Rating,
             Comment = review.Comment,
             CreatedAt = review.CreatedAt,
-            Status = review.Status
+            Status = review.Status,
+            CustomerName = review.CustomerProfile?.User?.FullName,
+            MovieTitle = review.Movie?.Title,
+            RejectedReason = review.RejectedReason,
+            ModeratedBy = review.ModeratedBy
         };
     }
 
