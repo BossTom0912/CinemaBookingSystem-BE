@@ -12,6 +12,7 @@ using CinemaSystem.Infrastructure.Persistence;
 
 using CinemaSystem.Infrastructure.Time;
 using CinemaSystem.Tests.Infrastructure;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -499,6 +500,9 @@ public sealed class SeatApiIntegrationTests
 
       builder.ConfigureTestServices(services =>
       {
+        services.AddDataProtection()
+          .UseEphemeralDataProtectionProvider();
+
         services.RemoveAll<DbContextOptions<CinemaDbContext>>();
         services.RemoveAll<CinemaDbContext>();
 

@@ -32,7 +32,7 @@ public sealed class PaymentServiceTests
 
         var payment = await fixture.DbContext.Payments.SingleAsync();
         Assert.Equal("PENDING", payment.PaymentStatus);
-        Assert.Equal("SEPAY", payment.PaymentMethod);
+        Assert.Equal("SEPAY_TEST", payment.PaymentMethod);
     }
 
     [Fact]
@@ -193,6 +193,17 @@ public sealed class PaymentServiceTests
                 UserId = "USER_TEST",
                 MemberLevel = "BRONZE",
                 RewardPoints = 0
+            });
+            DbContext.Showtimes.Add(new Showtime
+            {
+                ShowtimeId = "SHOWTIME_TEST",
+                MovieId = "MOV_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = DateTime.UtcNow.AddDays(1),
+                EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
+                BasePrice = 120000m,
+                Status = "OPEN",
+                CreatedAt = DateTime.UtcNow
             });
             DbContext.Bookings.Add(new Booking
             {

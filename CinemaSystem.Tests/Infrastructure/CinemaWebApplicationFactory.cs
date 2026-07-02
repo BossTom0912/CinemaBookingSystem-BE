@@ -76,6 +76,9 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IEmailService>();
             services.AddSingleton<IEmailSender>(EmailCapture);
             services.AddSingleton<IEmailService>(EmailCapture);
+            services.RemoveAll<Hangfire.IBackgroundJobClient>();
+            services.AddSingleton<Hangfire.IBackgroundJobClient>(
+                new InlineEmailBackgroundJobClient(EmailCapture));
 
             // ── 3. Thay OTP generator bằng giá trị cố định ───────────────────
             services.RemoveAll<IOtpGenerator>();
@@ -203,6 +206,35 @@ public sealed class FakeEmailCapture : IEmailSender, IEmailService
 }
 
 public sealed record CapturedEmail(string ToEmail, string Subject, string Body);
+
+internal sealed class InlineEmailBackgroundJobClient : Hangfire.IBackgroundJobClient
+{
+    private readonly FakeEmailCapture _emailCapture;
+
+    public InlineEmailBackgroundJobClient(FakeEmailCapture emailCapture)
+    {
+        _emailCapture = emailCapture;
+    }
+
+    public string Create(Hangfire.Common.Job job, Hangfire.States.IState state)
+    {
+        if (job.Type == typeof(IEmailSender) || job.Type == typeof(IEmailService))
+        {
+            var task = job.Method.Invoke(_emailCapture, job.Args.ToArray()) as Task;
+            task?.GetAwaiter().GetResult();
+        }
+
+        return Guid.NewGuid().ToString("N");
+    }
+
+    public bool ChangeState(
+        string jobId,
+        Hangfire.States.IState state,
+        string? expectedState)
+    {
+        return true;
+    }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // OTP

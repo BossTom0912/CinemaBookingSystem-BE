@@ -395,7 +395,9 @@ public sealed class ControllerMoqCoverageTests
             .ReturnsAsync(ServiceResult<object>.Fail(StatusCodes.Status409Conflict, "Room has future showtimes.", "ROOM_IN_USE"));
         service.Setup(x => x.GenerateSeatsAsync("ROOM_2", It.Is<GenerateSeatsRequest>(r => r.Rows == 2 && r.Columns == 3), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<object>.Ok(null, "Seats generated."));
-        var controller = new RoomsController(service.Object);
+        var controller = WithUser(
+            new RoomsController(service.Object),
+            new Claim(ClaimTypes.NameIdentifier, "USR_MANAGER"));
 
         Assert.Single(AssertApiResponse<IReadOnlyList<RoomResponse>>(await controller.GetRooms(false, CancellationToken.None), StatusCodes.Status200OK, true).Data!);
         AssertApiResponse<RoomResponse>(await controller.GetRoomById("missing", false, CancellationToken.None), StatusCodes.Status404NotFound, false);

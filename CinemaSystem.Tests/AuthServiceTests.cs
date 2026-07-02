@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Application.Settings;
@@ -365,10 +366,14 @@ public sealed class AuthServiceTests
 
         var result = await fixture.Service.LoginAsync(LoginRequest(), CancellationToken.None);
 
-        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(result.Data!.AccessToken);
-        Assert.Contains(jwt.Claims, claim => claim.Type == "userId" && claim.Value == result.Data.UserId);
-        Assert.Contains(jwt.Claims, claim => claim.Type == JwtRegisteredClaimNames.Email && claim.Value == "alice@example.com");
-        Assert.Contains(jwt.Claims, claim => claim.Type == "role" && claim.Value == AuthConstants.Roles.Customer);
+        var payloadSegment = result.Data!.AccessToken.Split('.')[1];
+        var payloadJson = Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Decode(payloadSegment);
+        using var payload = JsonDocument.Parse(payloadJson);
+
+        Assert.Equal(result.Data.UserId, payload.RootElement.GetProperty(JwtRegisteredClaimNames.Sub).GetString());
+        Assert.Equal(result.Data.UserId, payload.RootElement.GetProperty("userId").GetString());
+        Assert.Equal("alice@example.com", payload.RootElement.GetProperty(JwtRegisteredClaimNames.Email).GetString());
+        Assert.Equal(AuthConstants.Roles.Customer, payload.RootElement.GetProperty("role").GetString());
     }
 
     [Fact]
@@ -687,7 +692,7 @@ public sealed class AuthServiceTests
         {
             Issuer = "CinemaSystem",
             Audience = "CinemaSystem.Api",
-            Secret = "unit-test-jwt-secret-with-at-least-32-characters",
+            Secret = CinemaWebApplicationFactory.TestJwtSecret,
             AccessTokenMinutes = 15,
             RefreshTokenDays = 7
         });
