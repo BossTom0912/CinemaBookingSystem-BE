@@ -141,7 +141,7 @@ public sealed class BookingsController : ControllerBase
             return Unauthorized();
         }
 
-        var result = await _bookingService.CancelBookingAsync(
+        var result = await _bookingService.CancelPendingBookingAsync(
             bookingId,
             userId,
             cancellationToken);
