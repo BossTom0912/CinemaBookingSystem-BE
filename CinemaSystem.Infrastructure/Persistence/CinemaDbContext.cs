@@ -1450,10 +1450,12 @@ public partial class CinemaDbContext : DbContext
         });
 
         var dateTimeConverter = new ValueConverter<DateTime, DateTime>(
-            v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(), 
+            v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
 
         var nullableDateTimeConverter = new ValueConverter<DateTime?, DateTime?>(
-            v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+            v => v.HasValue ? (v.Value.Kind == DateTimeKind.Utc ? v : v.Value.ToUniversalTime()) : v, 
+            v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
