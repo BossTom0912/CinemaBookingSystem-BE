@@ -8,6 +8,15 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Điểm vào HTTP của Customer cho tạo đơn, xem đơn, xác nhận đổi giờ và hủy đơn.
+/// </summary>
+/// <remarks>
+/// Luồng tiếp theo: <see cref="IBookingService"/> -> <c>BookingService</c> tại
+/// <c>CinemaSystem.Infrastructure/Services/BookingService.cs</c> -> các bảng
+/// BOOKING, BOOKING_SEAT, SHOWTIME_SEAT, TICKET, PAYMENT và REFUND. Controller
+/// chỉ lấy userId từ JWT, gọi service và đóng gói <c>ApiResponse</c>.
+/// </remarks>
 [ApiController]
 [Route("api/bookings")]
 [Authorize(Policy = AuthConstants.Policies.CanBookTicket)]
@@ -109,6 +118,32 @@ public sealed class BookingsController : ControllerBase
             bookingId,
             accept,
             token,
+            cancellationToken);
+
+        var response = result.Success
+            ? ApiResponse<bool>.Ok(result.Data, result.Message)
+            : ApiResponse<bool>.Fail(
+                result.Message,
+                result.ErrorCode,
+                result.Errors);
+
+        return StatusCode(result.StatusCode, response);
+    }
+
+    [HttpPost("{bookingId}/cancel")]
+    public async Task<IActionResult> CancelBooking(
+        string bookingId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _bookingService.CancelPendingBookingAsync(
+            bookingId,
+            userId,
             cancellationToken);
 
         var response = result.Success

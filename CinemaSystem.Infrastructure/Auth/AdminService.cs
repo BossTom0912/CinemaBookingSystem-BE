@@ -19,7 +19,14 @@ using Hangfire;
 // Khai báo namespace xử lý các tác vụ xác thực của Admin trong tầng Infrastructure
 namespace CinemaSystem.Infrastructure.Auth;
 
-// Khai báo lớp AdminService triển khai interface IAdminService, lớp này được đánh dấu sealed
+/// <summary>
+/// Use case Admin tạo tài khoản Staff và phát hành lời mời đặt mật khẩu.
+/// </summary>
+/// <remarks>
+/// Nhận lệnh từ <c>CinemaSystem/Controllers/AdminController.cs</c>; xử lý tiếp
+/// tại USER, STAFF_PROFILE, EMAIL_VERIFICATION_TOKEN qua <see cref="CinemaDbContext"/>
+/// và gửi email bằng <see cref="IEmailService"/>. Kết quả quay về AdminController.
+/// </remarks>
 public sealed class AdminService : IAdminService
 {
     // Khai báo hằng số mục đích của token là đặt lại mật khẩu (để tái sử dụng cho tính năng gửi mã mời)

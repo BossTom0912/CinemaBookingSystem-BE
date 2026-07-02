@@ -15,6 +15,15 @@ using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Use case review: kiểm quyền đánh giá, lưu lịch sử, kiểm duyệt AI và cập nhật rating.
+/// </summary>
+/// <remarks>
+/// Nhận lệnh từ <c>CinemaSystem/Controllers/ReviewsController.cs</c>; xử lý
+/// REVIEW, REVIEW_EDIT_HISTORY, REVIEW_MODERATION_HISTORY qua CinemaDbContext,
+/// gọi <see cref="IAiModerationService"/> rồi gọi <see cref="IMovieService"/>
+/// cập nhật điểm phim. Kết quả quay về ReviewsController.
+/// </remarks>
 public class ReviewService : IReviewService
 {
     // Khai báo DbContext để thao tác với cơ sở dữ liệu

@@ -9,6 +9,14 @@ using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Orchestrator chatbot: gom dữ liệu phim/suất chiếu và gọi Gemini sinh câu trả lời.
+/// </summary>
+/// <remarks>
+/// Nhận request từ <c>CinemaSystem/Controllers/ChatbotController.cs</c>; gọi
+/// <see cref="IMovieService"/>, <see cref="IShowtimeService"/>, Gemini HTTP API
+/// và ghi CHAT_HISTORY bằng CinemaDbContext. Kết quả quay về ChatbotController.
+/// </remarks>
 public class GeminiChatbotService : IChatbotService
 {
     // Khởi tạo HttpClient tĩnh dùng chung cho toàn bộ ứng dụng

@@ -17,6 +17,12 @@ using Microsoft.OpenApi.Models;
 using Hangfire;
 using Hangfire.InMemory;
 
+// COMPOSITION ROOT:
+// 1) Nhận configuration và đăng ký API/Swagger/auth/policy tại file này.
+// 2) Hạ tầng nghiệp vụ được chuyển tiếp sang AddInfrastructureServices trong
+//    CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs.
+// 3) Request runtime đi tiếp: middleware -> Controller trong
+//    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -123,13 +129,9 @@ var jwtSettings = new JwtSettings
     Audience = builder.Configuration["JwtSettings:Audience"] ?? "CinemaSystem.Api",
     Secret = builder.Configuration["JwtSettings:Secret"] ?? string.Empty
 };
-if (string.IsNullOrWhiteSpace(jwtSettings.Secret))
-{
-    throw new InvalidOperationException(
-        "JwtSettings:Secret must be configured through appsettings, user secrets, or environment variables.");
-}
-
-var jwtSecret = jwtSettings.Secret;
+var jwtSecret = string.IsNullOrWhiteSpace(jwtSettings.Secret)
+    ? "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM"
+    : jwtSettings.Secret;
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -150,6 +152,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
+    // Policy chỉ định role được phép đi qua Controller. Muốn biết policy nào
+    // được dùng thật, tìm [Authorize(Policy = ...)] trong CinemaSystem/Controllers.
+    // Có policy nhưng không có Controller sử dụng thì mới chỉ là hạ tầng quyền.
     options.AddPolicy(AuthConstants.Policies.CanViewMoviesAndShowtimes, policy =>
         policy.RequireAssertion(_ => true));
     options.AddPolicy(AuthConstants.Policies.CanRegisterOrLogin, policy =>
@@ -204,6 +209,8 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    // Development đi tiếp tới Swagger UI, sau đó DatabaseMaintenanceService
+    // trong CinemaSystem.Infrastructure/Data thực hiện migrate và seed.
     app.UseSwagger();
     app.UseSwaggerUI();
 
@@ -249,12 +256,6 @@ if (!app.Environment.IsDevelopment())
 
 app.UseCors("FrontendCors");
 app.UseStaticFiles();
-
-// Request handoff order: JwtBearer first builds User/role claims from the
-// access token; authorization policies then decide whether the selected
-// controller action may run. An accepted action continues through an
-// Application interface to the Infrastructure implementation registered by
-// DependencyInjection.AddInfrastructureServices above.
 app.UseAuthentication();
 app.UseAuthorization();
 

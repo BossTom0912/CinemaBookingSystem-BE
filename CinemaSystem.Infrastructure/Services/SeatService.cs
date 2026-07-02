@@ -13,6 +13,15 @@ using MediatR;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Use case quản lý ghế và khóa ghế theo suất chiếu.
+/// </summary>
+/// <remarks>
+/// Nhận lệnh từ <c>CinemaSystem/Controllers/SeatsController.cs</c>; CRUD đi tới
+/// ROOM/SEAT, còn lock/unlock/map đi tới SHOWTIME_SEAT và BOOKING_SEAT.
+/// <see cref="ISeatLockStore"/> chuyển tiếp sang RedisSeatLockStore hoặc
+/// InMemorySeatLockStore; kết quả quay về SeatsController.
+/// </remarks>
 public sealed class SeatService : ISeatService
 {
     // Định nghĩa hằng số cho hành động Tạo mới

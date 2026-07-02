@@ -12,7 +12,14 @@ using Microsoft.EntityFrameworkCore;
 // Khai báo namespace cho các service xử lý rạp chiếu trong tầng Infrastructure
 namespace CinemaSystem.Infrastructure.Cinemas;
 
-// Định nghĩa lớp CinemaService triển khai interface ICinemaService, đánh dấu là sealed để không cho kế thừa
+/// <summary>
+/// Use case đọc danh sách rạp cho API công khai.
+/// </summary>
+/// <remarks>
+/// Nhận lệnh từ <c>CinemaSystem/Controllers/CinemasController.cs</c>, đọc bảng
+/// CINEMA qua <see cref="CinemaDbContext"/>, ánh xạ sang CinemaResponse rồi trả
+/// lại controller. Hiện class này chưa chứa CRUD cinema.
+/// </remarks>
 public sealed class CinemaService : ICinemaService
 {
     // Biến private chỉ đọc để giữ kết nối với cơ sở dữ liệu qua CinemaDbContext

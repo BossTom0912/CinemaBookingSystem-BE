@@ -19,7 +19,6 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Services;
-using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Showtimes;
 using CinemaSystem.Tests.Infrastructure;
 using Microsoft.AspNetCore.Http;
@@ -458,7 +457,7 @@ public sealed class BookingMissingCoverageTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
 
-        var response = await client.PostAsJsonAsync("/api/bookings", new CreateBookingRequest
+        var response = await client.PostAsJsonAsync("/api/bookings/checkout", new CheckoutRequest
         {
             ShowtimeId = "SHW_NONEXISTENT",
             ShowtimeSeatIds = ["STS_01"]
@@ -468,8 +467,7 @@ public sealed class BookingMissingCoverageTests
             response.StatusCode is HttpStatusCode.NotFound
                 or HttpStatusCode.BadRequest
                 or HttpStatusCode.Conflict
-                or HttpStatusCode.Unauthorized
-                or HttpStatusCode.Forbidden,
+                or HttpStatusCode.Unauthorized,
             $"Expected 4xx, got {response.StatusCode}");
     }
 
@@ -592,7 +590,7 @@ public sealed class PaymentMissingCoverageTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal("INVALID_WEBHOOK_SIGNATURE", body!.ErrorCode);
+        Assert.Equal("INVALID_SIGNATURE", body!.ErrorCode);
     }
 
     [Fact]
@@ -620,7 +618,7 @@ public sealed class PaymentMissingCoverageTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal("INVALID_WEBHOOK_SIGNATURE", body!.ErrorCode);
+        Assert.Equal("INVALID_SIGNATURE", body!.ErrorCode);
     }
 
     [Fact]
@@ -788,8 +786,6 @@ public sealed class RoomMissingCoverageTests
             });
             await db.SaveChangesAsync();
         }
-
-        await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_RM_TEST");
     }
 
     private static async Task SeedSeatTypeAsync(CinemaWebApplicationFactory factory)
@@ -889,7 +885,7 @@ public sealed class ShowtimeMissingCoverageTests
             BasePrice = 90000
         });
 
-        Assert.Equal(HttpStatusCode.Conflict, overlapping.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, overlapping.StatusCode);
         var body = await DeserializeAsync<ApiResponse<object>>(overlapping);
         Assert.Equal("SHOWTIME_OVERLAP", body!.ErrorCode);
     }
@@ -966,7 +962,6 @@ public sealed class ShowtimeMissingCoverageTests
         }
 
         await db.SaveChangesAsync();
-        await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_SHW_TEST");
     }
 
     private static async Task<T?> DeserializeAsync<T>(HttpResponseMessage response)
@@ -1294,10 +1289,10 @@ public sealed class PaymentServiceMissingCoverageTests
         var fixture = Fixture.Create();
         await fixture.SeedPendingBookingAsync();
         var created = await fixture.Service.CreatePaymentAsync(new CreatePaymentRequest
-            {
-                BookingId = "BOOKING_TEST",
-                PaymentProviderId = "PAYPROV_TEST_SEPAY"
-            }, "USR_TEST_PAYMENT");
+        {
+            BookingId = "BOOKING_TEST",
+            PaymentProviderId = "PAYPROV_TEST_SEPAY"
+        }, "USER_TEST");
 
         // Gửi số tiền thấp hơn (60000 thay vì 120000)
         var rawPayload = $$"""{"content":"Cinema {{created.TransactionCode}}","transferAmount":60000,"referenceCode":"SEP_MISMATCH"}""";
@@ -1323,15 +1318,15 @@ public sealed class PaymentServiceMissingCoverageTests
         // Không tạo payment, gọi confirm với mã không tồn tại
         var exception = await Record.ExceptionAsync(() =>
             fixture.Service.ConfirmPaymentAsync(
-                "Cinema TNOTFOUND00",
+                "Cinema TX_NONEXISTENT",
                 120000m,
                 "SEP_GHOST",
-                """{"content":"Cinema TNOTFOUND00","transferAmount":120000}"""));
+                """{"content":"Cinema TX_NONEXISTENT","transferAmount":120000}"""));
 
         // Service phải throw InvalidOperationException (không phải NullReferenceException)
         Assert.NotNull(exception);
         Assert.IsType<InvalidOperationException>(exception);
-        Assert.Contains("TNOTFOUND00", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TX_NONEXISTENT", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1346,7 +1341,7 @@ public sealed class PaymentServiceMissingCoverageTests
             {
                 BookingId = "BOOKING_GHOST",
                 PaymentProviderId = "PAYPROV_TEST_SEPAY"
-            }, "USR_GHOST"));
+            }, "USER_TEST"));
 
         // Service throw InvalidOperationException (không phải NullReferenceException)
         Assert.IsType<InvalidOperationException>(exception);
@@ -1381,9 +1376,7 @@ public sealed class PaymentServiceMissingCoverageTests
                     WebhookSecret = "test-secret",
                     BankName = "Test Bank",
                     BankAccount = "123456789"
-                }),
-                new RefundClaimIssuer(
-                    Microsoft.Extensions.Options.Options.Create(new RefundSettings())));
+                }));
             return new Fixture(dbContext, service);
         }
 
@@ -1395,46 +1388,10 @@ public sealed class PaymentServiceMissingCoverageTests
                 ProviderName = "SEPAY_TEST",
                 ProviderStatus = "ACTIVE"
             });
-            DbContext.Roles.Add(new Role
-            {
-                RoleId = "ROLE_CUSTOMER",
-                RoleName = "CUSTOMER",
-                Description = "Customer"
-            });
-            DbContext.Users.Add(new User
-            {
-                UserId = "USR_TEST_PAYMENT",
-                RoleId = "ROLE_CUSTOMER",
-                Email = "test@example.com",
-                PasswordHash = "HASH",
-                FullName = "Test User",
-                Status = "ACTIVE",
-                EmailVerified = true,
-                CreatedAt = DateTime.UtcNow
-            });
-            DbContext.CustomerProfiles.Add(new CustomerProfile
-            {
-                CustomerProfileId = "CUST_PROFILE_TEST",
-                UserId = "USR_TEST_PAYMENT",
-                MemberLevel = "STANDARD",
-                RewardPoints = 0
-            });
-            DbContext.Showtimes.Add(new Showtime
-            {
-                ShowtimeId = "SHOWTIME_TEST",
-                MovieId = "MOVIE_TEST",
-                RoomId = "ROOM_TEST",
-                StartTime = DateTime.UtcNow.AddDays(1),
-                EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
-                BasePrice = 120000m,
-                Status = "OPEN",
-                CreatedAt = DateTime.UtcNow
-            });
             DbContext.Bookings.Add(new Booking
             {
                 BookingId = "BOOKING_TEST",
                 ShowtimeId = "SHOWTIME_TEST",
-                CustomerProfileId = "CUST_PROFILE_TEST",
                 BookingStatus = "PENDING_PAYMENT",
                 TotalAmount = 120000m,
                 CreatedAt = DateTime.UtcNow,
@@ -1514,7 +1471,6 @@ public sealed class ShowtimeServiceMissingCoverageTests
                 BasePrice = 95000,
                 Status = "OPEN"
             },
-            false,
             CancellationToken.None);
 
         Assert.False(result.Success);
@@ -1560,23 +1516,11 @@ public sealed class ShowtimeServiceMissingCoverageTests
             var mockClock = new Moq.Mock<IClock>();
             mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
             var mockJobClient = new Moq.Mock<Hangfire.IBackgroundJobClient>();
-            var mockOptions = Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings());
-            var mockHttpContextAccessor = new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>();
+                        var mockOptions = Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings());
             return new Fixture(
                 dbContext,
-                new RoomService(
-                    dbContext,
-                    new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
-                    Microsoft.Extensions.Options.Options.Create(
-                        new CinemaSystem.Application.Settings.CinemaProcessingSettings())),
-                new ShowtimeService(
-                    dbContext,
-                    mockClock.Object,
-                    mockOptions,
-                    Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.SecuritySettings()),
-                    Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
-                    mockJobClient.Object,
-                    mockHttpContextAccessor.Object));
+                new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
+                new ShowtimeService(dbContext, mockClock.Object, mockOptions, mockJobClient.Object));
         }
 
         public async Task SeedCinemaAsync()

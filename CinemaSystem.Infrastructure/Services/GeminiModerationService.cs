@@ -10,6 +10,15 @@ using Microsoft.Extensions.Options;
 using CinemaSystem.Application.Common;
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Adapter gọi Gemini để phân loại nội dung review APPROVED/FLAGGED/REJECTED.
+/// </summary>
+/// <remarks>
+/// Được <c>ReviewService</c> tại
+/// <c>CinemaSystem.Infrastructure/Services/ReviewService.cs</c> gọi. Class này
+/// chỉ giao tiếp Gemini và trả <see cref="AiModerationResult"/>; ReviewService
+/// mới là nơi quyết định ghi REVIEW và moderation history.
+/// </remarks>
 public class GeminiModerationService : IAiModerationService
 {
     // Khởi tạo HttpClient tĩnh dùng chung cho toàn bộ ứng dụng

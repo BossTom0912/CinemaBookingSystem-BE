@@ -12,29 +12,32 @@ using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Use case tạo giao dịch SePay và chốt trạng thái payment/booking/ticket.
+/// </summary>
+/// <remarks>
+/// Được gọi từ PaymentController khi tạo payment và từ PaymentWebhookService
+/// khi ngân hàng callback. Class đọc/ghi PAYMENT, BOOKING, BOOKING_SEAT,
+/// SHOWTIME_SEAT, TICKET và REFUND qua CinemaDbContext; kết quả quay về caller.
+/// </remarks>
 public class PaymentService : IPaymentService
 {
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
     private readonly CinemaDbContext _db;
     // Khai báo biến lưu trữ cấu hình SePay
     private readonly SepaySettings _sepaySettings;
-    private readonly IRefundClaimIssuer _refundClaimIssuer;
     // Hằng số quy định thời gian hết hạn của thanh toán (10 phút)
     private const int PaymentExpiryMinutes = 10;
     // Biểu thức chính quy (Regex) để trích xuất mã giao dịch (Bắt đầu bằng chữ T và theo sau là 10 ký tự chữ/số)
     private static readonly Regex TransactionCodeRegex = new(@"T[A-Z0-9]{10}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Phương thức khởi tạo (Constructor) tiêm các dependency cần thiết
-    public PaymentService(
-        CinemaDbContext db,
-        IOptions<SepaySettings> sepayOptions,
-        IRefundClaimIssuer refundClaimIssuer)
+    public PaymentService(CinemaDbContext db, IOptions<SepaySettings> sepayOptions)
     {
         // Gán DbContext được tiêm vào biến private
         _db = db;
         // Lấy giá trị cấu hình SePay từ IOptions và gán vào biến private
         _sepaySettings = sepayOptions.Value;
-        _refundClaimIssuer = refundClaimIssuer;
     }
 
     // Phương thức tạo bản ghi thanh toán cho một đặt vé và trả về thông tin ngân hàng kèm mã giao dịch
@@ -283,7 +286,7 @@ public class PaymentService : IPaymentService
                 booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
                 
                 // Khởi tạo một đối tượng Hoàn tiền (Refund) mới
-                var refund = new Refund
+                _db.Refunds.Add(new Refund
                 {
                     // Tạo ID tự động cho giao dịch hoàn tiền
                     RefundId = GenerateId("REF"),
@@ -301,9 +304,7 @@ public class PaymentService : IPaymentService
                     RequestedAt = DateTime.UtcNow,
                     // Ghi nhận lý do hoàn tiền (Thanh toán chậm cho một suất chiếu đã bị hủy)
                     RefundReason = "Late payment received for a cancelled showtime."
-                };
-                _db.Refunds.Add(refund);
-                AddRefundClaim(refund, booking);
+                });
 
                 // Lưu các thay đổi vào cơ sở dữ liệu
                 await _db.SaveChangesAsync(cancellationToken);
@@ -320,7 +321,7 @@ public class PaymentService : IPaymentService
                 booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
                 
                 // Khởi tạo một yêu cầu hoàn tiền mới
-                var refund = new Refund
+                _db.Refunds.Add(new Refund
                 {
                     // Tạo ID hoàn tiền
                     RefundId = GenerateId("REF"),
@@ -338,9 +339,7 @@ public class PaymentService : IPaymentService
                     RequestedAt = DateTime.UtcNow,
                     // Lý do: Thanh toán trễ cho một đơn vé đã hết hạn/bị hủy
                     RefundReason = "Late payment received for an expired booking."
-                };
-                _db.Refunds.Add(refund);
-                AddRefundClaim(refund, booking);
+                });
 
                 // Lưu các thay đổi
                 await _db.SaveChangesAsync(cancellationToken);
@@ -396,20 +395,6 @@ public class PaymentService : IPaymentService
 
     // Phương thức tiện ích để sinh ID duy nhất có tiền tố
     private static string GenerateId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
-
-    private void AddRefundClaim(Refund refund, Booking booking)
-    {
-        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
-        {
-            return;
-        }
-
-        var issue = _refundClaimIssuer.Create(
-            refund.RefundId,
-            booking.CustomerProfileId,
-            DateTime.UtcNow);
-        _db.RefundClaims.Add(issue.Claim);
-    }
 
     // Phương thức sinh nội dung mã QR dùng để quét vé
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>

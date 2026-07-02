@@ -13,6 +13,15 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Điểm vào HTTP cho Customer tạo/sửa review, đọc review và Admin duyệt review.
+/// </summary>
+/// <remarks>
+/// Luồng tiếp theo: <see cref="IReviewService"/> -> <c>ReviewService</c> tại
+/// <c>CinemaSystem.Infrastructure/Services/ReviewService.cs</c>. Service kiểm
+/// booking hợp lệ, ghi REVIEW/history, gọi <c>IAiModerationService</c> và cập
+/// nhật thống kê rating qua <c>IMovieService</c>.
+/// </remarks>
 [ApiController]
 [Route("api/reviews")]
 public sealed class ReviewsController : ControllerBase

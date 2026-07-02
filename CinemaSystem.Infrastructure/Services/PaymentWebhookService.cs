@@ -5,6 +5,14 @@ using CinemaSystem.Application.Interfaces;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Cổng xử lý callback SePay: xác thực chữ ký, đọc payload và chuyển giao thanh toán.
+/// </summary>
+/// <remarks>
+/// Nhận payload từ <c>CinemaSystem/Controllers/PaymentController.cs</c>, gọi
+/// <see cref="IWebhookSignatureVerifier"/>, sau đó gọi
+/// <see cref="IPaymentService.ConfirmPaymentAsync"/> trong PaymentService.
+/// </remarks>
 public sealed class PaymentWebhookService : IPaymentWebhookService
 {
     // Khai báo dependency để xác thực chữ ký của webhook

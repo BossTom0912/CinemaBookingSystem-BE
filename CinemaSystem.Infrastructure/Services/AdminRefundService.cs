@@ -16,6 +16,15 @@ using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Services;
 
+/// <summary>
+/// Use case Admin hủy suất chiếu hàng loạt, tạo dữ liệu refund và xác nhận hoàn tiền.
+/// </summary>
+/// <remarks>
+/// Nhận lệnh từ <c>CinemaSystem/Controllers/AdminRefundsController.cs</c> và
+/// các luồng maintenance của Movie/Room/Showtime. Class xử lý SHOWTIME,
+/// BOOKING, PAYMENT, REFUND, TICKET, seat lock và email nền; kết quả quay về
+/// controller/service đã gọi.
+/// </remarks>
 public class AdminRefundService : IAdminRefundService
 {
     private readonly CinemaDbContext _dbContext;

@@ -14,6 +14,15 @@ using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Auth;
 
+/// <summary>
+/// Thực thi đăng ký, OTP, login thường/Google, refresh token và khôi phục mật khẩu.
+/// </summary>
+/// <remarks>
+/// Được gọi từ <c>CinemaSystem/Controllers/AuthController.cs</c>. Luồng đi qua
+/// USER/ROLE/CUSTOMER_PROFILE/EMAIL_VERIFICATION_TOKEN/REFRESH_TOKEN trong
+/// <see cref="CinemaDbContext"/>, rồi sang PasswordHasher, JwtTokenService và
+/// EmailSender. <c>ServiceResult</c> quay lại AuthController để trả HTTP.
+/// </remarks>
 public sealed class AuthService : IAuthService
 {
     // Hằng số định nghĩa mục đích xác thực email

@@ -3,12 +3,10 @@ using CinemaSystem.Infrastructure.Auth;
 using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
-using CinemaSystem.Infrastructure.Dashboard;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Refunds;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Services;
@@ -17,10 +15,18 @@ using CinemaSystem.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.DataProtection;
 
 namespace CinemaSystem.Infrastructure.Extensions;
 
+/// <summary>
+/// Composition root của tầng Infrastructure: ánh xạ Application interface sang class chạy thật.
+/// </summary>
+/// <remarks>
+/// Được gọi từ <c>CinemaSystem/Program.cs</c>. Khi Controller yêu cầu một
+/// interface như IAuthService hoặc IBookingService, container tra bảng đăng ký
+/// tại đây rồi chuyển tiếp sang class trong Auth/Cinemas/Movies/Rooms/Services/
+/// Showtimes. Các class đó kết thúc ở CinemaDbContext hoặc dịch vụ ngoài.
+/// </remarks>
 public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructureServices(
@@ -58,21 +64,6 @@ public static class DependencyInjection
                 configuration["BookingSettings:PendingPaymentCleanupIntervalSeconds"],
                 60);
         });
-        services.Configure<RefundSettings>(options =>
-        {
-            options.FrontendBaseUrl = configuration["RefundSettings:FrontendBaseUrl"]
-                ?? RefundSettings.DevelopmentFrontendBaseUrl;
-            options.ClaimTokenMinutes = ReadInt(
-                configuration["RefundSettings:ClaimTokenMinutes"],
-                RefundSettings.DefaultClaimTokenMinutes);
-
-            if (options.ClaimTokenMinutes < RefundSettings.MinimumClaimTokenMinutes)
-            {
-                throw new InvalidOperationException(
-                    $"RefundSettings:ClaimTokenMinutes must be at least {RefundSettings.MinimumClaimTokenMinutes}.");
-            }
-        });
-        services.AddDataProtection();
 
         // Read connection string and fail fast with clear error if missing
         var defaultConnection = configuration.GetConnectionString("DefaultConnection");
@@ -94,11 +85,11 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
-        services.AddScoped<ICinemaScopeAuthorizationService, CinemaScopeAuthorizationService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ICinemaService, CinemaService>();
         services.AddScoped<IMovieService, MovieService>();
+        services.AddScoped<IGenreService, GenreService>();
         services.AddScoped<IBookingService, BookingService>();
         var redisConnectionString = configuration["Redis:ConnectionString"];
         if (string.IsNullOrWhiteSpace(redisConnectionString))
@@ -112,21 +103,9 @@ public static class DependencyInjection
         }
 
         services.AddScoped<ISeatService, SeatService>();
-        services.AddScoped<SeatService>();
         services.AddScoped<IRoomService, RoomService>();
-        services.AddScoped<RoomService>();
         services.AddScoped<IFileStorageService, LocalFileStorageService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
-        services.AddScoped<ShowtimeService>();
-        services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
-        services.AddScoped<IRefundService, RefundService>();
-        services.AddScoped<IRefundClaimService, RefundClaimService>();
-        services.AddScoped<IManualRefundService, ManualRefundService>();
-        services.AddSingleton<IRefundClaimIssuer, RefundClaimIssuer>();
-        services.AddSingleton<ISensitiveDataProtector, SensitiveDataProtector>();
-        services.AddScoped<IRefundProcessor, RefundProcessor>();
-        services.AddSingleton<IPaymentRefundGateway, UnsupportedPaymentRefundGateway>();
-        services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();

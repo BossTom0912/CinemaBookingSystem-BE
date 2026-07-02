@@ -1,84 +1,75 @@
-using System.Security.Claims;
-using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
-using CinemaSystem.Contracts.Common;
-using CinemaSystem.Contracts.Refunds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CinemaSystem.Controllers;
 
-[ApiController]
+using CinemaSystem.Application.Common;
+
+/// <summary>
+/// Điểm vào HTTP để Admin xem danh sách hoàn tiền và xác nhận hoàn tiền.
+/// </summary>
+/// <remarks>
+/// Luồng tiếp theo: <see cref="IAdminRefundService"/> được DI ánh xạ tới
+/// <c>CinemaSystem.Infrastructure/Services/AdminRefundService.cs</c>. Service
+/// xử lý BOOKING, PAYMENT, REFUND, TICKET và gửi email nền; kết quả quay lại
+/// controller để chuyển thành HTTP response.
+/// </remarks>
 [Route("api/admin/refunds")]
-[Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
-public sealed class AdminRefundsController : ControllerBase
+[ApiController]
+[Authorize(Roles = AuthConstants.Roles.Admin)] // Restrict refund operations to Admin only
+public class AdminRefundsController : ControllerBase
 {
-    private const int DefaultPageIndex = 1;
-    private const int DefaultPageSize = 10;
-
     private readonly IAdminRefundService _adminRefundService;
-    private readonly IManualRefundService _manualRefundService;
 
-    public AdminRefundsController(
-        IAdminRefundService adminRefundService,
-        IManualRefundService manualRefundService)
+    public AdminRefundsController(IAdminRefundService adminRefundService)
     {
         _adminRefundService = adminRefundService;
-        _manualRefundService = manualRefundService;
     }
 
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<PagedList<RefundDto>>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetRefunds(
-        [FromQuery] string status = BookingConstants.RefundStatus.Pending,
-        [FromQuery] int pageIndex = DefaultPageIndex,
-        [FromQuery] int pageSize = DefaultPageSize,
+    [ProducesResponseType(typeof(CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>), 200)]
+    public async Task<ActionResult<CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>>> GetRefunds(
+        [FromQuery] string status = "PENDING",
+        [FromQuery] int pageIndex = 1,
+        [FromQuery] int pageSize = 10,
         CancellationToken cancellationToken = default)
-        => ToActionResult(await _adminRefundService.GetRefundsAsync(status, pageIndex, pageSize, cancellationToken));
-
-    [HttpPost("{bookingId}/confirm")]
-    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> ConfirmRefund(
-        [FromRoute] string bookingId,
-        CancellationToken cancellationToken)
-        => await WithAdminId(userId => _adminRefundService.ConfirmRefundAsync(bookingId, userId, cancellationToken));
-
-    [HttpGet("manual")]
-    public async Task<IActionResult> GetManualRefunds(CancellationToken cancellationToken)
-        => ToActionResult(await _manualRefundService.GetPendingAsync(cancellationToken));
-
-    [HttpPost("{refundId}/assign")]
-    public async Task<IActionResult> Assign(
-        string refundId,
-        CancellationToken cancellationToken)
-        => await WithAdminId(userId => _manualRefundService.AssignAsync(refundId, userId, cancellationToken));
-
-    [HttpPost("{refundId}/manual-confirm")]
-    public async Task<IActionResult> Confirm(
-        string refundId,
-        ManualRefundConfirmationRequest request,
-        CancellationToken cancellationToken)
-        => await WithAdminId(userId => _manualRefundService.ConfirmAsync(refundId, userId, request, cancellationToken));
-
-    private async Task<IActionResult> WithAdminId<T>(
-        Func<string, Task<ServiceResult<T>>> operation)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(userId))
+        var result = await _adminRefundService.GetRefundsAsync(status, pageIndex, pageSize, cancellationToken);
+        if (!result.Success)
         {
-            return Unauthorized(ApiResponse<object>.Fail(
-                "Unauthorized.",
-                BookingConstants.ErrorCodes.Unauthorized));
+            return StatusCode(result.StatusCode, new { message = result.Message, errorCode = result.ErrorCode });
         }
 
-        return ToActionResult(await operation(userId));
+        return Ok(new CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>
+        {
+            Success = true,
+            Message = result.Message,
+            Data = result.Data
+        });
     }
 
-    private ObjectResult ToActionResult<T>(ServiceResult<T> result)
+    [HttpPost("{bookingId}/confirm")]
+    [ProducesResponseType(typeof(CinemaSystem.Contracts.Common.ApiResponse<object>), 200)]
+    public async Task<ActionResult<CinemaSystem.Contracts.Common.ApiResponse<object>>> ConfirmRefund(
+        [FromRoute] string bookingId,
+        CancellationToken cancellationToken)
     {
-        var response = result.Success
-            ? ApiResponse<T>.Ok(result.Data, result.Message)
-            : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
-        return StatusCode(result.StatusCode, response);
+        var adminUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "UnknownAdmin";
+
+        var result = await _adminRefundService.ConfirmRefundAsync(bookingId, adminUserId, cancellationToken);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new { message = result.Message, errorCode = result.ErrorCode });
+        }
+
+        return Ok(new CinemaSystem.Contracts.Common.ApiResponse<object>
+        {
+            Success = true,
+            Message = result.Message
+        });
     }
 }

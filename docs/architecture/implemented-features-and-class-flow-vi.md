@@ -1,745 +1,320 @@
-# Chức năng đã triển khai và luồng xử lý giữa các class
+# Chức năng đã triển khai và bản đồ tìm code trên `main`
 
-## 1. Mục đích và phạm vi
+## 1. Mục đích
 
-Tài liệu này mô tả trạng thái thực tế của nhánh `main` tại commit nền
-`a9fa818` (`gitlab/main`) vào ngày 2026-06-28. Mục tiêu là giúp cả team:
-
-- biết API nào đã có và actor nào được gọi;
-- lần theo luồng từ HTTP request đến controller, Application interface,
-  Infrastructure service, database hoặc dịch vụ ngoài;
-- hiểu luồng đăng nhập và phân quyền của Customer, Staff, Manager và Admin;
-- đối chiếu code hiện có với use case trong SRS;
-- không nhầm policy/entity đã khai báo với một use case đã triển khai hoàn chỉnh.
-
-Nhánh `main` đang theo dõi `gitlab/main`. Tại thời điểm rà soát, `main` bằng
-`gitlab/main` và đi trước `origin/main` 3 commit. Không có nội dung từ
-`MangerAndAdmin_1` được merge ngược vào `main` trong lần cập nhật tài liệu này.
-
-## 2. Tài liệu và nguồn code đã đối chiếu
-
-Tài liệu chuẩn:
-
-- `docs/requirements/srs-group-2.docx`
-- `docs/requirements/business-rules.docx`
-- `docs/architecture/backend-system-design-clean-architecture.docx`
-- `docs/architecture/conceptual-erd-explanation.docx`
-- `docs/api/api-contract-backend.docx`
-- `docs/api/api-contract-movie-showtime.docx`
-- `docs/database/cinema-booking-schema.sql`
-
-Nguồn code được dùng để xác định trạng thái **đã triển khai**:
-
-- `CinemaSystem/Controllers`
-- `CinemaSystem/Program.cs`
-- `CinemaSystem.Application/Interfaces`
-- `CinemaSystem.Application/Common`
-- `CinemaSystem.Infrastructure`
-- `CinemaSystem.Domain/Entities`
-- `CinemaSystem.Contracts`
-- `CinemaSystem.Tests`
-
-Quy ước đánh giá:
-
-- **Đã có API**: có route trong controller và có service xử lý.
-- **Đã có hạ tầng**: có entity, policy hoặc DbSet nhưng chưa có API use case hoàn chỉnh.
-- **Chưa triển khai**: SRS có yêu cầu nhưng không tìm thấy controller/service tương ứng.
-
-## 3. Luồng kiến trúc chung
+Tài liệu này giúp giải thích code theo một đường cố định, không phải tìm ngẫu
+nhiên:
 
 ```text
-Client
-  -> ASP.NET middleware trong CinemaSystem/Program.cs
-  -> Controller trong CinemaSystem/Controllers
-  -> Application interface trong CinemaSystem.Application/Interfaces
-  -> Runtime implementation đăng ký tại
-     CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs
-  -> Infrastructure service
-  -> CinemaDbContext / Redis / SMTP / Gemini / SePay
-  -> ServiceResult hoặc DTO
-  -> Controller bọc ApiResponse
-  -> HTTP response
+HTTP route
+  -> CinemaSystem/Controllers/<Feature>Controller.cs
+  -> CinemaSystem.Application/Interfaces/I<Feature>Service.cs
+  -> CinemaSystem.Infrastructure/<folder>/<Feature>Service.cs
+  -> CinemaSystem.Infrastructure/Persistence/CinemaDbContext.cs
+     hoặc Redis / SMTP / Gemini / SePay / wwwroot
+  -> ServiceResult
+  -> Controller đóng gói ApiResponse
+  -> client
 ```
 
-Vai trò từng project:
+Baseline được rà soát: `origin/main` commit `7dec708`, đã fast-forward vào local
+`main`. Comment điều hướng trong code dùng cùng quy ước:
 
-| Project | Trách nhiệm thực tế |
+- **Điểm vào**: request bắt đầu ở controller nào.
+- **Xử lý**: service chịu trách nhiệm nghiệp vụ nào.
+- **Đi tiếp**: interface được DI ánh xạ sang class/folder nào, rồi tới DB hay
+  dịch vụ ngoài nào.
+
+## 2. Vai trò của từng project
+
+| Project/folder | Trách nhiệm |
 |---|---|
-| `CinemaSystem` | Route, auth middleware, policy, controller, mapping response và hosted service |
-| `CinemaSystem.Application` | Interface của use case, constant role/policy/status, `ServiceResult` |
-| `CinemaSystem.Contracts` | Request/response DTO và `ApiResponse` |
-| `CinemaSystem.Infrastructure` | EF Core, SQL Server, nghiệp vụ service hiện tại, JWT, hash, OTP, SMTP, Redis, SePay, Gemini |
-| `CinemaSystem.Domain` | Entity được scaffold theo database |
-| `CinemaSystem.Tests` | Unit test và integration test |
+| `CinemaSystem/Controllers` | Route, đọc JWT/claim, model validation, HTTP status |
+| `CinemaSystem/Program.cs` | Middleware, Swagger, JWT, authorization policy |
+| `CinemaSystem.Application/Interfaces` | Hợp đồng use case mà controller gọi |
+| `CinemaSystem.Application/Common` | Role, policy, constant, `ServiceResult` |
+| `CinemaSystem.Contracts` | Request/response DTO, `ApiResponse` |
+| `CinemaSystem.Infrastructure` | Nghiệp vụ runtime, EF Core, Redis, SMTP, Gemini, SePay, file |
+| `CinemaSystem.Domain/Entities` | Entity ánh xạ bảng DB |
+| `CinemaSystem.Tests` | Unit/integration test |
 
-EF Core đang được dùng trực tiếp trong Infrastructure service. Dự án không có
-lớp Repository riêng; `CinemaDbContext` đóng vai trò repository và unit of work.
+Project không có Repository riêng. `CinemaDbContext` hiện đóng vai trò truy cập
+DB và unit of work.
 
-## 4. Bảng ánh xạ DI: interface chạy sang class nào
+## 3. Bảng DI: interface đi tới class nào
 
-Các ánh xạ runtime nằm trong
+File ánh xạ:
 `CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs`.
 
-| Application interface | Runtime implementation | File triển khai |
+| Interface controller/use case gọi | Class chạy thật | Folder |
 |---|---|---|
-| `IAuthService` | `AuthService` | `CinemaSystem.Infrastructure/Auth/AuthService.cs` |
-| `IAdminService` | `AdminService` | `CinemaSystem.Infrastructure/Auth/AdminService.cs` |
-| `ICustomerService` | `CustomerService` | `CinemaSystem.Infrastructure/Services/CustomerService.cs` |
-| `ICinemaService` | `CinemaService` | `CinemaSystem.Infrastructure/Cinemas/CinemaService.cs` |
-| `IMovieService` | `MovieService` | `CinemaSystem.Infrastructure/Movies/MovieService.cs` |
-| `IRoomService` | `RoomService` | `CinemaSystem.Infrastructure/Rooms/RoomService.cs` |
-| `ISeatService` | `SeatService` | `CinemaSystem.Infrastructure/Services/SeatService.cs` |
-| `IShowtimeService` | `ShowtimeService` | `CinemaSystem.Infrastructure/Showtimes/ShowtimeService.cs` |
-| `IBookingService` | `BookingService` | `CinemaSystem.Infrastructure/Services/BookingService.cs` |
-| `ICheckoutService` | `CheckoutService` | `CinemaSystem.Infrastructure/Bookings/CheckoutService.cs` |
-| `IPaymentService` | `PaymentService` | `CinemaSystem.Infrastructure/Services/PaymentService.cs` |
-| `IPaymentWebhookService` | `PaymentWebhookService` | `CinemaSystem.Infrastructure/Services/PaymentWebhookService.cs` |
-| `IChatbotService` | `GeminiChatbotService` | `CinemaSystem.Infrastructure/Services/GeminiChatbotService.cs` |
+| `IAuthService` | `AuthService` | `CinemaSystem.Infrastructure/Auth` |
+| `IAdminService` | `AdminService` | `CinemaSystem.Infrastructure/Auth` |
+| `ICustomerService` | `CustomerService` | `CinemaSystem.Infrastructure/Services` |
+| `ICinemaService` | `CinemaService` | `CinemaSystem.Infrastructure/Cinemas` |
+| `IMovieService` | `MovieService` | `CinemaSystem.Infrastructure/Movies` |
+| `IGenreService` | `GenreService` | `CinemaSystem.Infrastructure/Services` |
+| `IRoomService` | `RoomService` | `CinemaSystem.Infrastructure/Rooms` |
+| `ISeatService` | `SeatService` | `CinemaSystem.Infrastructure/Services` |
+| `IShowtimeService` | `ShowtimeService` | `CinemaSystem.Infrastructure/Showtimes` |
+| `IBookingService` | `BookingService` | `CinemaSystem.Infrastructure/Services` |
+| `IPaymentService` | `PaymentService` | `CinemaSystem.Infrastructure/Services` |
+| `IPaymentWebhookService` | `PaymentWebhookService` | `CinemaSystem.Infrastructure/Services` |
+| `IReviewService` | `ReviewService` | `CinemaSystem.Infrastructure/Services` |
+| `IAiModerationService` | `GeminiModerationService` | `CinemaSystem.Infrastructure/Services` |
+| `IChatbotService` | `GeminiChatbotService` | `CinemaSystem.Infrastructure/Services` |
+| `IAdminRefundService` | `AdminRefundService` | `CinemaSystem.Infrastructure/Services` |
+| `IFileStorageService` | `LocalFileStorageService` | `CinemaSystem.Infrastructure/Services` |
 | `ISeatLockStore` | `RedisSeatLockStore` hoặc `InMemorySeatLockStore` | `CinemaSystem.Infrastructure/Services` |
-| `IEmailSender` | `SmtpEmailSender` hoặc `MockEmailService` | `CinemaSystem.Infrastructure/Email` |
-| `IEmailService` | `SmtpEmailServiceAdapter` hoặc `MockEmailService` | `CinemaSystem.Infrastructure/Email` |
-| `IJwtTokenService` | `JwtTokenService` | `CinemaSystem.Infrastructure/Identity/JwtTokenService.cs` |
-| `IPasswordHasher` | `Pbkdf2PasswordHasher` | `CinemaSystem.Infrastructure/Security/Pbkdf2PasswordHasher.cs` |
-| `IOtpGenerator` | `CryptoOtpGenerator` | `CinemaSystem.Infrastructure/Security/CryptoOtpGenerator.cs` |
-| `IClock` | `SystemClock` | `CinemaSystem.Infrastructure/Time/SystemClock.cs` |
-| `IWebhookSignatureVerifier` | `HmacVerifyHelper` | `CinemaSystem.Infrastructure/Services/HmacVerifyHelper.cs` |
-| `IDatabaseMaintenanceService` | `DatabaseMaintenanceService` | `CinemaSystem.Infrastructure/Data/DatabaseMaintenanceService.cs` |
-| `ICinemaDiagnosticsService` | `CinemaDiagnosticsService` | `CinemaSystem.Infrastructure/Persistence/CinemaDiagnosticsService.cs` |
+| `IEmailSender` | `SmtpEmailSender` | `CinemaSystem.Infrastructure/Email` |
+| `IEmailService` | SMTP adapter/mock | `CinemaSystem.Infrastructure/Email` |
+| `IJwtTokenService` | `JwtTokenService` | `CinemaSystem.Infrastructure/Identity` |
+| `IPasswordHasher` | `Pbkdf2PasswordHasher` | `CinemaSystem.Infrastructure/Security` |
+| `IOtpGenerator` | `CryptoOtpGenerator` | `CinemaSystem.Infrastructure/Security` |
+| `IWebhookSignatureVerifier` | `HmacVerifyHelper` | `CinemaSystem.Infrastructure/Services` |
+| `IDatabaseMaintenanceService` | `DatabaseMaintenanceService` | `CinemaSystem.Infrastructure/Data` |
 
-`ISeatLockStore` dùng Redis khi có `Redis:ConnectionString`; nếu không có thì
-dùng bộ nhớ của chính API process. Email dùng mock khi
-`EmailSettings:UseMock=true`, ngược lại dùng SMTP.
+## 4. Chức năng đã có
 
-## 5. Login và phân quyền
+### 4.1 Authentication và tài khoản
 
-### 5.1 Tất cả role dùng chung một endpoint login
+Điểm vào: `CinemaSystem/Controllers/AuthController.cs`.
 
-Customer, Staff, Manager và Admin đều đăng nhập qua:
+| API | Service method | Đích xử lý |
+|---|---|---|
+| `POST /api/auth/register` | `RegisterCustomerAsync` | USER, CUSTOMER_PROFILE, OTP, email |
+| `POST /api/auth/verify-email` | `VerifyEmailAsync` | EMAIL_VERIFICATION_TOKEN, USER |
+| `POST /api/auth/login` | `LoginAsync` | password hash, JWT, REFRESH_TOKEN |
+| `POST /api/auth/google-login` | `GoogleLoginAsync` | Google token, USER, JWT |
+| `POST /api/auth/refresh-token` | `RefreshTokenAsync` | rotate REFRESH_TOKEN, JWT |
+| `POST /api/auth/logout` | `LogoutAsync` | revoke REFRESH_TOKEN |
+| `POST /api/auth/resend-verification-otp` | `ResendVerificationOtpAsync` | OTP cooldown + email |
+| `POST /api/auth/forgot-password` | `ForgotPasswordAsync` | reset OTP + email |
+| `POST /api/auth/reset-password` | `ResetPasswordAsync` | password hash + revoke token |
 
-```text
-POST /api/auth/login
-  -> AuthController.Login
-  -> IAuthService.LoginAsync
-  -> AuthService.LoginAsync
-  -> USER JOIN ROLE
-  -> Pbkdf2PasswordHasher.VerifySecret
-  -> JwtTokenService.GenerateAccessToken
-  -> REFRESH_TOKEN
-  -> AuthResponse
-```
+Class xử lý:
+`CinemaSystem.Infrastructure/Auth/AuthService.cs`.
 
-Không có `AdminLoginController` hoặc `ManagerLoginController`. Role không do
-client gửi lên khi login. `AuthService` lấy role thật từ quan hệ `USER.roleId ->
-ROLE.roleId`.
+Public register chỉ tạo Customer. Role thật khi login được đọc từ USER -> ROLE,
+không lấy từ request.
 
-Điều kiện login:
-
-1. email tồn tại;
-2. password khớp hash PBKDF2;
-3. `emailVerified = true`, trừ khi cấu hình dev bật auto-confirm;
-4. `USER.status = ACTIVE`.
-
-JWT do `JwtTokenService` tạo có các claim chính:
-
-- `sub`
-- `userId`
-- email
-- `ClaimTypes.NameIdentifier`
-- `ClaimTypes.Role`
-- `role`
-
-`AuthConstants.Roles.Normalize` chuẩn hóa cả `ADMIN` và `ROLE_ADMIN` về
-`ADMIN`, tương tự cho các role còn lại.
-
-Sau khi controller trả access token, request tiếp theo chạy qua:
-
-```text
-Program.UseAuthentication
-  -> JwtBearer kiểm chữ ký, issuer, audience, expiry
-  -> Program.UseAuthorization
-  -> [Authorize], [Authorize(Roles=...)] hoặc [Authorize(Policy=...)]
-  -> controller action
-```
-
-### 5.2 Admin được tạo như thế nào
-
-Public register luôn tạo Customer, không cho client chèn role.
-
-Admin đầu tiên được seed bởi `DbInitializer.SeedAdminAsync` khi có:
-
-- `ADMIN_PASSWORD`
-- `ADMIN_EMAIL` là tùy chọn, mặc định code là `admin@cinema.com`
-
-Seed Admin:
-
-- lấy role `ROLE_ADMIN`;
-- hash password;
-- tạo `USER` với `status=ACTIVE`;
-- đặt `emailVerified=true`.
-
-Không ghi password thật vào source hoặc tài liệu.
-
-### 5.3 Manager được tạo như thế nào
-
-`main` có role và policy cho Manager nhưng **chưa có API tạo Manager** và cũng
-không có biến môi trường seed Manager. Endpoint Admin hiện tại chỉ tạo Staff.
-
-Để Manager login được, database phải có `USER`:
-
-- liên kết role `ROLE_MANAGER`;
-- password đã được hash đúng bằng `IPasswordHasher`;
-- `emailVerified=true`;
-- `status=ACTIVE`.
-
-Nếu Manager là nhân sự thuộc một rạp, dữ liệu nên có `STAFF_PROFILE` gắn
-`cinemaId`. Tuy nhiên các API room/seat/showtime hiện chưa dùng profile này để
-giới hạn phạm vi rạp.
-
-### 5.4 Admin tạo Staff
+### 4.2 Admin tạo Staff
 
 ```text
 POST /api/admin/staff
-  -> AdminController.CreateStaff
-  -> IAdminService.CreateStaffAsync
-  -> AdminService.CreateStaffAsync
+  -> AdminController
+  -> IAdminService
+  -> Auth/AdminService
   -> USER + STAFF_PROFILE + EMAIL_VERIFICATION_TOKEN
-  -> IEmailService.SendInvitationAsync
+  -> IEmailService
 ```
 
-Chỉ Admin được gọi endpoint do policy `CanManageUserAndRole`.
+Main chưa có API công khai để tạo Manager.
 
-Luồng hiện tại:
+### 4.3 Customer profile
 
-1. kiểm tra email trùng;
-2. chọn cinema đầu tiên theo `cinemaId`;
-3. lấy role Staff;
-4. tạo placeholder password ngẫu nhiên đã hash;
-5. tạo OTP invitation với purpose `PASSWORD_RESET`;
-6. lưu `USER`, `STAFF_PROFILE`, `EMAIL_VERIFICATION_TOKEN`;
-7. gửi invitation qua email;
-8. Staff dùng `POST /api/auth/reset-password` với OTP để đặt password;
-9. reset password đánh dấu email đã xác thực;
-10. Staff dùng endpoint login chung.
+Điểm vào: `CustomersController`.
+Đích: `CustomerService` trong `Infrastructure/Services`.
 
-Giới hạn hiện tại: request tạo Staff không nhận `cinemaId`, nên service tự chọn
-cinema đầu tiên.
+- Xem/cập nhật profile.
+- Đổi mật khẩu.
+- Yêu cầu và xác nhận đổi email.
+- Xem booking history.
 
-### 5.5 Ma trận quyền đã cấu hình
+### 4.4 Movie
 
-| Policy | Role được phép |
-|---|---|
-| `CanBookTicket` | Customer |
-| `CanSelectSeat` | Customer, Staff, Manager, Admin |
-| `CanBuyFoodAndBeverageInCheckout` | Customer |
-| `CanApplyVoucher` | Customer |
-| `CanPayOnline` | Customer |
-| `CanViewBookingHistory` | Customer |
-| `CanReviewAndFeedback` | Customer |
-| `CanScanTicket` | Staff, Manager, Admin |
-| `CanManageMovie` | Manager, Admin |
-| `CanManageCinemaRoomSeat` | Manager, Admin |
-| `CanManageShowtime` | Manager, Admin |
-| `CanManageFoodAndBeverage` | Staff, Manager, Admin |
-| `CanManageVoucher` | Manager, Admin |
-| `CanCancelShowtimeAndRefund` | Manager, Admin |
-| `CanViewBranchDashboard` | Manager, Admin |
-| `CanViewSystemDashboard` | Admin |
-| `CanManageUserAndRole` | Admin |
-| `CanManageSystem` | Admin |
+Điểm vào: `MoviesController`.
+Đích: `MovieService` trong `Infrastructure/Movies`.
 
-Policy có trong `Program.cs` không đồng nghĩa với API đã tồn tại. Phần 8 liệt kê
-các policy mới chỉ là hạ tầng.
+- Danh sách phim phân trang, lọc status và genre.
+- Chi tiết phim.
+- Tăng view.
+- Manager/Admin tạo, cập nhật, xóa mềm phim.
+- Upload/lưu poster qua `IFileStorageService`.
+- Quan hệ MOVIE_GENRE, GENRE, LANGUAGE.
+- `MovieHighlightClassificationJob` cập nhật HOT/TRENDING theo lịch nền.
 
-## 6. Danh sách API và luồng class thực tế
-
-### 6.1 Authentication
-
-Controller: `CinemaSystem/Controllers/AuthController.cs`
-
-| API | Controller method | Service method | Dữ liệu/dịch vụ tiếp theo |
-|---|---|---|---|
-| `POST /api/auth/register` | `Register` | `AuthService.RegisterCustomerAsync` | `ROLE`, `USER`, `CUSTOMER_PROFILE`, OTP hash, SMTP |
-| `POST /api/auth/verify-email` | `VerifyEmail` | `AuthService.VerifyEmailAsync` | `USER`, `EMAIL_VERIFICATION_TOKEN` |
-| `POST /api/auth/login` | `Login` | `AuthService.LoginAsync` | `USER`, `ROLE`, PBKDF2, JWT, `REFRESH_TOKEN` |
-| `POST /api/auth/refresh-token` | `RefreshToken` | `AuthService.RefreshTokenAsync` | kiểm hash token, revoke token cũ, tạo JWT/token mới |
-| `POST /api/auth/logout` | `Logout` | `AuthService.LogoutAsync` | revoke `REFRESH_TOKEN` |
-| `POST /api/auth/resend-verification-otp` | `ResendVerificationOtp` | `AuthService.ResendVerificationOtpAsync` | cooldown/rate limit OTP, SMTP |
-| `POST /api/auth/forgot-password` | `ForgotPassword` | `AuthService.ForgotPasswordAsync` | OTP purpose `PASSWORD_RESET`, SMTP |
-| `POST /api/auth/reset-password` | `ResetPassword` | `AuthService.ResetPasswordAsync` | xác minh OTP, đổi hash password, revoke refresh tokens |
-
-Public registration chỉ tạo Customer. OTP thô chỉ được gửi qua email; database
-lưu hash. Refresh token thô trả cho client; database lưu hash.
-
-### 6.2 Admin account operation
-
-Controller: `CinemaSystem/Controllers/AdminController.cs`
-
-| API | Quyền | Luồng |
-|---|---|---|
-| `POST /api/admin/staff` | Admin | `AdminController -> IAdminService -> AdminService -> USER/STAFF_PROFILE/EMAIL_VERIFICATION_TOKEN -> email` |
-
-Trên `main`, đây là API nghiệp vụ duy nhất trong `AdminController`.
-
-### 6.3 Customer profile
-
-Controller: `CinemaSystem/Controllers/CustomersController.cs`
-
-Tất cả endpoint yêu cầu JWT nhưng controller chỉ dùng `[Authorize]`, không ép
-role Customer. Service dựa vào user/profile hiện có.
-
-| API | Service method | Bảng chính |
-|---|---|---|
-| `GET /api/customer/profile` | `CustomerService.GetProfileAsync` | `USER`, `CUSTOMER_PROFILE` |
-| `PUT /api/customer/profile` | `CustomerService.UpdateProfileAsync` | `USER`, `CUSTOMER_PROFILE` |
-| `POST /api/customer/change-password` | `CustomerService.ChangePasswordAsync` | `USER`, PBKDF2 |
-| `POST /api/customer/request-email-change` | `CustomerService.RequestEmailUpdateAsync` | `USER`, `EMAIL_VERIFICATION_TOKEN`, SMTP |
-| `POST /api/customer/verify-email-change` | `CustomerService.VerifyEmailUpdateAsync` | `USER`, `EMAIL_VERIFICATION_TOKEN` |
-| `GET /api/customer/bookings` | `CustomerService.GetBookingHistoryAsync` | booking, movie, cinema, room, seat |
-
-Ngoài endpoint lịch sử trên còn có `GET /api/bookings/my-bookings`; hai đường
-dẫn trả DTO khác nhau.
-
-### 6.4 Public movie, cinema và showtime
-
-| API | Luồng | Xử lý chính |
-|---|---|---|
-| `GET /api/cinemas` | `CinemasController -> ICinemaService -> CinemaService -> CINEMA` | trả danh sách cinema theo tên |
-| `GET /api/movies` | `MoviesController -> IMovieService -> MovieService -> MOVIE` | ẩn movie `INACTIVE` và age rating `C`, cho lọc status |
-| `GET /api/movies/{movieId}` | cùng luồng trên | trả chi tiết movie public hoặc 404 |
-| `GET /api/showtimes` | `ShowtimesController -> IShowtimeService -> ShowtimeService -> SHOWTIME` | trả danh sách theo start time |
-| `GET /api/showtimes/{showtimeId}` | cùng luồng trên | trả một showtime hoặc 404 |
-
-Khác biệt với API contract cần chú ý:
-
-- `GET /api/showtimes` hiện không có filter movie/cinema/date/status và không
-  tự ẩn `CANCELLED`, `CLOSED`, `COMPLETED`.
-- `GET /api/cinemas` hiện không lọc cinema inactive.
-- chưa có search/genre/now-showing route riêng; frontend có thể dùng query
-  `status` của `GET /api/movies`.
-
-### 6.5 Quản lý room
-
-Controller: `CinemaSystem/Controllers/RoomsController.cs`
-
-| API | Quyền | Service method | Xử lý |
-|---|---|---|---|
-| `GET /api/rooms/rooms` | Staff, Manager, Admin | `GetRoomsAsync` | lấy room không `INACTIVE`, kèm cinema và số ghế |
-| `GET /api/rooms/rooms/{roomId}` | Staff, Manager, Admin | `GetRoomByIdAsync` | lấy chi tiết room |
-| `POST /api/rooms/cinemas/{cinemaId}/rooms` | Manager, Admin | `CreateRoomAsync` | kiểm cinema/status, tạo `ROOM` |
-| `PUT /api/rooms/rooms/{roomId}` | Manager, Admin | `UpdateRoomAsync` | kiểm trùng tên/capacity/status, cập nhật `ROOM` |
-| `DELETE /api/rooms/rooms/{roomId}` | Manager, Admin | `DeleteRoomAsync` | soft delete bằng `roomStatus=INACTIVE` |
-| `POST /api/rooms/{roomId}/generate-seats` | Manager, Admin | `GenerateSeatsAsync` | sinh ma trận `SEAT`, cập nhật capacity |
-
-Giới hạn generate seat:
-
-- rows và columns phải lớn hơn 0;
-- tối đa 500 ghế;
-- room phải chưa có seat;
-- `seatTypeId` trong request được gán cho toàn bộ ghế.
-
-### 6.6 Quản lý seat và khóa ghế
-
-Controller: `CinemaSystem/Controllers/SeatsController.cs`
-
-| API | Quyền | Service method | Xử lý |
-|---|---|---|---|
-| `POST /api/seats` | Manager, Admin | `CreateSeatAsync` | kiểm room, seat type, trùng code rồi tạo `SEAT` |
-| `PUT /api/seats/{seatId}` | Manager, Admin | `UpdateSeatAsync` | đổi row/number/type, kiểm trùng code |
-| `DELETE /api/seats/{seatId}` | Manager, Admin | `DeleteSeatAsync` | chặn nếu dùng ở showtime tương lai, sau đó `isActive=false` |
-| `GET /api/seats/room/{roomId}` | Staff, Manager, Admin | `GetSeatsByRoomAsync` | lấy layout ghế theo room |
-| `POST /api/seats/lock` | Customer | `LockSeatAsync` | khóa phân tán/bộ nhớ rồi cập nhật `SHOWTIME_SEAT` |
-| `POST /api/seats/unlock` | Customer | `UnlockSeatAsync` | chỉ chủ lock được mở lock còn hiệu lực |
-| `GET /api/seats/showtimes/{showtimeId}/map` | Customer, Staff, Manager, Admin | `GetSeatMapAsync` | giải phóng lock hết hạn, chia available/locked/sold |
-
-Luồng lock:
+Danh mục thể loại:
 
 ```text
-SeatsController.LockSeat
-  -> ISeatService.LockSeatAsync
-  -> SeatService kiểm SHOWTIME_SEAT và BOOKING_SEAT
-  -> ISeatLockStore.TryLockAsync
-     -> RedisSeatLockStore nếu có Redis
-     -> InMemorySeatLockStore nếu không có Redis
-  -> cập nhật SHOWTIME_SEAT:
-     seatStatus=LOCKED, lockedUntil=UTC+10 phút, lockedByUserId
+GET /api/genres
+  -> GenresController
+  -> IGenreService
+  -> Infrastructure/Services/GenreService
+  -> CinemaDbContext.Genres
+  -> GENRE
 ```
 
-Nếu ghi database thất bại sau khi lock store thành công, service release lock
-store rồi ném lỗi để tránh lock mồ côi.
+### 4.5 Cinema và room
 
-### 6.7 Quản lý showtime
+Cinema:
 
-Controller: `CinemaSystem/Controllers/ShowtimesController.cs`
+```text
+GET /api/cinemas
+  -> CinemasController
+  -> ICinemaService
+  -> Infrastructure/Cinemas/CinemaService
+  -> CINEMA
+```
 
-| API | Quyền | Service method | Xử lý |
-|---|---|---|---|
-| `POST /api/showtimes` | Manager, Admin | `CreateShowtimeAsync` | validate movie/room/time/overlap, tạo showtime và showtime seats |
-| `PUT /api/showtimes/{showtimeId}` | Manager, Admin | `UpdateShowtimeAsync` | chặn nếu đã có booking; đổi room thì sinh lại showtime seats |
-| `DELETE /api/showtimes/{showtimeId}` | Manager, Admin | `DeleteShowtimeAsync` | hard delete khi không có booking/refund history |
+Room:
 
-Rule đang chạy:
+- Staff/Manager/Admin xem danh sách và chi tiết.
+- Manager/Admin tạo, sửa, xóa mềm room.
+- Sinh ma trận ghế cho room.
+- Đích xử lý: `Infrastructure/Rooms/RoomService`.
 
-- movie phải `NOW_SHOWING`;
-- room và cinema phải `ACTIVE`;
-- start time phải ở tương lai;
-- end time = start time + duration phim + 15 phút buffer;
-- không overlap showtime khác trong cùng room, trừ showtime `CANCELLED`;
-- room phải có active seat;
-- create sinh một `SHOWTIME_SEAT` trạng thái `AVAILABLE` cho mỗi active seat;
-- update trực tiếp bị chặn khi đã có booking;
-- delete trực tiếp bị chặn khi có booking hoặc refund history.
+### 4.6 Seat và seat lock
 
-`DELETE /api/showtimes/{id}` không phải UC003 hủy suất chiếu. Nó chỉ xóa
-showtime chưa phát sinh nghiệp vụ.
+Điểm vào: `SeatsController`.
+Đích: `Infrastructure/Services/SeatService`.
 
-### 6.8 Booking và checkout
+- CRUD seat cho Manager/Admin.
+- Staff/Manager/Admin xem layout.
+- Customer lock/unlock seat.
+- Customer/Staff/Manager/Admin xem seat map.
+- Redis được dùng khi có `Redis:ConnectionString`; nếu không có thì dùng
+  `InMemorySeatLockStore`.
+- DB liên quan: SEAT, SHOWTIME_SEAT, BOOKING_SEAT.
 
-Controller: `CinemaSystem/Controllers/BookingsController.cs`
+### 4.7 Showtime
 
-Tất cả endpoint yêu cầu policy Customer.
+Điểm vào: `ShowtimesController`.
+Đích: `Infrastructure/Showtimes/ShowtimeService`.
 
-| API | Service method | Vai trò |
-|---|---|---|
-| `POST /api/bookings` | `BookingService.CreateBookingAsync` | luồng tạo booking cũ/đơn giản |
-| `GET /api/bookings/{bookingId}` | `BookingService.GetBookingDetailsAsync` | chỉ chủ booking xem chi tiết |
-| `GET /api/bookings/my-bookings` | `BookingService.GetMyBookingsAsync` | danh sách booking của user |
-| `POST /api/bookings/checkout` | `CheckoutService.CheckoutAsync` | luồng checkout đầy đủ hơn, có transaction/F&B/voucher/inventory |
+- Danh sách và chi tiết công khai.
+- Manager/Admin tạo, cập nhật, đổi phòng và xóa showtime.
+- Kiểm tra movie/room active, thời lượng phim, cleaning buffer và overlap.
+- Sinh lại SHOWTIME_SEAT khi cần.
+- Luồng có booking/refund có thể gọi tiếp `IAdminRefundService`.
 
-Hai luồng tạo booking đang cùng tồn tại:
+### 4.8 Booking
 
-1. `BookingService.CreateBookingAsync`:
-   kiểm customer, showtime, ghế; tính giá ghế và F&B; tạo booking
-   `PENDING_PAYMENT`; đặt ghế `LOCKED` 10 phút.
-2. `CheckoutService.CheckoutAsync`:
-   kiểm email/status customer, showtime còn bán, cutoff time, lock ownership,
-   F&B/inventory, voucher và concurrency; lấy giá từ database; tạo booking,
-   booking seat, F&B và voucher usage trong transaction.
+Điểm vào: `BookingsController`.
+Đích: `Infrastructure/Services/BookingService`.
 
-Đối với luồng mới, frontend nên ưu tiên `/api/bookings/checkout` vì kiểm tra
-nghiệp vụ đầy đủ hơn. Team cần thống nhất trước khi loại bỏ route cũ.
+- Tạo booking.
+- Xem chi tiết booking của chính Customer.
+- Danh sách booking của Customer.
+- Xác nhận/từ chối thay đổi thời gian bằng token.
+- Customer hủy booking đủ điều kiện.
+- Dữ liệu: BOOKING, BOOKING_SEAT, SHOWTIME_SEAT, BOOKING_FB_ITEM, VOUCHER_USAGE,
+  PAYMENT, TICKET, REFUND.
 
-Checkout ghi các bảng tùy request:
+`CheckoutService` và `/api/bookings/checkout` đã bị loại khỏi main mới. Luồng
+tạo đơn hiện tập trung tại `BookingService.CreateBookingAsync`.
 
-- `BOOKING`
-- `BOOKING_SEAT`
-- `BOOKING_FB_ITEM`
-- `VOUCHER_USAGE`
-- trạng thái liên quan trong `SHOWTIME_SEAT`
-
-### 6.9 SePay payment và phát hành ticket
-
-Tạo payment:
+### 4.9 Payment SePay
 
 ```text
 POST /api/payment
-  -> PaymentController.CreatePayment
+  -> PaymentController
   -> IPaymentService.CreatePaymentAsync
   -> PaymentService
-  -> BOOKING + CUSTOMER_PROFILE + PAYMENT_PROVIDER + PAYMENT
-  -> trả bank name, bank account, amount, transaction code, expiry
-```
+  -> PAYMENT
 
-Rule chính:
-
-- chỉ chủ booking được thanh toán;
-- booking phải `PENDING_PAYMENT`;
-- payment provider phải `ACTIVE`;
-- không tạo lại nếu đã có payment thành công;
-- tái sử dụng pending payment cùng provider;
-- transaction code được tạo bằng random bảo mật.
-
-Webhook:
-
-```text
 POST /api/payment/sepay-webhook
-  -> PaymentController.SepayWebhook
-  -> IPaymentWebhookService.HandleSepayWebhookAsync
+  -> PaymentController
+  -> IPaymentWebhookService
   -> PaymentWebhookService
-  -> IWebhookSignatureVerifier/HmacVerifyHelper
+  -> IWebhookSignatureVerifier
   -> IPaymentService.ConfirmPaymentAsync
-  -> PaymentService.ConfirmPaymentAsync
-  -> transaction SQL Server
+  -> PAYMENT + BOOKING + SHOWTIME_SEAT + TICKET/REFUND
 ```
 
-Khi callback hợp lệ và đúng amount:
+`PendingPaymentCleanupHostedService` định kỳ hủy giao dịch quá hạn và giải
+phóng tài nguyên liên quan.
 
-1. `PAYMENT.paymentStatus = SUCCESS`;
-2. lưu provider transaction code và raw callback;
-3. `BOOKING.bookingStatus = PAID`;
-4. các `SHOWTIME_SEAT` chuyển `BOOKED` và xóa thông tin lock;
-5. tạo một `TICKET` trạng thái `UNUSED` cho mỗi `BOOKING_SEAT` chưa có ticket;
-6. commit transaction.
+### 4.10 Review và AI moderation
 
-Confirm payment có tính idempotent: payment đã `SUCCESS` thì trả về mà không
-tạo ticket lần hai.
+Điểm vào: `ReviewsController`.
+Đích: `ReviewService`.
 
-### 6.10 Chatbot
+- Customer tạo/sửa review nếu booking hợp lệ.
+- Đọc review đã duyệt theo phim.
+- Customer xem review của mình.
+- Admin duyệt review.
+- ReviewService gọi `GeminiModerationService`.
+- ReviewService gọi `IMovieService` để cập nhật average rating/review count.
+
+### 4.11 Chatbot Gemini
 
 ```text
 POST /api/chatbot
-  -> ChatbotController.Ask
-  -> IChatbotService.AskAsync
+  -> ChatbotController
+  -> IChatbotService
   -> GeminiChatbotService
-  -> IMovieService.GetMoviesAsync
-  -> IShowtimeService.GetShowtimesAsync
-  -> Google Gemini API
+  -> IMovieService + IShowtimeService + Gemini API + CHAT_HISTORY
 ```
 
-Chatbot lấy movie/showtime hiện tại làm context rồi gọi Gemini. Endpoint hiện
-không yêu cầu JWT. `main` chưa lưu chat history vào database.
+### 4.12 Admin refund
 
-### 6.11 API kỹ thuật và background job
+Điểm vào: `AdminRefundsController`.
+Đích: `AdminRefundService`.
 
-| Thành phần | Luồng |
-|---|---|
-| `GET /api/health` | `HealthController`, không truy cập DB |
-| `GET /api/db-test/movies-count` | `DbTestController -> ICinemaDiagnosticsService -> CinemaDiagnosticsService -> MOVIE` |
-| `GET /api/auth-test/customer` | kiểm policy `CanBookTicket`, dùng cho test |
-| `GET /api/auth-test/admin` | kiểm policy `CanManageSystem`, dùng cho test |
-| `PendingPaymentCleanupHostedService` | định kỳ xóa booking pending hết hạn, release ghế, xóa payment/F&B/voucher usage liên quan |
+- Admin xem danh sách refund phân trang.
+- Admin xác nhận refund theo booking.
+- Service xử lý SHOWTIME, BOOKING, PAYMENT, REFUND, TICKET, seat lock và email.
 
-Hosted service được đăng ký trong `Program.cs`, chạy khi API khởi động và lặp
-theo `BookingSettings:PendingPaymentCleanupIntervalSeconds`.
+### 4.13 Upload, health và DB diagnostics
 
-## 7. Đối chiếu các use case trọng tâm
+- `UploadController`: lưu ảnh vào `CinemaSystem/wwwroot/images`.
+- `HealthController`: health check đơn giản.
+- `DbTestController`: kiểm tra kết nối DB bằng movie count.
 
-### 7.1 UC001 - Đặt vé
+## 5. Policy có nhưng use case chưa hoàn chỉnh
 
-SRS yêu cầu: chọn phim/suất, xem seat map, lock seat, tùy chọn F&B/voucher/reward
-point, thanh toán online, tạo e-ticket QR và gửi thông báo.
+Các policy sau tồn tại trong `Program.cs`, nhưng không nên kết luận chức năng đã
+hoàn chỉnh nếu chưa tìm thấy controller/service:
 
-| Bước UC001 | Trạng thái trên `main` | Code |
-|---|---|---|
-| Xem movie/cinema/showtime | Đã có cơ bản | `MoviesController`, `CinemasController`, `ShowtimesController` |
-| Xem seat map | Đã có | `SeatsController.GetSeatMap` |
-| Lock/unlock seat 10 phút | Đã có | `SeatService`, Redis hoặc in-memory lock store |
-| Checkout ghế | Đã có | `CheckoutService` |
-| Mua F&B trong checkout | Đã có | `CheckoutService.LoadAndValidateFoodItemsAsync` |
-| Áp voucher | Đã có trong checkout | `CheckoutService.ValidateVoucherAsync` |
-| Dùng reward point | Chưa có | response hiện để `RewardDiscount = 0` |
-| Thanh toán online | Đã có SePay | `PaymentService`, `PaymentWebhookService` |
-| Chuyển booking/ghế khi paid | Đã có | `PaymentService.ConfirmPaymentAsync` |
-| Sinh ticket QR | Đã có | `PaymentService.ConfirmPaymentAsync` |
-| Gửi e-ticket email/notification | Chưa có | chưa thấy call email/outbox sau payment |
-| Tự dọn pending booking hết hạn | Đã có | `PendingPaymentCleanupHostedService` |
+- `CanScanTicket`: chưa có Ticket/Checkin controller hoàn chỉnh.
+- `CanManageFoodAndBeverage`: chưa có F&B management controller.
+- `CanManageVoucher`: chưa có Voucher management controller.
+- `CanViewBranchDashboard`: chưa có ManagerDashboard controller/service.
+- `CanViewSystemDashboard`: chưa có system dashboard controller/service.
+- Manager chưa bị giới hạn theo `STAFF_PROFILE.cinemaId` ở room/seat/showtime.
 
-Kết luận: UC001 đã có đường chạy end-to-end chính, nhưng chưa hoàn chỉnh phần
-reward point và gửi e-ticket/notification.
+## 6. Cách tìm code nhanh khi giải thích
 
-### 7.2 UC002 - Quét mã QR vé
+### Khi biết URL
 
-SRS yêu cầu Staff/Manager:
+1. Tìm `[Route]` và `[Http...]` trong `CinemaSystem/Controllers`.
+2. Xem interface được inject ở đầu controller.
+3. Mở interface cùng tên trong `CinemaSystem.Application/Interfaces`.
+4. Tra ánh xạ trong
+   `CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs`.
+5. Mở implementation trong Infrastructure.
+6. Tìm `_dbContext.<DbSet>` để biết bảng đích.
 
-- đọc Ticket ID/QR;
-- đối chiếu booking, cinema, room, showtime và thời gian;
-- chặn check-in lần hai;
-- cập nhật ticket/check-in status;
-- lưu check-in log;
-- giới hạn Staff/Manager theo cinema được phân công.
+### Khi biết tên bảng
 
-Trạng thái `main`:
+1. Mở entity trong `CinemaSystem.Domain/Entities`.
+2. Mở mapping tại `CinemaSystem.Infrastructure/Persistence/CinemaDbContext.cs`.
+3. Dùng tìm kiếm `_dbContext.<DbSet>` để tìm service sử dụng.
+4. Từ service tìm ngược interface và controller.
 
-- có entity/DbSet `TICKET` và `CHECKIN_LOG`;
-- có policy `CanScanTicket`;
-- payment thành công có tạo ticket QR;
-- **không có controller/service scan ticket**;
-- **không có code cập nhật check-in**;
-- **không có kiểm tra cinema scope**.
+### Khi biết policy/role
 
-Kết luận: UC002 chưa triển khai, mới có dữ liệu nền và policy.
+1. Tìm policy trong `CinemaSystem.Application/Common/AuthConstants.cs`.
+2. Xem role mapping tại `CinemaSystem/Program.cs`.
+3. Tìm `[Authorize(...)]` trong Controllers.
+4. Đừng coi policy là chức năng hoàn chỉnh nếu không có route/service.
 
-### 7.3 UC003 - Hủy suất chiếu và hoàn tiền
+## 7. Các file đã được gắn comment điều hướng
 
-SRS yêu cầu Manager/Admin:
+Nhóm entry point:
 
-- kiểm quyền và cinema scope;
-- chuyển showtime sang cancelled;
-- tìm paid booking;
-- cập nhật booking/refund;
-- release seat;
-- gọi payment gateway refund;
-- notify customer;
-- chuyển manual handling nếu auto-refund lỗi.
+- `Program.cs`
+- Auth, Admin, AdminRefund, Booking, Customer, Movie, Cinema, Room, Seat,
+  Showtime, Review, Payment, Chatbot, Upload, Health và DB test controllers.
 
-Trạng thái `main`:
+Nhóm xử lý:
 
-- có entity/DbSet `SHOWTIME_CANCELLATION` và `REFUND`;
-- có policy `CanCancelShowtimeAndRefund`;
-- `ShowtimeService.DeleteShowtimeAsync` chặn xóa nếu có booking/refund;
-- **không có endpoint cancel showtime**;
-- **không có refund service**;
-- **không có notification cho use case này**;
-- **không có cinema scope cho Manager**.
+- `DependencyInjection.cs`
+- Auth/Admin/Cinema/Movie/Room/Showtime services.
+- Booking/Customer/Seat/Payment/Webhook/Review/AdminRefund services.
+- Gemini chatbot và moderation services.
 
-Kết luận: UC003 chưa triển khai trên `main`. Không dùng
-`DELETE /api/showtimes/{id}` thay cho use case hủy/refund.
-
-## 8. Chức năng mới có policy/entity nhưng chưa có API hoàn chỉnh
-
-| Chức năng trong SRS | Hạ tầng đang có | Còn thiếu |
-|---|---|---|
-| Movie CRUD | `MOVIE`, `CanManageMovie` | request DTO admin, controller CRUD, service CRUD |
-| Cinema CRUD | `CINEMA`, policy hệ thống | controller/service CRUD |
-| Ticket scan/check-in | `TICKET`, `CHECKIN_LOG`, `CanScanTicket` | scan controller/service và rule |
-| Cancel showtime/refund | `SHOWTIME_CANCELLATION`, `REFUND`, policy | orchestration service/API/gateway/email |
-| F&B management | `FB_ITEM`, inventory, policy | CRUD/stock API cho Staff/Manager/Admin |
-| Voucher management | `VOUCHER`, `VOUCHER_USAGE`, policy | CRUD admin/manager |
-| Review/feedback | `REVIEW`, policy | API create/edit/moderate |
-| Reward point | profile và transaction entity | earn/redeem service |
-| Branch dashboard | policy | query/report API và cinema scope |
-| System dashboard | policy | Admin dashboard API |
-| User/role management | role tables/policy, create Staff | list/update/block/change-role API |
-| Chat history | chatbot API | persistence/API history |
-| Manager provisioning | role/policy | internal create/assign Manager flow |
-
-## 9. Vị trí database và bảng được dùng
-
-`CinemaDbContext` nằm tại
-`CinemaSystem.Infrastructure/Persistence/CinemaDbContext.cs`.
-
-Nhóm auth:
-
-- `ROLE`
-- `USER`
-- `CUSTOMER_PROFILE`
-- `STAFF_PROFILE`
-- `EMAIL_VERIFICATION_TOKEN`
-- `REFRESH_TOKEN`
-
-Nhóm catalog/vận hành:
-
-- `CINEMA`
-- `ROOM`
-- `SEAT_TYPE`
-- `SEAT`
-- `MOVIE`
-- `SHOWTIME`
-- `SHOWTIME_SEAT`
-
-Nhóm đặt vé/thanh toán:
-
-- `BOOKING`
-- `BOOKING_SEAT`
-- `BOOKING_FB_ITEM`
-- `PAYMENT_PROVIDER`
-- `PAYMENT`
-- `TICKET`
-- `FB_ITEM`
-- `CINEMA_FB_INVENTORY`
-- `VOUCHER`
-- `VOUCHER_USAGE`
-
-Nhóm có entity nhưng use case chưa hoàn chỉnh:
-
-- `CHECKIN_LOG`
-- `SHOWTIME_CANCELLATION`
-- `REFUND`
-- `REVIEW`
-- `REWARD_POINT_TRANSACTION`
-- `NOTIFICATION`
-- `AUDIT_LOG`
-
-Ở Development, `Program.cs` gọi:
-
-```text
-IDatabaseMaintenanceService.MigrateAsync
-  -> DatabaseMaintenanceService
-  -> CinemaDbContext.Database.MigrateAsync
-
-IDatabaseMaintenanceService.SeedAsync
-  -> DatabaseMaintenanceService
-  -> DbInitializer.SeedAsync
-```
-
-`DbInitializer` seed role, Admin khi có biến môi trường, cinema/F&B/test users
-trong development. Đây là seed dữ liệu ứng dụng; schema chuẩn vẫn phải đồng bộ
-với `docs/database/cinema-booking-schema.sql` và EF model.
-
-## 10. Khoảng trống và điểm team cần thống nhất
-
-1. **Manager scope chưa được enforce.** Các route room/seat/showtime chỉ kiểm
-   role Manager/Admin, chưa đối chiếu `STAFF_PROFILE.cinemaId`.
-2. **Chưa có cách tạo Manager qua API/seed.** Cần một use case nội bộ có audit,
-   không mở qua public register.
-3. **Có hai luồng tạo booking.** `POST /api/bookings` và
-   `POST /api/bookings/checkout` cần được chuẩn hóa để tránh rule khác nhau.
-4. **Public showtime trả cả status không phù hợp.** SRS/API contract yêu cầu ẩn
-   cancelled/closed/completed cho khách.
-5. **Cinema public chưa lọc inactive.**
-6. **Admin tạo Staff tự chọn cinema đầu tiên.** Request cần cinema assignment rõ
-   ràng nếu hệ thống nhiều chi nhánh.
-7. **Policy không phải implementation.** Scan ticket, refund, dashboard, movie
-   CRUD, voucher/F&B management vẫn chưa có use case code trên `main`.
-8. **Ticket đã sinh nhưng chưa gửi cho Customer.**
-9. **Chatbot chưa lưu lịch sử và endpoint đang anonymous.**
-10. **Một số helper `ApplyCreate/Update/Delete` trong `SeatService` không có
-    controller gọi trực tiếp.** Không tính là API đã expose.
-
-## 11. Cách lần theo một request khi debug
-
-### 11.1 Quy ước comment trực tiếp trong code
-
-Các điểm chuyển giao quan trọng trong Controller và service dùng ba nhãn:
-
-- `Bước tiếp theo`: request hoặc dữ liệu sắp được chuyển sang interface/class
-  nào, class đó nằm trong folder/file nào và chịu trách nhiệm gì.
-- `Chặng tiếp theo`: một service đang tiếp tục gọi service/helper/adapter/DB nào
-  trong chuỗi xử lý nhiều tầng.
-- `Luồng quay về`: class hiện tại đã xử lý xong, kết quả quay về class nào hoặc
-  actor nào sẽ kích hoạt use case kế tiếp.
-
-Ví dụ luồng payment được comment trực tiếp tại:
-
-```text
-PaymentController.SepayWebhook
-  -> PaymentWebhookService.HandleSepayWebhookAsync
-  -> HmacVerifyHelper.Verify
-  -> PaymentService.ConfirmPaymentAsync
-  -> CinemaDbContext transaction
-  -> PaymentWebhookService
-  -> PaymentController
-  -> SePay nhận HTTP ACK
-```
-
-Comment giải thích đường đi và ranh giới trách nhiệm; code vẫn là nguồn đúng
-duy nhất về hành vi. Khi đổi DI mapping, tên class, folder hoặc bước use case,
-phải cập nhật comment cùng commit để tránh chỉ dẫn sai.
-
-### 11.2 Ví dụ lần theo login
-
-Ví dụ login:
-
-1. mở route trong `CinemaSystem/Controllers/AuthController.cs`;
-2. tìm method interface tại
-   `CinemaSystem.Application/Interfaces/IAuthService.cs`;
-3. xem interface được map ở
-   `CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs`;
-4. mở `CinemaSystem.Infrastructure/Auth/AuthService.cs`;
-5. lần theo `CinemaDbContext`, `IPasswordHasher`, `IJwtTokenService`;
-6. kiểm policy tại `CinemaSystem/Program.cs`;
-7. kiểm test tại `CinemaSystem.Tests/AuthServiceTests.cs` và
-   `CinemaSystem.Tests/AuthApiIntegrationTests.cs`.
-
-### 11.3 Ví dụ lần theo payment callback
-
-Ví dụ thanh toán thành công:
-
-1. `PaymentController.SepayWebhook`;
-2. `PaymentWebhookService.HandleSepayWebhookAsync`;
-3. `HmacVerifyHelper.Verify`;
-4. `PaymentService.ConfirmPaymentAsync`;
-5. transaction cập nhật `PAYMENT`, `BOOKING`, `SHOWTIME_SEAT`, `TICKET`;
-6. integration test trong `CinemaSystem.Tests/BookingApiIntegrationTests.cs`
-   và unit test trong `CinemaSystem.Tests/PaymentServiceTests.cs`.
-
-Khi thêm use case mới, team nên giữ cùng cấu trúc:
-
-```text
-Request/Response DTO
-  -> Application interface
-  -> Infrastructure implementation
-  -> DI registration
-  -> thin Controller + authorization
-  -> unit test + integration test
-  -> cập nhật tài liệu này
-```
+Comment được đặt ở class hoặc action quan trọng, tập trung vào trách nhiệm và
+đích chuyển tiếp. Không comment lại các dòng cú pháp hiển nhiên để tránh làm
+code khó đọc và nhanh lỗi thời.

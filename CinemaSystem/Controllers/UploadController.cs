@@ -10,6 +10,14 @@ using Microsoft.AspNetCore.Hosting;
 
 namespace CinemaSystem.Controllers
 {
+    /// <summary>
+    /// Điểm vào HTTP để Manager/Admin tải ảnh lên thư mục static của API.
+    /// </summary>
+    /// <remarks>
+    /// Controller xử lý trực tiếp vì đây là adapter file đơn giản: kiểm tra
+    /// extension/kích thước rồi ghi vào <c>CinemaSystem/wwwroot/images</c>.
+    /// URL trả về được MovieController/MovieService lưu vào trường posterUrl.
+    /// </remarks>
     [Route("api/[controller]")]
     [ApiController]
     [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]

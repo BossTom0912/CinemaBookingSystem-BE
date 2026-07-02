@@ -8,6 +8,14 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaSystem.Controllers;
 
+/// <summary>
+/// Điểm vào HTTP cho tra cứu phim công khai và CRUD phim của Manager/Admin.
+/// </summary>
+/// <remarks>
+/// Luồng tiếp theo: <see cref="IMovieService"/> -> <c>MovieService</c> tại
+/// <c>CinemaSystem.Infrastructure/Movies/MovieService.cs</c> -> MOVIE,
+/// MOVIE_GENRE, GENRE, LANGUAGE và file poster qua <c>IFileStorageService</c>.
+/// </remarks>
 [ApiController]
 [Route("api/movies")]
 public sealed class MoviesController : ControllerBase
