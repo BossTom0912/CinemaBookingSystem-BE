@@ -287,66 +287,56 @@ public sealed class BookingService : IBookingService
             return ServiceResult<bool>.Fail(400, "Booking ID is required.", "BOOKING_ID_REQUIRED");
         }
 
-    public async Task<ServiceResult<bool>> CancelBookingAsync(
-        string bookingId,
-        string userId,
-        CancellationToken cancellationToken)
-    {
-        // Truy vấn thông tin đơn đặt vé cần hủy
         var booking = await _dbContext.Bookings
-            // Bao gồm thông tin hồ sơ khách hàng
-            .Include(b => b.CustomerProfile)
-            // Bao gồm danh sách ghế đã đặt
-            .Include(b => b.BookingSeats)
-                // Từ thông tin ghế đặt lấy thông tin ghế của suất chiếu để xử lý việc mở khóa
-                .ThenInclude(bs => bs.ShowtimeSeat)
-            // Lấy đơn đặt vé khớp với ID được yêu cầu
-            .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
+            .Include(item => item.CustomerProfile)
+            .Include(item => item.BookingSeats)
+                .ThenInclude(item => item.ShowtimeSeat)
+            .Include(item => item.Payments)
+            .FirstOrDefaultAsync(item => item.BookingId == bookingId, cancellationToken);
 
-        // Kiểm tra nếu không tìm thấy đơn đặt vé
         if (booking == null)
         {
-            // Trả về lỗi 404 (Không tìm thấy)
             return ServiceResult<bool>.Fail(404, "Booking not found.", "BOOKING_NOT_FOUND");
         }
 
-        // Kiểm tra xem đơn đặt vé này có thuộc về người dùng đang thực hiện yêu cầu không
         if (booking.CustomerProfile?.UserId != userId)
         {
-            // Trả về lỗi 403 (Cấm truy cập) nếu người dùng không phải là chủ sở hữu đơn đặt vé
             return ServiceResult<bool>.Fail(403, "You do not have permission to cancel this booking.", "FORBIDDEN");
         }
 
-        // Kiểm tra trạng thái hiện tại của đơn đặt vé. Chỉ cho phép hủy khi đang chờ thanh toán
-        if (booking.BookingStatus != DomainConstants.EntityStatus.PendingPayment)
+        if (IsFinalPaidStatus(booking.BookingStatus))
         {
-            // Trả về lỗi 400 (Yêu cầu không hợp lệ) vì đơn đã được xử lý (thanh toán hoặc đã hủy)
-            return ServiceResult<bool>.Fail(400, "Only bookings in pending payment status can be cancelled.", "INVALID_STATUS");
+            return ServiceResult<bool>.Fail(409, "Paid booking cannot be cancelled from checkout.", "BOOKING_ALREADY_PAID");
         }
 
-        // Cập nhật trạng thái đơn đặt vé thành Đã Hủy (CANCELLED)
-        booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
-
-        // Duyệt qua từng ghế đã chọn trong đơn đặt vé để thực hiện mở khóa
-        foreach (var bs in booking.BookingSeats)
+        if (!string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
         {
-            // Kiểm tra ghế có tồn tại, đang ở trạng thái Khóa, và do chính người dùng này khóa
-            if (bs.ShowtimeSeat != null && bs.ShowtimeSeat.SeatStatus == DomainConstants.EntityStatus.Locked && bs.ShowtimeSeat.LockedByUserId == userId)
+            return ServiceResult<bool>.Fail(400, "Only pending payment bookings can be cancelled.", "INVALID_BOOKING_STATUS");
+        }
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var now = _clock.UtcNow;
+        await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
+
+        foreach (var payment in booking.Payments)
+        {
+            if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase))
             {
-                // Đổi trạng thái ghế trở lại thành Có sẵn (AVAILABLE)
-                bs.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
-                // Xóa thời gian khóa ghế
-                bs.ShowtimeSeat.LockedUntil = null;
-                // Xóa ID người dùng đang khóa ghế
-                bs.ShowtimeSeat.LockedByUserId = null;
+                payment.PaymentStatus = DomainConstants.PaymentStatus.Cancelled;
+                payment.UpdatedAt = now;
+                payment.FailureReason ??= "Customer cancelled checkout transaction.";
             }
         }
 
-        // Lưu các thay đổi (cập nhật trạng thái đơn vé và mở khóa ghế) vào cơ sở dữ liệu
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
+        booking.ExpiredAt = now;
 
-        // Trả về kết quả thành công
-        return ServiceResult<bool>.Ok(true, "Booking cancelled successfully.");
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(true, "Pending booking cancelled and seats released successfully.");
     }
 
     public async Task<ServiceResult<bool>> ConfirmTimeChangeAsync(
@@ -383,20 +373,15 @@ public sealed class BookingService : IBookingService
         }
         else
         {
-            // Đổi trạng thái đơn vé thành Đang chờ hoàn tiền (PENDING_REFUND)
             booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
-            
-            // Tìm giao dịch thanh toán thành công của đơn hàng này
-            var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.PaymentStatus.Success) ?? booking.Payments.FirstOrDefault();
-            
-            // Nếu không tìm thấy thông tin thanh toán trong danh sách đã tải
+
+            var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.RefundStatus.Success) ?? booking.Payments.FirstOrDefault();
+
             if (payment == null)
             {
-                // Truy vấn trực tiếp từ database để lấy giao dịch thanh toán thành công
                 payment = await _dbContext.Payments
-                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == DomainConstants.PaymentStatus.Success, cancellationToken);
-                    
-                // Nếu vẫn không có giao dịch thành công, lấy bất kỳ giao dịch nào của đơn này
+                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == DomainConstants.RefundStatus.Success, cancellationToken);
+
                 if (payment == null)
                 {
                     payment = await _dbContext.Payments.FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
@@ -404,9 +389,7 @@ public sealed class BookingService : IBookingService
             }
             else
             {
-                // Kiểm tra xem bản ghi thanh toán này có thực sự tồn tại trong CSDL không
                 bool exists = await _dbContext.Payments.AnyAsync(p => p.PaymentId == payment.PaymentId, cancellationToken);
-                // Nếu không tồn tại thì gán thành null
                 if (!exists) payment = null;
             }
 
