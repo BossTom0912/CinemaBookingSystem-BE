@@ -13,6 +13,9 @@ public static class PasswordValidator
         if (password.Length < settings.PasswordMinLength)
             return $"Mật khẩu phải chứa ít nhất {settings.PasswordMinLength} ký tự.";
 
+        if (password.Length > settings.PasswordMaxLength)
+            return $"Mật khẩu không được vượt quá {settings.PasswordMaxLength} ký tự.";
+
         if (settings.PasswordRequireUppercase && !password.Any(char.IsUpper))
             return "Mật khẩu phải chứa ít nhất một chữ hoa.";
 

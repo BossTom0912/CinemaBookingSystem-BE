@@ -24,6 +24,9 @@ agents discover them there automatically.
 - [`architecture/implemented-features-and-class-flow-vi.md`](architecture/implemented-features-and-class-flow-vi.md):
   current implementation inventory, role/login explanation, use-case status,
   and Controller-to-Service-to-database flow map for the team.
+- [`architecture/api-role-business-flow-guide-vi.md`](architecture/api-role-business-flow-guide-vi.md):
+  complete current API inventory, role matrix, business rules, request pipeline,
+  and end-to-end class flow guide in Vietnamese.
 
 ## API Contracts
 

@@ -457,7 +457,7 @@ public sealed class BookingMissingCoverageTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
 
-        var response = await client.PostAsJsonAsync("/api/bookings/checkout", new CheckoutRequest
+        var response = await client.PostAsJsonAsync("/api/bookings", new CreateBookingRequest
         {
             ShowtimeId = "SHW_NONEXISTENT",
             ShowtimeSeatIds = ["STS_01"]
@@ -1376,7 +1376,8 @@ public sealed class PaymentServiceMissingCoverageTests
                     WebhookSecret = "test-secret",
                     BankName = "Test Bank",
                     BankAccount = "123456789"
-                }));
+                }),
+                Microsoft.Extensions.Options.Options.Create(new BookingSettings()));
             return new Fixture(dbContext, service);
         }
 
@@ -1471,6 +1472,7 @@ public sealed class ShowtimeServiceMissingCoverageTests
                 BasePrice = 95000,
                 Status = "OPEN"
             },
+            false,
             CancellationToken.None);
 
         Assert.False(result.Success);
@@ -1516,11 +1518,30 @@ public sealed class ShowtimeServiceMissingCoverageTests
             var mockClock = new Moq.Mock<IClock>();
             mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
             var mockJobClient = new Moq.Mock<Hangfire.IBackgroundJobClient>();
-                        var mockOptions = Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings());
+            var mockOptions = Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.CinemaProcessingSettings());
+            var securityOptions = Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.SecuritySettings
+                {
+                    ConfirmationTokenSecret =
+                        "unit-test-confirmation-secret-with-at-least-32-characters"
+                });
+            var emailTemplateOptions = Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.EmailTemplatesSettings());
             return new Fixture(
                 dbContext,
-                new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object),
-                new ShowtimeService(dbContext, mockClock.Object, mockOptions, mockJobClient.Object));
+                new RoomService(
+                    dbContext,
+                    new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
+                    mockOptions),
+                new ShowtimeService(
+                    dbContext,
+                    mockClock.Object,
+                    mockOptions,
+                    securityOptions,
+                    emailTemplateOptions,
+                    mockJobClient.Object,
+                    new HttpContextAccessor()));
         }
 
         public async Task SeedCinemaAsync()

@@ -1,12 +1,15 @@
 using System.Text.Json;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Movies;
+using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Controllers;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Tests;
 
@@ -42,8 +45,8 @@ public sealed class MovieDetailTests
         Assert.Equal("MOV_001", movie.MovieId);
         Assert.Equal("Dune: Part Two", movie.Title);
         Assert.Equal(166, movie.DurationMinutes);
-        Assert.Equal("Sci-Fi, Adventure", movie.Genre);
-        Assert.Equal("English", movie.LanguageId);
+        Assert.Equal(["Sci-Fi", "Adventure"], movie.Genres);
+        Assert.Equal("English", movie.Language);
         Assert.Equal(new DateOnly(2026, 6, 15), movie.ReleaseDate);
         Assert.Equal("T13", movie.AgeRating);
         Assert.Equal("Movie description", movie.Description);
@@ -135,14 +138,24 @@ public sealed class MovieDetailTests
             MovieId = movieId,
             Title = "Dune: Part Two",
             DurationMinutes = 166,
-            Genre = "Sci-Fi, Adventure",
             LanguageId = "English",
             ReleaseDate = new DateOnly(2026, 6, 15),
             AgeRating = ageRating,
             Description = "Movie description",
             PosterUrl = "https://example.com/poster.jpg",
             TrailerUrl = "https://youtube.com/watch?v=test",
-            MovieStatus = movieStatus
+            MovieStatus = movieStatus,
+            MovieGenres =
+            [
+                new MovieGenre
+                {
+                    Genre = new Genre { GenreId = 1, Name = "Sci-Fi" }
+                },
+                new MovieGenre
+                {
+                    Genre = new Genre { GenreId = 2, Name = "Adventure" }
+                }
+            ]
         };
     }
 
@@ -166,7 +179,12 @@ public sealed class MovieDetailTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(options);
-            var service = new MovieService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object);
+            var service = new MovieService(
+                dbContext,
+                new Moq.Mock<IAdminRefundService>().Object,
+                new Moq.Mock<IFileStorageService>().Object,
+                Options.Create(new CinemaProcessingSettings()),
+                Options.Create(new FileStorageSettings()));
             var controller = new MoviesController(service);
 
             return new TestFixture(dbContext, controller);

@@ -1,8 +1,10 @@
 using CinemaSystem.Contracts.Seats;
+using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Persistence;
 
 using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 
 namespace CinemaSystem.Tests;
 
@@ -15,6 +17,25 @@ public sealed class SeatCrudServiceTests
   private const string UserId = "USR_MANAGER_01";
   private const string RoomId = "ROOM_TEST";
   private const string SeatTypeId = "SEAT_TYPE_STANDARD";
+
+  private static SeatService CreateSeatService(CinemaDbContext dbContext)
+  {
+    return new SeatService(
+      dbContext,
+      new Mock<Hangfire.IBackgroundJobClient>().Object,
+      new Mock<IAdminRefundService>().Object,
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Application.Settings.SecuritySettings
+        {
+          ConfirmationTokenSecret =
+            "unit-test-confirmation-secret-with-at-least-32-characters"
+        }),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Infrastructure.Configuration.BookingSettings()),
+      new InMemorySeatLockStore());
+  }
 
   [Fact]
   public async Task CreateSeatAsync_HappyPath_CreatesSeat()
@@ -245,7 +266,7 @@ public sealed class SeatCrudServiceTests
         });
       await dbContext.SaveChangesAsync();
 
-      return new Fixture(dbContext, new SeatService(dbContext));
+      return new Fixture(dbContext, CreateSeatService(dbContext));
     }
   }
 }

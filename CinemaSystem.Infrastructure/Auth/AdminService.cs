@@ -8,6 +8,7 @@ using CinemaSystem.Contracts.Auth;
 using CinemaSystem.Application.Interfaces;
 // Bao gồm các Domain Entity ánh xạ với các bảng trong cơ sở dữ liệu
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
 // Sử dụng lớp kết nối cơ sở dữ liệu (DbContext) từ tầng Infrastructure
 using CinemaSystem.Infrastructure.Persistence;
 // Sử dụng Entity Framework Core để tương tác với SQL Server
@@ -30,7 +31,8 @@ namespace CinemaSystem.Infrastructure.Auth;
 public sealed class AdminService : IAdminService
 {
     // Khai báo hằng số mục đích của token là đặt lại mật khẩu (để tái sử dụng cho tính năng gửi mã mời)
-    private const string PasswordResetPurpose = "PASSWORD_RESET";
+    private const string PasswordResetPurpose =
+        DomainConstants.VerificationTokenPurpose.PasswordReset;
 
     // Khai báo DbContext để thao tác với cơ sở dữ liệu
     private readonly CinemaDbContext _dbContext;
@@ -152,7 +154,7 @@ public sealed class AdminService : IAdminService
         // Lấy thời gian UTC hiện tại từ Clock service
         var now = _clock.UtcNow;
         // Tạo một mã định danh (ID) người dùng mới với tiền tố "USR"
-        var userId = NewId("USR");
+        var userId = NewId(DomainConstants.EntityIdPrefix.User);
         // Sinh ra mã OTP gồm 6 chữ số dùng làm mật khẩu gửi vào email để xác thực
         var invitationOtp = _otpGenerator.GenerateSixDigitOtp();
         // Tạo một mật khẩu ngẫu nhiên tạm thời không thể giải mã và mã hóa Base64
@@ -183,7 +185,7 @@ public sealed class AdminService : IAdminService
         var staffProfile = new StaffProfile
         {
             // Tạo ID hồ sơ với tiền tố "STF"
-            StaffProfileId = NewId("STF"),
+            StaffProfileId = NewId(DomainConstants.EntityIdPrefix.StaffProfile),
             // Map với User vừa tạo
             UserId = userId,
             // Map với Cinema đầu tiên trong DB
@@ -191,14 +193,14 @@ public sealed class AdminService : IAdminService
             // Chức vụ là "Staff"
             Position = "Staff",
             // Trạng thái công việc đang hoạt động ("ACTIVE")
-            EmploymentStatus = "ACTIVE"
+            EmploymentStatus = DomainConstants.StaffEmploymentStatus.Active
         };
 
         // Tạo một token xác minh email (lưu dạng Password Reset để hệ thống dùng lại logic)
         var invitationToken = new EmailVerificationToken
         {
             // Tạo ID với tiền tố "EVT"
-            TokenId = NewId("EVT"),
+            TokenId = NewId(DomainConstants.EntityIdPrefix.EmailVerificationToken),
             // Liên kết với UserId
             UserId = userId,
             // Lưu trữ mã OTP đã được hash bảo mật

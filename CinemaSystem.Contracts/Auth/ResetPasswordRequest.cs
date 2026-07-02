@@ -14,7 +14,5 @@ public sealed class ResetPasswordRequest
     public string Otp { get; init; } = string.Empty;
 
     [Required]
-    [MinLength(8)]
-    [MaxLength(100)]
     public string NewPassword { get; init; } = string.Empty;
 }

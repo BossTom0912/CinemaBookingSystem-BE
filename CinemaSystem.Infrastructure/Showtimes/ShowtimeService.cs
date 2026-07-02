@@ -245,7 +245,7 @@ public sealed class ShowtimeService : IShowtimeService
 
         // create showtime immediately
         // Khởi tạo một ID duy nhất cho suất chiếu với tiền tố 'SHW'
-        var showtimeId = NewId("SHW");
+        var showtimeId = NewId(DomainConstants.EntityIdPrefix.Showtime);
         
         // Khởi tạo Entity suất chiếu mới
         var showtime = new Showtime
@@ -378,8 +378,8 @@ public sealed class ShowtimeService : IShowtimeService
                         // Tính chênh lệch thời gian giữa giờ chiếu cũ và mới (tính bằng phút)
                         var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
                         
-                        // Nếu giờ chiếu thay đổi từ 15 phút trở lên
-                        if (timeChanged && timeDiff >= 15)
+                        if (timeChanged
+                            && timeDiff >= _settings.ShowtimeMaterialChangeThresholdMinutes)
                         {
                             // Lấy secret key từ cấu hình bảo mật
                             var secret = _securitySettings.ConfirmationTokenSecret;
@@ -818,7 +818,7 @@ public sealed class ShowtimeService : IShowtimeService
             cancellation = new ShowtimeCancellation
             {
                 // Tạo ID cho bản ghi hủy (Tiền tố STC)
-                ShowtimeCancellationId = NewId("STC"),
+                ShowtimeCancellationId = NewId(DomainConstants.EntityIdPrefix.ShowtimeCancellation),
                 // Gán ID suất chiếu
                 ShowtimeId = showtime.ShowtimeId,
                 // Gán lý do
@@ -882,7 +882,7 @@ public sealed class ShowtimeService : IShowtimeService
             var refund = new Refund
             {
                 // Tạo ID mới tiền tố REF
-                RefundId = NewId("REF"),
+                RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
                 // Gán ID đơn hàng
                 BookingId = booking.BookingId,
                 // Gán ID giao dịch
@@ -911,7 +911,9 @@ public sealed class ShowtimeService : IShowtimeService
             {
                 // Lấy tiêu đề và nội dung email hủy từ cấu hình
                 string subject = _emailTemplates.ShowtimeCancellationSubject;
-                string message = _emailTemplates.ShowtimeCancellationBody;
+                string message = string.Format(
+                    _emailTemplates.ShowtimeCancellationBody,
+                    cancelReason);
                 
                 // Đẩy tiến trình gửi Email vào Hangfire
                 _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
@@ -1127,7 +1129,7 @@ public sealed class ShowtimeService : IShowtimeService
         var showtimeSeat = new ShowtimeSeat
         {
             // ID của ghế (prefix STS)
-            ShowtimeSeatId = NewId("STS"),
+            ShowtimeSeatId = NewId(DomainConstants.EntityIdPrefix.ShowtimeSeat),
             // ID suất chiếu
             ShowtimeId = showtimeId,
             // ID thực tế của ghế cứng

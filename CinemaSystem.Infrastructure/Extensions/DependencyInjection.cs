@@ -12,6 +12,7 @@ using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Services;
 using CinemaSystem.Infrastructure.Showtimes;
 using CinemaSystem.Infrastructure.Time;
+using CinemaSystem.Application.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,37 +34,128 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.Configure<JwtSettings>(options =>
-        {
-            options.Issuer = configuration["JwtSettings:Issuer"] ?? "CinemaSystem";
-            options.Audience = configuration["JwtSettings:Audience"] ?? "CinemaSystem.Api";
-            options.Secret = configuration["JwtSettings:Secret"] ?? "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM";
-            options.AccessTokenMinutes = ReadInt(configuration["JwtSettings:AccessTokenMinutes"], 15);
-            options.RefreshTokenDays = ReadInt(configuration["JwtSettings:RefreshTokenDays"], 7);
-        });
-        services.Configure<EmailSettings>(options =>
-        {
-            options.SmtpHost = configuration["EmailSettings:SmtpHost"] ?? "smtp.gmail.com";
-            options.SmtpPort = ReadInt(configuration["EmailSettings:SmtpPort"], 587);
-            options.SenderEmail = configuration["EmailSettings:SenderEmail"] ?? string.Empty;
-            options.SenderName = configuration["EmailSettings:SenderName"] ?? "Cinema Booking System";
-            options.Password = configuration["EmailSettings:Password"] ?? string.Empty;
-        });
-        services.Configure<BookingSettings>(options =>
-        {
-            options.OnlineSaleCutoffMinutes = ReadInt(
-                configuration["BookingSettings:OnlineSaleCutoffMinutes"],
-                15);
-            options.MaxSeatsPerCheckout = ReadInt(
-                configuration["BookingSettings:MaxSeatsPerCheckout"],
-                10);
-            options.PendingPaymentExpiryMinutes = ReadInt(
-                configuration["BookingSettings:PendingPaymentExpiryMinutes"],
-                10);
-            options.PendingPaymentCleanupIntervalSeconds = ReadInt(
-                configuration["BookingSettings:PendingPaymentCleanupIntervalSeconds"],
-                60);
-        });
+        services.AddOptions<JwtSettings>()
+            .Configure(options =>
+            {
+                options.Issuer = ReadString(
+                    configuration[$"{JwtSettings.SectionName}:Issuer"],
+                    options.Issuer);
+                options.Audience = ReadString(
+                    configuration[$"{JwtSettings.SectionName}:Audience"],
+                    options.Audience);
+                options.Secret = configuration[$"{JwtSettings.SectionName}:Secret"] ?? string.Empty;
+                options.AccessTokenMinutes = ReadInt(
+                    configuration[$"{JwtSettings.SectionName}:AccessTokenMinutes"],
+                    options.AccessTokenMinutes);
+                options.RefreshTokenDays = ReadInt(
+                    configuration[$"{JwtSettings.SectionName}:RefreshTokenDays"],
+                    options.RefreshTokenDays);
+                options.ClockSkewSeconds = ReadInt(
+                    configuration[$"{JwtSettings.SectionName}:ClockSkewSeconds"],
+                    options.ClockSkewSeconds);
+            })
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Issuer), "JWT issuer is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Audience), "JWT audience is required.")
+            .Validate(
+                options => SecretSettingsValidator.IsConfigured(options.Secret, 32),
+                "JWT secret must be configured and contain at least 32 characters.")
+            .Validate(options => options.AccessTokenMinutes > 0, "JWT access-token lifetime must be positive.")
+            .Validate(options => options.RefreshTokenDays > 0, "JWT refresh-token lifetime must be positive.")
+            .Validate(options => options.ClockSkewSeconds >= 0, "JWT clock skew cannot be negative.")
+            .ValidateOnStart();
+
+        services.AddOptions<EmailSettings>()
+            .Configure(options =>
+            {
+                options.SmtpHost = ReadString(
+                    configuration[$"{EmailSettings.SectionName}:SmtpHost"],
+                    options.SmtpHost);
+                options.SmtpPort = ReadInt(
+                    configuration[$"{EmailSettings.SectionName}:SmtpPort"],
+                    options.SmtpPort);
+                options.SenderEmail = configuration[$"{EmailSettings.SectionName}:SenderEmail"] ?? string.Empty;
+                options.SenderName = ReadString(
+                    configuration[$"{EmailSettings.SectionName}:SenderName"],
+                    options.SenderName);
+                options.Password = configuration[$"{EmailSettings.SectionName}:Password"] ?? string.Empty;
+                options.UseMock = ReadBool(
+                    configuration[$"{EmailSettings.SectionName}:UseMock"],
+                    options.UseMock);
+                options.AutoConfirmEmail = ReadBool(
+                    configuration[$"{EmailSettings.SectionName}:AutoConfirmEmail"],
+                    options.AutoConfirmEmail);
+            })
+            .Validate(options => options.SmtpPort is > 0 and <= 65535, "SMTP port is invalid.");
+
+        services.AddOptions<BookingSettings>()
+            .Configure(options =>
+            {
+                options.OnlineSaleCutoffMinutes = ReadInt(
+                    configuration[$"{BookingSettings.SectionName}:OnlineSaleCutoffMinutes"],
+                    options.OnlineSaleCutoffMinutes);
+                options.MaxSeatsPerCheckout = ReadInt(
+                    configuration[$"{BookingSettings.SectionName}:MaxSeatsPerCheckout"],
+                    options.MaxSeatsPerCheckout);
+                options.PendingPaymentExpiryMinutes = ReadInt(
+                    configuration[$"{BookingSettings.SectionName}:PendingPaymentExpiryMinutes"],
+                    options.PendingPaymentExpiryMinutes);
+                options.PendingPaymentCleanupIntervalSeconds = ReadInt(
+                    configuration[$"{BookingSettings.SectionName}:PendingPaymentCleanupIntervalSeconds"],
+                    options.PendingPaymentCleanupIntervalSeconds);
+                options.PendingPaymentCleanupBatchSize = ReadInt(
+                    configuration[$"{BookingSettings.SectionName}:PendingPaymentCleanupBatchSize"],
+                    options.PendingPaymentCleanupBatchSize);
+            })
+            .Validate(options => options.OnlineSaleCutoffMinutes >= 0, "Online-sale cutoff cannot be negative.")
+            .Validate(options => options.MaxSeatsPerCheckout > 0, "Maximum seats per checkout must be positive.")
+            .Validate(options => options.PendingPaymentExpiryMinutes > 0, "Pending-payment expiry must be positive.")
+            .Validate(options => options.PendingPaymentCleanupIntervalSeconds > 0, "Cleanup interval must be positive.")
+            .Validate(options => options.PendingPaymentCleanupBatchSize > 0, "Cleanup batch size must be positive.")
+            .ValidateOnStart();
+
+        services.AddOptions<InitialAdminSettings>()
+            .Configure(options =>
+            {
+                options.Email = configuration[$"{InitialAdminSettings.SectionName}:Email"] ?? string.Empty;
+                options.Password = configuration[$"{InitialAdminSettings.SectionName}:Password"] ?? string.Empty;
+                options.FullName = configuration[$"{InitialAdminSettings.SectionName}:FullName"] ?? string.Empty;
+            });
+
+        services.AddOptions<FileStorageSettings>()
+            .Configure(options =>
+            {
+                options.WebRootFolder = ReadString(
+                    configuration[$"{FileStorageSettings.SectionName}:WebRootFolder"],
+                    options.WebRootFolder);
+                options.UploadRootFolder = ReadString(
+                    configuration[$"{FileStorageSettings.SectionName}:UploadRootFolder"],
+                    options.UploadRootFolder);
+                options.PosterFolder = ReadString(
+                    configuration[$"{FileStorageSettings.SectionName}:PosterFolder"],
+                    options.PosterFolder);
+                options.GeneralImageFolder = ReadString(
+                    configuration[$"{FileStorageSettings.SectionName}:GeneralImageFolder"],
+                    options.GeneralImageFolder);
+
+                var configuredExtensions = configuration
+                    .GetSection($"{FileStorageSettings.SectionName}:AllowedImageExtensions")
+                    .GetChildren()
+                    .Select(item => item.Value)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value!.Trim().ToLowerInvariant())
+                    .ToArray();
+                if (configuredExtensions.Length > 0)
+                {
+                    options.AllowedImageExtensions = configuredExtensions;
+                }
+            })
+            .Validate(
+                options => options.AllowedImageExtensions.Length > 0,
+                "At least one image extension must be allowed.")
+            .Validate(
+                options => options.AllowedImageExtensions.All(extension => extension.StartsWith('.')),
+                "Image extensions must start with a period.")
+            .ValidateOnStart();
 
         // Read connection string and fail fast with clear error if missing
         var defaultConnection = configuration.GetConnectionString("DefaultConnection");
@@ -113,7 +205,7 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
 
         // Register Sepay settings and payment related services
-        var sepaySection = configuration.GetSection("SepaySettings");
+        var sepaySection = configuration.GetSection(SepaySettings.SectionName);
         // Manually read Sepay settings and register so project doesn't rely on IConfiguration binder extensions
         var sepaySettings = new SepaySettings();
         // Lightweight binding without IConfigurationBinder extension to avoid extra package references
@@ -122,14 +214,21 @@ public static class DependencyInjection
         sepaySettings.BankAccount = sepaySection["BankAccount"] ?? string.Empty;
         sepaySettings.DevelopmentPaymentAmountOverride = ReadDecimal(
             sepaySection["DevelopmentPaymentAmountOverride"]);
-        services.AddSingleton(sepaySettings);
-        services.Configure<SepaySettings>(options =>
-        {
-            options.WebhookSecret = sepaySettings.WebhookSecret;
-            options.BankName = sepaySettings.BankName;
-            options.BankAccount = sepaySettings.BankAccount;
-            options.DevelopmentPaymentAmountOverride = sepaySettings.DevelopmentPaymentAmountOverride;
-        });
+        services.AddOptions<SepaySettings>()
+            .Configure(options =>
+            {
+                options.WebhookSecret = sepaySettings.WebhookSecret;
+                options.BankName = sepaySettings.BankName;
+                options.BankAccount = sepaySettings.BankAccount;
+                options.DevelopmentPaymentAmountOverride =
+                    sepaySettings.DevelopmentPaymentAmountOverride;
+            })
+            .Validate(
+                options => SecretSettingsValidator.IsConfigured(options.WebhookSecret, 16),
+                "SePay webhook secret must be configured and contain at least 16 characters.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.BankName), "SePay bank name is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.BankAccount), "SePay bank account is required.")
+            .ValidateOnStart();
 
         services.AddSingleton<HmacVerifyHelper>();
         services.AddScoped<IPaymentService, PaymentService>();
@@ -138,10 +237,25 @@ public static class DependencyInjection
         services.AddScoped<IDatabaseMaintenanceService, DatabaseMaintenanceService>();
         services.AddSingleton<IWebhookSignatureVerifier, HmacVerifyHelper>();
 
-        services.Configure<GeminiSettings>(options =>
-        {
-            options.ApiKey = configuration["GeminiSettings:ApiKey"] ?? string.Empty;
-        });
+        services.AddOptions<GeminiSettings>()
+            .Configure(options =>
+            {
+                options.ApiKey = configuration[$"{GeminiSettings.SectionName}:ApiKey"] ?? string.Empty;
+                options.ApiBaseUrl = ReadString(
+                    configuration[$"{GeminiSettings.SectionName}:ApiBaseUrl"],
+                    options.ApiBaseUrl);
+                options.Model = ReadString(
+                    configuration[$"{GeminiSettings.SectionName}:Model"],
+                    options.Model);
+                options.ContextMovieLimit = ReadInt(
+                    configuration[$"{GeminiSettings.SectionName}:ContextMovieLimit"],
+                    options.ContextMovieLimit);
+            })
+            .Validate(
+                options => Uri.TryCreate(options.ApiBaseUrl, UriKind.Absolute, out _),
+                "Gemini API base URL must be absolute.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Model), "Gemini model is required.")
+            .Validate(options => options.ContextMovieLimit > 0, "Gemini movie-context limit must be positive.");
         services.AddScoped<IChatbotService, GeminiChatbotService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAiModerationService, GeminiModerationService>();
@@ -157,6 +271,16 @@ public static class DependencyInjection
     private static int ReadInt(string? value, int fallback)
     {
         return int.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
+    private static bool ReadBool(string? value, bool fallback)
+    {
+        return bool.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
+    private static string ReadString(string? value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
     private static decimal? ReadDecimal(string? value)

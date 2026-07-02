@@ -5,11 +5,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Reviews;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -25,12 +27,25 @@ public sealed class ReviewServiceTests
         return new CinemaDbContext(options);
     }
 
+    private static ReviewService CreateService(
+        CinemaDbContext dbContext,
+        IAiModerationService? moderationService = null,
+        IMovieService? movieService = null)
+    {
+        return new ReviewService(
+            dbContext,
+            moderationService ?? new Mock<IAiModerationService>().Object,
+            movieService ?? new Mock<IMovieService>().Object,
+            new Mock<Hangfire.IBackgroundJobClient>().Object,
+            Options.Create(new CinemaProcessingSettings()));
+    }
+
     [Fact]
     public async Task CreateReviewAsync_WhenCustomerProfileNotFound_ReturnsFail()
     {
         var dbContext = CreateDbContext();
         var aiModerationServiceMock = new Mock<IAiModerationService>();
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5 };
 
@@ -48,7 +63,7 @@ public sealed class ReviewServiceTests
         await dbContext.SaveChangesAsync();
 
         var aiModerationServiceMock = new Mock<IAiModerationService>();
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5, Comment = "" };
 
@@ -73,7 +88,7 @@ public sealed class ReviewServiceTests
         aiModerationServiceMock.Setup(x => x.ModerateReviewAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiModerationResult { Status = "APPROVED" });
         
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5, Comment = "Great movie!" };
 
@@ -99,7 +114,7 @@ public sealed class ReviewServiceTests
         );
         await dbContext.SaveChangesAsync();
 
-        var service = new ReviewService(dbContext, new Mock<IAiModerationService>().Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext);
 
         var result = await service.GetApprovedMovieReviewsAsync("M1");
 
@@ -116,7 +131,7 @@ public sealed class ReviewServiceTests
         dbContext.Set<Review>().Add(review);
         await dbContext.SaveChangesAsync();
 
-        var service = new ReviewService(dbContext, new Mock<IAiModerationService>().Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext);
 
         var result = await service.UpdateReviewStatusAsync("R1", ReviewConstants.Approved);
 

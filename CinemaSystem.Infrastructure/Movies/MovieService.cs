@@ -1,5 +1,6 @@
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Movies;
 using CinemaSystem.Domain.Constants;
@@ -30,13 +31,20 @@ public sealed class MovieService : IMovieService
     private readonly IAdminRefundService _refundService;
     private readonly IFileStorageService _fileStorageService;
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
+    private readonly FileStorageSettings _fileStorageSettings;
 
-    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService fileStorageService, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
+    public MovieService(
+        CinemaDbContext dbContext,
+        IAdminRefundService refundService,
+        IFileStorageService fileStorageService,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options,
+        Microsoft.Extensions.Options.IOptions<FileStorageSettings> fileStorageOptions)
     {
         _dbContext = dbContext;
         _refundService = refundService;
         _fileStorageService = fileStorageService;
         _settings = options.Value;
+        _fileStorageSettings = fileStorageOptions.Value;
     }
 
     public async Task<ServiceResult<PagedList<MovieResponse>>> GetMoviesAsync(
@@ -376,7 +384,7 @@ public sealed class MovieService : IMovieService
         }
 
         // Tạo ID mới cho bộ phim với tiền tố MOV_
-        var movieId = "MOV_" + Guid.NewGuid().ToString("N");
+        var movieId = $"{DomainConstants.EntityIdPrefix.Movie}_{Guid.NewGuid():N}";
 
         // Khởi tạo biến lưu đường dẫn poster
         string? posterUrl = null;
@@ -384,7 +392,11 @@ public sealed class MovieService : IMovieService
         if (posterStream != null && !string.IsNullOrWhiteSpace(posterFileName))
         {
             // Lưu file ảnh poster qua dịch vụ lưu trữ (S3/Local) và nhận về URL
-            posterUrl = await _fileStorageService.SaveFileAsync(posterStream, posterFileName, "posters", cancellationToken);
+            posterUrl = await _fileStorageService.SaveFileAsync(
+                posterStream,
+                posterFileName,
+                _fileStorageSettings.PosterFolder,
+                cancellationToken);
         }
 
         // Tạo mới đối tượng Movie Entity với các thông tin đã chuẩn bị
@@ -526,7 +538,11 @@ public sealed class MovieService : IMovieService
                 await _fileStorageService.DeleteFileAsync(movie.PosterUrl, cancellationToken);
             }
             // Lưu ảnh poster mới và lấy URL
-            movie.PosterUrl = await _fileStorageService.SaveFileAsync(posterStream, posterFileName, "posters", cancellationToken);
+            movie.PosterUrl = await _fileStorageService.SaveFileAsync(
+                posterStream,
+                posterFileName,
+                _fileStorageSettings.PosterFolder,
+                cancellationToken);
         }
         else if (request.PosterUrl != null) 
         {

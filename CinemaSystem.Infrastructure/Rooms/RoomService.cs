@@ -22,16 +22,16 @@ namespace CinemaSystem.Infrastructure.Rooms;
 public sealed class RoomService : IRoomService
 {
     // ID loại ghế mặc định
-    private const string DefaultSeatTypeId = "SEAT_TYPE_STANDARD";
+    private const string DefaultSeatTypeId = DomainConstants.SeatType.StandardId;
     // Tên loại ghế mặc định
-    private const string DefaultSeatTypeName = "STANDARD";
+    private const string DefaultSeatTypeName = DomainConstants.SeatType.StandardName;
 
     // Danh sách các trạng thái hợp lệ của phòng chiếu
     private static readonly HashSet<string> ValidRoomStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ACTIVE",
-        "INACTIVE",
-        "MAINTENANCE"
+        DomainConstants.RoomStatus.Active,
+        DomainConstants.RoomStatus.Inactive,
+        DomainConstants.RoomStatus.Maintenance
     };
 
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
@@ -87,7 +87,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Tạo ID mới cho phòng chiếu
-        var roomId = NewId("ROOM");
+        var roomId = NewId(DomainConstants.EntityIdPrefix.Room);
         // Khởi tạo đối tượng phòng chiếu mới
         var room = new Room
         {
@@ -122,7 +122,7 @@ public sealed class RoomService : IRoomService
         if (!includeInactive)
         {
             // Lọc bỏ các phòng chiếu có trạng thái INACTIVE
-            query = query.Where(room => room.RoomStatus != "INACTIVE");
+            query = query.Where(room => room.RoomStatus != DomainConstants.RoomStatus.Inactive);
         }
 
         // Thực thi truy vấn lấy danh sách phòng chiếu
@@ -170,7 +170,11 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu cấu hình không cho phép lấy phòng INACTIVE và phòng hiện tại đang INACTIVE
-        if (!includeInactive && string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive
+            && string.Equals(
+                room.RoomStatus,
+                DomainConstants.RoomStatus.Inactive,
+                StringComparison.OrdinalIgnoreCase))
         {
             // Trả về lỗi không tìm thấy (che giấu phòng INACTIVE)
             return ServiceResult<RoomResponse>.Fail(
@@ -263,7 +267,7 @@ public sealed class RoomService : IRoomService
                 seats.Add(new Seat
                 {
                     // Sinh ID tự động cho ghế
-                    SeatId = NewId("SEAT"),
+                    SeatId = NewId(DomainConstants.EntityIdPrefix.Seat),
                     // Gán ID phòng chiếu
                     RoomId = roomId,
                     // Gán ID loại ghế
@@ -406,7 +410,9 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu có sự thay đổi trạng thái và trạng thái mới là bảo trì hoặc ngưng hoạt động
-        if (room.RoomStatus != roomStatus && (roomStatus == "MAINTENANCE" || roomStatus == "INACTIVE"))
+        if (room.RoomStatus != roomStatus
+            && (roomStatus == DomainConstants.RoomStatus.Maintenance
+                || roomStatus == DomainConstants.RoomStatus.Inactive))
         {
             // Tìm tất cả các suất chiếu đang mở (Open) tại phòng này
             var openShowtimes = await _dbContext.Showtimes
@@ -417,7 +423,7 @@ public sealed class RoomService : IRoomService
             foreach (var st in openShowtimes)
             {
                 // Cập nhật trạng thái suất chiếu thành bị đình chỉ (SUSPENDED)
-                st.Status = "SUSPENDED";
+                st.Status = DomainConstants.ShowtimeStatus.Suspended;
             }
         }
 
@@ -466,11 +472,11 @@ public sealed class RoomService : IRoomService
         foreach (var st in openShowtimes)
         {
             // Cập nhật trạng thái thành SUSPENDED do phòng bị xóa
-            st.Status = "SUSPENDED";
+            st.Status = DomainConstants.ShowtimeStatus.Suspended;
         }
 
         // Tiến hành xóa mềm bằng cách đổi trạng thái thành INACTIVE
-        room.RoomStatus = "INACTIVE";
+        room.RoomStatus = DomainConstants.RoomStatus.Inactive;
         // Lưu thay đổi vào DB
         await _dbContext.SaveChangesAsync(cancellationToken);
 

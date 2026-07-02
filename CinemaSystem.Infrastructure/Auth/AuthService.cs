@@ -1,11 +1,12 @@
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Auth;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
@@ -26,9 +27,11 @@ namespace CinemaSystem.Infrastructure.Auth;
 public sealed class AuthService : IAuthService
 {
     // Hằng số định nghĩa mục đích xác thực email
-    private const string EmailVerificationPurpose = "EMAIL_VERIFICATION";
+    private const string EmailVerificationPurpose =
+        DomainConstants.VerificationTokenPurpose.EmailVerification;
     // Hằng số định nghĩa mục đích đặt lại mật khẩu
-    private const string PasswordResetPurpose = "PASSWORD_RESET";
+    private const string PasswordResetPurpose =
+        DomainConstants.VerificationTokenPurpose.PasswordReset;
 
     // Khai báo các dependency được tiêm vào (Dependency Injection)
     private readonly CinemaDbContext _dbContext;
@@ -39,6 +42,7 @@ public sealed class AuthService : IAuthService
     private readonly IClock _clock;
     private readonly JwtSettings _jwtSettings;
     private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
+    private readonly EmailTemplatesSettings _emailTemplates;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly bool _autoConfirmEmail;
 
@@ -52,8 +56,9 @@ public sealed class AuthService : IAuthService
         IClock clock,
         IOptions<JwtSettings> jwtOptions,
         IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
-        Hangfire.IBackgroundJobClient backgroundJobClient,
-        IConfiguration? configuration = null)
+        IOptions<EmailTemplatesSettings> emailTemplateOptions,
+        IOptions<EmailSettings> emailOptions,
+        Hangfire.IBackgroundJobClient backgroundJobClient)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
@@ -63,11 +68,10 @@ public sealed class AuthService : IAuthService
         _clock = clock;
         _jwtSettings = jwtOptions.Value;
         _authSettings = authOptions.Value;
+        _emailTemplates = emailTemplateOptions.Value;
         _backgroundJobClient = backgroundJobClient;
         // Đọc cấu hình AutoConfirmEmail từ appsettings để tự động xác nhận email (thường dùng cho môi trường dev)
-        _autoConfirmEmail = bool.TryParse(
-            configuration?["EmailSettings:AutoConfirmEmail"],
-            out var autoConfirmEmail) && autoConfirmEmail;
+        _autoConfirmEmail = emailOptions.Value.AutoConfirmEmail;
     }
 
     public async Task<ServiceResult<object>> RegisterCustomerAsync(RegisterRequest request, CancellationToken cancellationToken)
@@ -124,7 +128,7 @@ public sealed class AuthService : IAuthService
         var user = new User
         {
             // Tạo ID người dùng ngẫu nhiên với tiền tố "USR"
-            UserId = NewId("USR"),
+            UserId = NewId(DomainConstants.EntityIdPrefix.User),
             // Gán RoleId của Khách hàng
             RoleId = customerRole.RoleId,
             // Gán email đã được chuẩn hóa
@@ -147,11 +151,11 @@ public sealed class AuthService : IAuthService
         var customerProfile = new CustomerProfile
         {
             // Tạo ID hồ sơ ngẫu nhiên với tiền tố "CUS"
-            CustomerProfileId = NewId("CUS"),
+            CustomerProfileId = NewId(DomainConstants.EntityIdPrefix.CustomerProfile),
             // Map với ID của người dùng vừa tạo
             UserId = user.UserId,
             // Khởi tạo cấp bậc thành viên cơ bản
-            MemberLevel = "STANDARD",
+            MemberLevel = DomainConstants.MemberLevel.Standard,
             // Khởi tạo điểm thưởng ban đầu là 0
             RewardPoints = 0
         };
@@ -185,7 +189,7 @@ public sealed class AuthService : IAuthService
         var verificationToken = new EmailVerificationToken
         {
             // Tạo ID token ngẫu nhiên với tiền tố "EVT"
-            TokenId = NewId("EVT"),
+            TokenId = NewId(DomainConstants.EntityIdPrefix.EmailVerificationToken),
             // Map với ID của người dùng
             UserId = user.UserId,
             // Băm mã OTP trước khi lưu vào cơ sở dữ liệu
@@ -394,7 +398,7 @@ public sealed class AuthService : IAuthService
             user = new User
             {
                 // Sinh mã ID người dùng mới
-                UserId = NewId("USR"),
+                UserId = NewId(DomainConstants.EntityIdPrefix.User),
                 // Gán RoleId Khách hàng
                 RoleId = customerRole.RoleId,
                 // Gán email đã chuẩn hóa
@@ -415,11 +419,11 @@ public sealed class AuthService : IAuthService
             var customerProfile = new CustomerProfile
             {
                 // Tạo ID hồ sơ ngẫu nhiên
-                CustomerProfileId = NewId("CUS"),
+                CustomerProfileId = NewId(DomainConstants.EntityIdPrefix.CustomerProfile),
                 // Map với ID người dùng vừa tạo
                 UserId = user.UserId,
                 // Đặt cấp độ thành viên cơ bản
-                MemberLevel = "STANDARD",
+                MemberLevel = DomainConstants.MemberLevel.Standard,
                 // Gán điểm thưởng khởi điểm
                 RewardPoints = 0
             };
@@ -631,7 +635,7 @@ public sealed class AuthService : IAuthService
         var verificationToken = new EmailVerificationToken
         {
             // Sinh ID token
-            TokenId = NewId("EVT"),
+            TokenId = NewId(DomainConstants.EntityIdPrefix.EmailVerificationToken),
             // Map với ID người dùng
             UserId = user.UserId,
             // Băm OTP trước khi lưu
@@ -743,7 +747,7 @@ public sealed class AuthService : IAuthService
         var resetToken = new EmailVerificationToken
         {
             // ID bản ghi
-            TokenId = NewId("EVT"),
+            TokenId = NewId(DomainConstants.EntityIdPrefix.EmailVerificationToken),
             // Map với User
             UserId = user.UserId,
             // Mã Hash của OTP
@@ -967,7 +971,7 @@ public sealed class AuthService : IAuthService
         var verificationToken = new EmailVerificationToken
         {
             // Tạo ID mới cho token
-            TokenId = NewId("EVT"),
+            TokenId = NewId(DomainConstants.EntityIdPrefix.EmailVerificationToken),
             // Map token với User
             UserId = user.UserId,
             // Băm nội dung OTP để bảo mật
@@ -1166,7 +1170,7 @@ public sealed class AuthService : IAuthService
         return new RefreshToken
         {
             // Khởi tạo mã định danh ID
-            RefreshTokenId = NewId("RFT"),
+            RefreshTokenId = NewId(DomainConstants.EntityIdPrefix.RefreshToken),
             // Map Token thuộc về User nào
             UserId = userId,
             // Sinh mã băm của Token
@@ -1174,7 +1178,7 @@ public sealed class AuthService : IAuthService
             // Ghi nhận mốc sinh Token
             IssuedAt = now,
             // Xác định thời điểm Token hết hiệu lực (Tối thiểu 1 ngày)
-            ExpiresAt = now.AddDays(Math.Max(1, _jwtSettings.RefreshTokenDays)),
+            ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenDays),
             // Xác nhận trạng thái Token lúc vừa tạo là chưa bị thu hồi
             IsRevoked = false
         };
@@ -1233,15 +1237,10 @@ public sealed class AuthService : IAuthService
         CancellationToken cancellationToken)
     {
         // Chuẩn bị nội dung Email gửi đi sử dụng chuỗi Multi-line String
-        var body = $"""
-            Hello,
-
-            Your Cinema Booking email verification OTP is: {otp}
-
-            This code expires at {expiresAt:yyyy-MM-dd HH:mm:ss} UTC.
-
-            If you did not request this registration, please ignore this email.
-            """;
+        var body = string.Format(
+            _emailTemplates.VerificationBody,
+            otp,
+            expiresAt);
 
         try
         {
@@ -1249,7 +1248,7 @@ public sealed class AuthService : IAuthService
             _backgroundJobClient.Enqueue<IEmailSender>(emailSender => 
                 emailSender.SendEmailAsync(
                     email,
-                    "Cinema Booking - Email Verification",
+                    _emailTemplates.VerificationSubject,
                     body,
                     CancellationToken.None));
         }
@@ -1273,15 +1272,10 @@ public sealed class AuthService : IAuthService
         CancellationToken cancellationToken)
     {
         // Khởi tạo đoạn thông điệp Email
-        var body = $"""
-            Hello,
-
-            Your Cinema Booking password reset OTP is: {otp}
-
-            This code expires at {expiresAt:yyyy-MM-dd HH:mm:ss} UTC.
-
-            If you did not request a password reset, please ignore this email.
-            """;
+        var body = string.Format(
+            _emailTemplates.PasswordResetBody,
+            otp,
+            expiresAt);
 
         try
         {
@@ -1289,7 +1283,7 @@ public sealed class AuthService : IAuthService
             _backgroundJobClient.Enqueue<IEmailSender>(emailSender => 
                 emailSender.SendEmailAsync(
                     email,
-                    "Cinema Booking - Password Reset",
+                    _emailTemplates.PasswordResetSubject,
                     body,
                     CancellationToken.None));
         }

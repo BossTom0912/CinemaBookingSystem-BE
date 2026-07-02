@@ -14,8 +14,9 @@ namespace CinemaSystem.Controllers;
 /// Processing continues through <see cref="IChatbotService"/> to
 /// <c>CinemaSystem.Infrastructure.Services.GeminiChatbotService</c>. That class
 /// loads movie/showtime context through their Application interfaces and then
-/// calls the configured Google Gemini endpoint. Chat history is not persisted
-/// on the current main branch.
+/// calls the configured Google Gemini endpoint. The generated exchange is then
+/// persisted to CHAT_HISTORY; the current request contract does not identify a
+/// user, so the stored UserId is null.
 /// </remarks>
 [ApiController]
 [Route("api/[controller]")]
@@ -37,8 +38,8 @@ public class ChatbotController : ControllerBase
         // IShowtimeService/ShowtimeService lấy context, rồi mới gọi Google Gemini.
         var result = await _chatbotService.AskAsync(request, cancellationToken);
 
-        // Gemini trả lời hoặc lỗi xong thì ServiceResult quay lại Controller;
-        // nhánh main hiện không chuyển tiếp sang class lưu CHAT_HISTORY.
+        // Gemini trả lời xong, service lưu CHAT_HISTORY rồi ServiceResult mới
+        // quay lại Controller; UserId hiện null vì request chưa mang định danh.
         if (!result.Success)
         {
             return BadRequest(ApiResponse<object>.Fail(result.Message, result.ErrorCode ?? "ERROR"));

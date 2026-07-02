@@ -43,10 +43,12 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _databaseName = Guid.NewGuid().ToString("N");
 
     // ── JWT constants — phải khớp với appsettings.json và TestAuthTokens ──────
-    internal const string TestJwtSecret   = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM";
+    internal const string TestJwtSecret = "integration-test-jwt-secret-with-at-least-32-characters";
     internal const string TestJwtIssuer   = "CinemaSystem";
     internal const string TestJwtAudience = "CinemaSystem.Api";
     internal const string TestSepayWebhookSecret = "test-sepay-webhook-secret";
+    internal const string TestConfirmationTokenSecret =
+        "integration-test-confirmation-secret-with-at-least-32-characters";
 
     public FakeEmailCapture EmailCapture { get; } = new();
     public string FixedOtp => "123456";
@@ -134,6 +136,9 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("JwtSettings:Issuer", TestJwtIssuer);
         builder.UseSetting("JwtSettings:Audience", TestJwtAudience);
         builder.UseSetting("JwtSettings:Secret", TestJwtSecret);
+        builder.UseSetting(
+            "SecuritySettings:ConfirmationTokenSecret",
+            TestConfirmationTokenSecret);
         builder.UseSetting("SepaySettings:WebhookSecret", TestSepayWebhookSecret);
         builder.UseSetting("SepaySettings:BankName", "Test Bank");
         builder.UseSetting("SepaySettings:BankAccount", "0000000000");
@@ -147,6 +152,8 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["JwtSettings:Issuer"] = TestJwtIssuer,
                 ["JwtSettings:Audience"] = TestJwtAudience,
                 ["JwtSettings:Secret"] = TestJwtSecret,
+                ["SecuritySettings:ConfirmationTokenSecret"] =
+                    TestConfirmationTokenSecret,
                 ["JwtSettings:AccessTokenMinutes"] = "120",
                 ["JwtSettings:RefreshTokenDays"] = "7",
                 ["SepaySettings:WebhookSecret"] = TestSepayWebhookSecret,

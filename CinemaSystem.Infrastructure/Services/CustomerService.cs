@@ -2,6 +2,8 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Customers;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -28,7 +30,8 @@ namespace CinemaSystem.Infrastructure.Services;
 public sealed class CustomerService : ICustomerService
 {
     // Hằng số đánh dấu mục đích gửi OTP là để cập nhật email
-    private const string EmailUpdatePurpose = "EMAIL_UPDATE";
+    private const string EmailUpdatePurpose =
+        DomainConstants.VerificationTokenPurpose.EmailUpdate;
 
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
     private readonly CinemaDbContext _dbContext;
@@ -42,6 +45,7 @@ public sealed class CustomerService : ICustomerService
     private readonly IClock _clock;
     // Khai báo biến lưu trữ cấu hình bảo mật/xác thực
     private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
+    private readonly EmailTemplatesSettings _emailTemplates;
     // Khai báo BackgroundJobClient của Hangfire để thực hiện các tiến trình chạy nền
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
 
@@ -53,6 +57,7 @@ public sealed class CustomerService : ICustomerService
         IEmailSender emailSender,
         IClock clock,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
+        Microsoft.Extensions.Options.IOptions<EmailTemplatesSettings> emailTemplateOptions,
         Hangfire.IBackgroundJobClient backgroundJobClient)
     {
         // Gán DbContext
@@ -67,6 +72,7 @@ public sealed class CustomerService : ICustomerService
         _clock = clock;
         // Gán cấu hình xác thực từ tùy chọn
         _authSettings = authOptions.Value;
+        _emailTemplates = emailTemplateOptions.Value;
         // Gán Hangfire client
         _backgroundJobClient = backgroundJobClient;
     }
@@ -335,7 +341,8 @@ public sealed class CustomerService : ICustomerService
         var token = new EmailVerificationToken
         {
             // Tạo một ID ngẫu nhiên không trùng lặp cho mã xác thực này
-            TokenId = $"EVT_{Guid.NewGuid():N}",
+            TokenId =
+                $"{DomainConstants.EntityIdPrefix.EmailVerificationToken}_{Guid.NewGuid():N}",
             // Khớp mã này vào tài khoản người dùng
             UserId = user.UserId,
             // Băm mã OTP trước khi lưu trữ xuống DB để tăng tính bảo mật
@@ -358,13 +365,20 @@ public sealed class CustomerService : ICustomerService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         // Soạn nội dung Body của Email
-        var body = $"Your verification OTP is: {otp}. It expires in {_authSettings.OtpExpirySeconds / 60} minutes.";
+        var body = string.Format(
+            _emailTemplates.EmailUpdateBody,
+            otp,
+            _authSettings.OtpExpirySeconds / 60);
 
         try
         {
             // Sử dụng Hangfire để đưa Job chạy ngầm: thực thi việc gửi Email không làm treo phiên người dùng
             _backgroundJobClient.Enqueue<IEmailSender>(email => 
-                email.SendEmailAsync(targetEmail, "Cinema Booking - Email Update Verification", body, CancellationToken.None));
+                email.SendEmailAsync(
+                    targetEmail,
+                    _emailTemplates.EmailUpdateSubject,
+                    body,
+                    CancellationToken.None));
         }
         catch
         {
@@ -401,7 +415,7 @@ public sealed class CustomerService : ICustomerService
             // Gán Ngày sinh
             DateOfBirth = user.CustomerProfile?.DateOfBirth,
             // Gán Hạng thành viên (Hoặc mặc định là STANDARD)
-            MemberLevel = user.CustomerProfile?.MemberLevel ?? "STANDARD",
+            MemberLevel = user.CustomerProfile?.MemberLevel ?? DomainConstants.MemberLevel.Standard,
             // Gán Điểm thưởng (Hoặc mặc định là 0)
             RewardPoints = user.CustomerProfile?.RewardPoints ?? 0,
             // Gán trạng thái hoạt động tài khoản

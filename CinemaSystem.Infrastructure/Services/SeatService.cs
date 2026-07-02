@@ -442,7 +442,7 @@ public sealed class SeatService : ISeatService
         if (room != null)
         {
             // Đặt trạng thái phòng chiếu thành đang Bảo trì
-            room.RoomStatus = "MAINTENANCE";
+            room.RoomStatus = DomainConstants.RoomStatus.Maintenance;
             // Tìm các suất chiếu đang mở trong phòng chiếu này
             var openShowtimes = await _dbContext.Showtimes
                 .Where(s => s.RoomId == room.RoomId && s.Status == DomainConstants.EntityStatus.Open)
@@ -452,7 +452,7 @@ public sealed class SeatService : ISeatService
             foreach (var st in openShowtimes)
             {
                 // Cập nhật trạng thái suất chiếu thành Tạm ngưng
-                st.Status = "SUSPENDED";
+                st.Status = DomainConstants.ShowtimeStatus.Suspended;
             }
         }
 
@@ -968,7 +968,7 @@ public sealed class SeatService : ISeatService
             .AnyAsync(
                 item =>
                     item.SeatId == seatId
-                    && item.Showtime.Status == "OPEN"
+                    && item.Showtime.Status == DomainConstants.ShowtimeStatus.Open
                     && item.Showtime.StartTime > DateTime.UtcNow,
                 cancellationToken);
         // Nếu có suất chiếu tương lai sử dụng ghế này

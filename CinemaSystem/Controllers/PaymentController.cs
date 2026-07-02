@@ -64,7 +64,7 @@ public class PaymentController : ControllerBase
     }
 
     // POST /api/payment/sepay-webhook
-    [HttpPost("sepay-webhook")]
+    [HttpPost(ApiConstants.SepayWebhookRouteSegment)]
     public async Task<IActionResult> SepayWebhook(
         [FromBody] JsonElement payload,
         [FromHeader(Name = "x-sepay-signature")] string? signatureHeader = null,

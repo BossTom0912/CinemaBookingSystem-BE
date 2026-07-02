@@ -26,18 +26,23 @@ public class PaymentService : IPaymentService
     private readonly CinemaDbContext _db;
     // Khai báo biến lưu trữ cấu hình SePay
     private readonly SepaySettings _sepaySettings;
-    // Hằng số quy định thời gian hết hạn của thanh toán (10 phút)
-    private const int PaymentExpiryMinutes = 10;
+    private readonly BookingSettings _bookingSettings;
     // Biểu thức chính quy (Regex) để trích xuất mã giao dịch (Bắt đầu bằng chữ T và theo sau là 10 ký tự chữ/số)
-    private static readonly Regex TransactionCodeRegex = new(@"T[A-Z0-9]{10}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TransactionCodeRegex = new(
+        DomainConstants.PaymentTransactionCode.Pattern,
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Phương thức khởi tạo (Constructor) tiêm các dependency cần thiết
-    public PaymentService(CinemaDbContext db, IOptions<SepaySettings> sepayOptions)
+    public PaymentService(
+        CinemaDbContext db,
+        IOptions<SepaySettings> sepayOptions,
+        IOptions<BookingSettings> bookingOptions)
     {
         // Gán DbContext được tiêm vào biến private
         _db = db;
         // Lấy giá trị cấu hình SePay từ IOptions và gán vào biến private
         _sepaySettings = sepayOptions.Value;
+        _bookingSettings = bookingOptions.Value;
     }
 
     // Phương thức tạo bản ghi thanh toán cho một đặt vé và trả về thông tin ngân hàng kèm mã giao dịch
@@ -133,7 +138,7 @@ public class PaymentService : IPaymentService
         var payment = new Payment
         {
             // Tạo ID tự động với tiền tố "PAY"
-            PaymentId = GenerateId("PAY"),
+            PaymentId = GenerateId(DomainConstants.EntityIdPrefix.Payment),
             // Gán ID đặt vé
             BookingId = booking.BookingId,
             // Gán ID nhà cung cấp thanh toán
@@ -146,12 +151,11 @@ public class PaymentService : IPaymentService
             PaymentStatus = DomainConstants.PaymentStatus.Pending,
             // Ghi nhận thời điểm tạo thanh toán
             CreatedAt = now,
-            // Đặt phương thức thanh toán là "SEPAY"
-            PaymentMethod = "SEPAY"
+            PaymentMethod = provider.ProviderName
         };
 
         // Gia hạn thêm thời gian hết hạn cho đặt vé (thêm 10 phút)
-        booking.ExpiredAt = now.AddMinutes(PaymentExpiryMinutes);
+        booking.ExpiredAt = now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes);
         // Thêm đối tượng Payment mới vào Entity Framework
         _db.Payments.Add(payment);
         // Lưu các thay đổi vào cơ sở dữ liệu
@@ -289,7 +293,7 @@ public class PaymentService : IPaymentService
                 _db.Refunds.Add(new Refund
                 {
                     // Tạo ID tự động cho giao dịch hoàn tiền
-                    RefundId = GenerateId("REF"),
+                    RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
                     // Gán ID đặt vé
                     BookingId = booking.BookingId,
                     // Gán ID thanh toán gốc
@@ -324,7 +328,7 @@ public class PaymentService : IPaymentService
                 _db.Refunds.Add(new Refund
                 {
                     // Tạo ID hoàn tiền
-                    RefundId = GenerateId("REF"),
+                    RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
                     // Map với ID đặt vé
                     BookingId = booking.BookingId,
                     // Map với ID thanh toán
@@ -366,7 +370,7 @@ public class PaymentService : IPaymentService
                     _db.Tickets.Add(new Ticket
                     {
                         // Sinh ID vé tự động
-                        TicketId = GenerateId("TCK"),
+                        TicketId = GenerateId(DomainConstants.EntityIdPrefix.Ticket),
                         // Liên kết với bản ghi BookingSeat
                         BookingSeatId = bookingSeat.BookingSeatId,
                         // Sinh mã QR Code dùng để quét vé
@@ -398,19 +402,27 @@ public class PaymentService : IPaymentService
 
     // Phương thức sinh nội dung mã QR dùng để quét vé
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
-        $"G2C|{bookingId}|{bookingSeatId}|{Guid.NewGuid():N}";
+        string.Join(
+            DomainConstants.TicketQrCode.Separator,
+            DomainConstants.TicketQrCode.Prefix,
+            bookingId,
+            bookingSeatId,
+            Guid.NewGuid().ToString("N"));
 
     // Phương thức tạo mã giao dịch ngẫu nhiên (Dạng T + 10 ký tự Alphanumeric)
     private static string GenerateTransactionCode()
     {
         // Khai báo bộ ký tự được phép sử dụng
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         // Khởi tạo StringBuilder để ghép chuỗi hiệu quả
         var sb = new System.Text.StringBuilder();
         // Bắt đầu bằng ký tự 'T'
-        sb.Append('T');
+        sb.Append(DomainConstants.PaymentTransactionCode.Prefix);
         // Vòng lặp 10 lần để chọn ngẫu nhiên 10 ký tự
-        for (int i = 0; i < 10; i++) sb.Append(chars[RandomNumberGenerator.GetInt32(chars.Length)]);
+        for (var i = 0; i < DomainConstants.PaymentTransactionCode.RandomPartLength; i++)
+        {
+            var characters = DomainConstants.PaymentTransactionCode.AllowedCharacters;
+            sb.Append(characters[RandomNumberGenerator.GetInt32(characters.Length)]);
+        }
         // Trả về chuỗi kết quả
         return sb.ToString();
     }

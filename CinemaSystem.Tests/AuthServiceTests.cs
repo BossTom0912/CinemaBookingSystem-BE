@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Auth;
 using CinemaSystem.Infrastructure.Auth;
 using CinemaSystem.Infrastructure.Configuration;
@@ -686,7 +687,7 @@ public sealed class AuthServiceTests
         {
             Issuer = "CinemaSystem",
             Audience = "CinemaSystem.Api",
-            Secret = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM",
+            Secret = "unit-test-jwt-secret-with-at-least-32-characters",
             AccessTokenMinutes = 15,
             RefreshTokenDays = 7
         });
@@ -742,11 +743,15 @@ public sealed class AuthServiceTests
             {
                 Issuer = "CinemaSystem",
                 Audience = "CinemaSystem.Api",
-                Secret = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM",
+                Secret = "unit-test-jwt-secret-with-at-least-32-characters",
                 AccessTokenMinutes = 15,
                 RefreshTokenDays = 7
             });
             var tokenService = new JwtTokenService(jwtOptions, clock);
+            var authOptions = Options.Create(new AuthSettings());
+            var templateOptions = Options.Create(new EmailTemplatesSettings());
+            var emailOptions = Options.Create(new EmailSettings());
+            var backgroundJobClient = new InlineBackgroundJobClient(emailSender);
             var service = new AuthService(
                 dbContext,
                 passwordHasher,
@@ -754,7 +759,11 @@ public sealed class AuthServiceTests
                 emailSender,
                 tokenService,
                 clock,
-                jwtOptions);
+                jwtOptions,
+                authOptions,
+                templateOptions,
+                emailOptions,
+                backgroundJobClient);
 
             return new TestFixture(dbContext, emailSender, otpGenerator, clock, passwordHasher, tokenService, service);
         }
@@ -811,6 +820,41 @@ public sealed class AuthServiceTests
 
             SentEmails.Add(new SentEmail(toEmail, subject, body));
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class InlineBackgroundJobClient : Hangfire.IBackgroundJobClient
+    {
+        private readonly IEmailSender _emailSender;
+
+        public InlineBackgroundJobClient(IEmailSender emailSender)
+        {
+            _emailSender = emailSender;
+        }
+
+        public string Create(Hangfire.Common.Job job, Hangfire.States.IState state)
+        {
+            if (job.Type == typeof(IEmailSender)
+                && job.Method.Name == nameof(IEmailSender.SendEmailAsync))
+            {
+                _emailSender.SendEmailAsync(
+                        (string)job.Args[0],
+                        (string)job.Args[1],
+                        (string)job.Args[2],
+                        CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+
+            return Guid.NewGuid().ToString("N");
+        }
+
+        public bool ChangeState(
+            string jobId,
+            Hangfire.States.IState state,
+            string? expectedState)
+        {
+            return true;
         }
     }
 

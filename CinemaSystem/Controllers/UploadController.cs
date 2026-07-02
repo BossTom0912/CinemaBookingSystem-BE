@@ -5,8 +5,10 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Common;
-using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Controllers
 {
@@ -23,11 +25,15 @@ namespace CinemaSystem.Controllers
     [Authorize(Roles = AuthConstants.Roles.Manager + "," + AuthConstants.Roles.Admin)]
     public class UploadController : ControllerBase
     {
-        private readonly IWebHostEnvironment _environment;
+        private readonly IFileStorageService _fileStorageService;
+        private readonly FileStorageSettings _settings;
 
-        public UploadController(IWebHostEnvironment environment)
+        public UploadController(
+            IFileStorageService fileStorageService,
+            IOptions<FileStorageSettings> options)
         {
-            _environment = environment;
+            _fileStorageService = fileStorageService;
+            _settings = options.Value;
         }
 
         [HttpPost("image")]
@@ -39,28 +45,21 @@ namespace CinemaSystem.Controllers
             }
 
             var extension = Path.GetExtension(file.FileName).ToLower();
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-            if (Array.IndexOf(allowedExtensions, extension) == -1)
+            if (!_settings.AllowedImageExtensions.Contains(
+                    extension,
+                    StringComparer.OrdinalIgnoreCase))
             {
-                return BadRequest(ApiResponse<object>.Fail("Chỉ hỗ trợ định dạng .jpg, .jpeg, .png, .gif, .webp", "INVALID_EXTENSION"));
+                return BadRequest(ApiResponse<object>.Fail(
+                    $"Chỉ hỗ trợ định dạng {string.Join(", ", _settings.AllowedImageExtensions)}",
+                    "INVALID_EXTENSION"));
             }
 
-            var newFileName = Guid.NewGuid().ToString() + extension;
-            var uploadsFolder = Path.Combine(_environment.WebRootPath, "images");
-            
-            if (!Directory.Exists(uploadsFolder))
-            {
-                Directory.CreateDirectory(uploadsFolder);
-            }
-
-            var filePath = Path.Combine(uploadsFolder, newFileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            var fileUrl = $"/images/{newFileName}";
+            await using var stream = file.OpenReadStream();
+            var fileUrl = await _fileStorageService.SaveFileAsync(
+                stream,
+                file.FileName,
+                _settings.GeneralImageFolder,
+                HttpContext.RequestAborted);
 
             return Ok(ApiResponse<string>.Ok(fileUrl, "Tải ảnh lên thành công."));
         }

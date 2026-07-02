@@ -43,14 +43,14 @@ public sealed class JwtTokenService : IJwtTokenService
     public GeneratedToken GenerateAccessToken(string userId, string email, string role)
     {
         // Kiểm tra xem khóa bí mật của JWT có bị trống hoặc ngắn hơn 32 ký tự không
-        if (string.IsNullOrWhiteSpace(_settings.Secret) || _settings.Secret.Length < 32)
+        if (!SecretSettingsValidator.IsConfigured(_settings.Secret, 32))
         {
             // Ném lỗi nếu khóa bí mật không hợp lệ (không đủ độ an toàn)
             throw new InvalidOperationException("JwtSettings:Secret must be configured and at least 32 characters long.");
         }
 
         // Tính toán thời điểm hết hạn của Token bằng thời gian hiện tại cộng với số phút trong cấu hình (tối thiểu 1 phút)
-        var expiresAt = _clock.UtcNow.AddMinutes(Math.Max(1, _settings.AccessTokenMinutes));
+        var expiresAt = _clock.UtcNow.AddMinutes(_settings.AccessTokenMinutes);
         // Tạo khóa ký (SymmetricSecurityKey) dựa trên mảng byte của khóa bí mật (Secret)
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
         // Tạo đối tượng chứa thông tin chứng chỉ ký thuật toán HMAC SHA256

@@ -136,8 +136,8 @@ public sealed class SeatsController : ControllerBase
     public async Task<IActionResult> GetSeats(
         [FromQuery] string? roomId,
         [FromQuery] bool? isActive,
-        [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 10,
+        [FromQuery] int pageIndex = PaginationDefaults.FirstPageIndex,
+        [FromQuery] int pageSize = PaginationDefaults.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
         var result = await _seatService.GetSeatsAsync(

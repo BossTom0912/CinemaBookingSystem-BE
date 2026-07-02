@@ -126,7 +126,8 @@ public class AdminRefundService : IAdminRefundService
                     cancellation = new ShowtimeCancellation
                     {
                         // Tạo ID ngẫu nhiên
-                        ShowtimeCancellationId = "STC_" + Guid.NewGuid().ToString("N"),
+                        ShowtimeCancellationId =
+                            $"{DomainConstants.EntityIdPrefix.ShowtimeCancellation}_{Guid.NewGuid():N}",
                         // Gán ID suất chiếu bị hủy
                         ShowtimeId = showtime.ShowtimeId,
                         // Lưu lại lý do hủy
@@ -179,7 +180,8 @@ public class AdminRefundService : IAdminRefundService
                         var refund = new Refund
                         {
                             // Tạo ID hoàn tiền tự động
-                            RefundId = "REF_" + Guid.NewGuid().ToString("N"),
+                            RefundId =
+                                $"{DomainConstants.EntityIdPrefix.Refund}_{Guid.NewGuid():N}",
                             // Map với ID của Booking
                             BookingId = booking.BookingId,
                             // Map chính xác ID giao dịch thanh toán (Khắc phục lỗi FK_REFUND_PAYMENT)

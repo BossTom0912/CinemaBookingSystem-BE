@@ -1,6 +1,9 @@
 using System.Text;
+using CinemaSystem;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
+using CinemaSystem.Configuration;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Email;
@@ -79,17 +82,51 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
-builder.Services.Configure<CinemaSystem.Application.Settings.CinemaProcessingSettings>(
-    builder.Configuration.GetSection("CinemaProcessingSettings"));
-builder.Services.Configure<CinemaSystem.Application.Settings.AuthSettings>(
-    builder.Configuration.GetSection("AuthSettings"));
-builder.Services.Configure<CinemaSystem.Application.Settings.SecuritySettings>(
-    builder.Configuration.GetSection("SecuritySettings"));
-builder.Services.Configure<CinemaSystem.Application.Settings.EmailTemplatesSettings>(
-    builder.Configuration.GetSection("EmailTemplates"));
+builder.Services.Configure<CinemaProcessingSettings>(
+    builder.Configuration.GetSection(CinemaProcessingSettings.SectionName));
+builder.Services.AddOptions<CinemaProcessingSettings>()
+    .Validate(options => options.PreShowtimeBlockingMinutes >= 0, "Pre-showtime blocking window cannot be negative.")
+    .Validate(options => options.ScreeningRoomCleaningMinutes >= 0, "Room-cleaning window cannot be negative.")
+    .Validate(options => options.ShowtimeMaterialChangeThresholdMinutes >= 0, "Showtime change threshold cannot be negative.")
+    .Validate(options => options.MovieNewReleaseWindowDays >= 0, "Movie new-release window cannot be negative.")
+    .Validate(options => options.MovieClassificationIntervalMinutes > 0, "Movie classification interval must be positive.")
+    .Validate(options => options.MovieHotViewThreshold >= 0, "Movie hot-view threshold cannot be negative.")
+    .Validate(options => options.MovieTrendingViewThreshold >= 0, "Movie trending-view threshold cannot be negative.")
+    .Validate(options => options.MovieHotTotalViewThreshold >= 0, "Movie total-view threshold cannot be negative.")
+    .Validate(options => options.MovieHotDailyViewThreshold >= 0, "Movie daily-view threshold cannot be negative.")
+    .Validate(options => options.MaxRoomCapacity > 0, "Maximum room capacity must be positive.")
+    .Validate(options => options.ReviewMaxEditCount >= 0, "Review edit limit cannot be negative.")
+    .Validate(options => options.ReviewSpamLockoutMinutes > 0, "Review spam lockout must be positive.")
+    .ValidateOnStart();
+
+builder.Services.Configure<AuthSettings>(
+    builder.Configuration.GetSection(AuthSettings.SectionName));
+builder.Services.AddOptions<AuthSettings>()
+    .Validate(options => options.OtpExpirySeconds > 0, "OTP expiry must be positive.")
+    .Validate(options => options.OtpResendCooldownSeconds >= 0, "OTP resend cooldown cannot be negative.")
+    .Validate(options => options.OtpMaxSendAttempts > 0, "OTP send-attempt limit must be positive.")
+    .Validate(options => options.PasswordMinLength > 0, "Password minimum length must be positive.")
+    .Validate(
+        options => options.PasswordMaxLength >= options.PasswordMinLength,
+        "Password maximum length must be greater than or equal to its minimum length.")
+    .ValidateOnStart();
+
+builder.Services.Configure<SecuritySettings>(
+    builder.Configuration.GetSection(SecuritySettings.SectionName));
+builder.Services.AddOptions<SecuritySettings>()
+    .Validate(
+        options => SecretSettingsValidator.IsConfigured(options.ConfirmationTokenSecret, 32),
+        "Confirmation-token secret must be configured and contain at least 32 characters.")
+    .ValidateOnStart();
+
+builder.Services.Configure<EmailTemplatesSettings>(
+    builder.Configuration.GetSection(EmailTemplatesSettings.SectionName));
 builder.Services.AddHostedService<PendingPaymentCleanupHostedService>();
 
-var useMockEmail = builder.Configuration.GetValue<bool>("EmailSettings:UseMock");
+var configuredEmailSettings = builder.Configuration
+    .GetSection(EmailSettings.SectionName)
+    .Get<EmailSettings>() ?? new EmailSettings();
+var useMockEmail = configuredEmailSettings.UseMock;
 if (useMockEmail)
 {
     builder.Services.RemoveAll<IEmailSender>();
@@ -103,14 +140,22 @@ else
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("FrontendCors", policy =>
+    var corsSettings = builder.Configuration
+        .GetSection(CorsSettings.SectionName)
+        .Get<CorsSettings>() ?? new CorsSettings();
+
+    foreach (var origin in corsSettings.AllowedOrigins)
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out _))
+        {
+            throw new InvalidOperationException($"CORS origin '{origin}' is not an absolute URI.");
+        }
+    }
+
+    options.AddPolicy(ApiConstants.FrontendCorsPolicy, policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-                "http://localhost:3000",
-                "http://127.0.0.1:3000")
+            .WithOrigins(corsSettings.AllowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -123,16 +168,16 @@ builder.Services.AddHangfire(configuration => configuration
     .UseInMemoryStorage());
 builder.Services.AddHangfireServer();
 
-var jwtSettings = new JwtSettings
+var jwtSettings = builder.Configuration
+    .GetSection(JwtSettings.SectionName)
+    .Get<JwtSettings>() ?? new JwtSettings();
+if (!SecretSettingsValidator.IsConfigured(jwtSettings.Secret, 32))
 {
-    Issuer = builder.Configuration["JwtSettings:Issuer"] ?? "CinemaSystem",
-    Audience = builder.Configuration["JwtSettings:Audience"] ?? "CinemaSystem.Api",
-    Secret = builder.Configuration["JwtSettings:Secret"] ?? string.Empty
-};
-var jwtSecret = string.IsNullOrWhiteSpace(jwtSettings.Secret)
-    ? "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM"
-    : jwtSettings.Secret;
-var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
+    throw new InvalidOperationException(
+        $"{JwtSettings.SectionName}:Secret must be configured and contain at least 32 characters.");
+}
+
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -146,7 +191,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = jwtSettings.Issuer,
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = signingKey,
-            ClockSkew = TimeSpan.FromMinutes(1)
+            ClockSkew = TimeSpan.FromSeconds(jwtSettings.ClockSkewSeconds)
         };
     });
 
@@ -249,12 +294,12 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseWhen(
         context => !context.Request.Path.StartsWithSegments(
-            "/api/payment/sepay-webhook",
+            ApiConstants.SepayWebhookPath,
             StringComparison.OrdinalIgnoreCase),
         branch => branch.UseHttpsRedirection());
 }
 
-app.UseCors("FrontendCors");
+app.UseCors(ApiConstants.FrontendCorsPolicy);
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();

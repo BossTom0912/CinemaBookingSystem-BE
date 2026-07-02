@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Contracts.Common;
 
 namespace CinemaSystem.Controllers;
 
@@ -33,9 +35,9 @@ public class AdminRefundsController : ControllerBase
     [HttpGet]
     [ProducesResponseType(typeof(CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>), 200)]
     public async Task<ActionResult<CinemaSystem.Contracts.Common.ApiResponse<CinemaSystem.Contracts.Common.PagedList<CinemaSystem.Application.Interfaces.RefundDto>>>> GetRefunds(
-        [FromQuery] string status = "PENDING",
-        [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 10,
+        [FromQuery] string status = DomainConstants.RefundStatus.Pending,
+        [FromQuery] int pageIndex = PaginationDefaults.FirstPageIndex,
+        [FromQuery] int pageSize = PaginationDefaults.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
         var result = await _adminRefundService.GetRefundsAsync(status, pageIndex, pageSize, cancellationToken);

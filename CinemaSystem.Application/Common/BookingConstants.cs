@@ -1,51 +1,54 @@
 namespace CinemaSystem.Application.Common;
 
+using CinemaSystem.Domain.Constants;
+
 public static class BookingConstants
 {
     public static class BookingStatus
     {
-        public const string PendingPayment = "PENDING_PAYMENT";
+        public const string PendingPayment = DomainConstants.BookingStatus.PendingPayment;
     }
 
     public static class BookingChannel
     {
-        public const string Online = "ONLINE";
+        public const string Online = DomainConstants.BookingChannel.Online;
     }
 
     public static class ShowtimeStatus
     {
-        public const string Open = "OPEN";
+        public const string Open = DomainConstants.ShowtimeStatus.Open;
     }
 
     public static class ShowtimeSeatStatus
     {
-        public const string Locked = "LOCKED";
-        public const string Available = "AVAILABLE";
+        public const string Locked = DomainConstants.ShowtimeSeatStatus.Locked;
+        public const string Available = DomainConstants.ShowtimeSeatStatus.Available;
     }
 
     public static class ResourceStatus
     {
-        public const string Active = "ACTIVE";
-        public const string Available = "AVAILABLE";
-        public const string Inactive = "INACTIVE";
-        public const string Ended = "ENDED";
+        public const string Active = DomainConstants.ResourceStatus.Active;
+        public const string Available = DomainConstants.ResourceStatus.Available;
+        public const string Inactive = DomainConstants.ResourceStatus.Inactive;
+        public const string Ended = DomainConstants.MovieStatus.Ended;
     }
 
     public static class VoucherStatus
     {
-        public const string Active = "ACTIVE";
+        public const string Active = DomainConstants.VoucherStatus.Active;
     }
 
     public static class VoucherUsageStatus
     {
-        public const string Applied = "APPLIED";
-        public const string Confirmed = "CONFIRMED";
+        public const string Applied = DomainConstants.VoucherUsageStatus.Applied;
+        public const string Confirmed = DomainConstants.VoucherUsageStatus.Confirmed;
+        public const string Cancelled = DomainConstants.VoucherUsageStatus.Cancelled;
     }
 
     public static class DiscountType
     {
-        public const string Amount = "AMOUNT";
-        public const string Percent = "PERCENT";
+        public const string Amount = DomainConstants.DiscountType.Amount;
+        public const string Percent = DomainConstants.DiscountType.Percent;
     }
 
     public static class ErrorCodes

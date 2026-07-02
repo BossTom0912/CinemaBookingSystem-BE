@@ -2,29 +2,198 @@ namespace CinemaSystem.Domain.Constants;
 
 public static class DomainConstants
 {
-    public static class EntityStatus
+    public static class BookingStatus
+    {
+        public const string Created = "CREATED";
+        public const string PendingPayment = "PENDING_PAYMENT";
+        public const string Paid = "PAID";
+        public const string Cancelled = "CANCELLED";
+        public const string RefundPending = "REFUND_PENDING";
+        public const string Refunded = "REFUNDED";
+        public const string Completed = "COMPLETED";
+        public const string ProcessingUnstable = "PROCESSING_UNSTABLE";
+    }
+
+    public static class BookingChannel
+    {
+        public const string Online = "ONLINE";
+        public const string Counter = "COUNTER";
+    }
+
+    public static class ShowtimeStatus
+    {
+        public const string Open = "OPEN";
+        public const string Closed = "CLOSED";
+        public const string Cancelled = "CANCELLED";
+        public const string Completed = "COMPLETED";
+        public const string Suspended = "SUSPENDED";
+        public const string ProcessingUnstable = "PROCESSING_UNSTABLE";
+    }
+
+    public static class ShowtimeSeatStatus
+    {
+        public const string Available = "AVAILABLE";
+        public const string Locked = "LOCKED";
+        public const string Booked = "BOOKED";
+        public const string Released = "RELEASED";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class CinemaStatus
     {
         public const string Active = "ACTIVE";
         public const string Inactive = "INACTIVE";
-        public const string Cancelled = "CANCELLED";
         public const string Maintenance = "MAINTENANCE";
-        public const string Available = "AVAILABLE";
-        public const string Paid = "PAID";
-        public const string PendingPayment = "PENDING_PAYMENT";
-        public const string Failed = "FAILED";
-        public const string PendingRefund = "REFUND_PENDING";
-        public const string Refunded = "REFUNDED";
-        public const string Ended = "ENDED";
-        public const string Locked = "LOCKED";
-        public const string Open = "OPEN";
-        public const string Closed = "CLOSED";
-        public const string Completed = "COMPLETED";
-        public const string ProcessingUnstable = "PROCESSING_UNSTABLE";
-        public const string Archived = "ARCHIVED"; // Consider using INACTIVE for MOVIE
-        public const string Suspended = "SUSPENDED";
-        public const string NowShowing = "NOW_SHOWING";
+    }
+
+    public static class RoomStatus
+    {
+        public const string Active = "ACTIVE";
+        public const string Inactive = "INACTIVE";
+        public const string Maintenance = "MAINTENANCE";
+    }
+
+    public static class MovieStatus
+    {
         public const string ComingSoon = "COMING_SOON";
-        public const string Booked = "BOOKED";
+        public const string NowShowing = "NOW_SHOWING";
+        public const string Ended = "ENDED";
+        public const string Inactive = "INACTIVE";
+        public const string Archived = "ARCHIVED";
+    }
+
+    public static class StaffEmploymentStatus
+    {
+        public const string Active = "ACTIVE";
+        public const string Inactive = "INACTIVE";
+        public const string Suspended = "SUSPENDED";
+    }
+
+    public static class MemberLevel
+    {
+        public const string Standard = "STANDARD";
+        public const string Silver = "SILVER";
+        public const string Gold = "GOLD";
+        public const string Platinum = "PLATINUM";
+    }
+
+    public static class SeatType
+    {
+        public const string StandardId = "SEAT_TYPE_STANDARD";
+        public const string StandardName = "STANDARD";
+    }
+
+    public static class ResourceStatus
+    {
+        public const string Active = "ACTIVE";
+        public const string Inactive = "INACTIVE";
+        public const string Available = "AVAILABLE";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class VoucherStatus
+    {
+        public const string Active = "ACTIVE";
+        public const string Inactive = "INACTIVE";
+        public const string Expired = "EXPIRED";
+    }
+
+    public static class VoucherUsageStatus
+    {
+        public const string Applied = "APPLIED";
+        public const string Confirmed = "CONFIRMED";
+        public const string Cancelled = "CANCELLED";
+    }
+
+    public static class DiscountType
+    {
+        public const string Amount = "AMOUNT";
+        public const string Percent = "PERCENT";
+    }
+
+    public static class ReviewStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Approved = "APPROVED";
+        public const string Rejected = "REJECTED";
+        public const string Flagged = "FLAGGED";
+    }
+
+    public static class PaymentProvider
+    {
+        public const string SepayId = "PP_SEPAY";
+        public const string SepayName = "SEPAY";
+    }
+
+    public static class PaymentTransactionCode
+    {
+        public const string Pattern = @"T[A-Z0-9]{10}";
+        public const char Prefix = 'T';
+        public const int RandomPartLength = 10;
+        public const string AllowedCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    }
+
+    public static class TicketQrCode
+    {
+        public const string Prefix = "G2C";
+        public const char Separator = '|';
+    }
+
+    public static class EntityIdPrefix
+    {
+        public const string User = "USR";
+        public const string CustomerProfile = "CUS";
+        public const string StaffProfile = "STF";
+        public const string EmailVerificationToken = "EVT";
+        public const string RefreshToken = "RFT";
+        public const string Room = "ROOM";
+        public const string Seat = "SEAT";
+        public const string Showtime = "SHW";
+        public const string ShowtimeSeat = "STS";
+        public const string ShowtimeCancellation = "STC";
+        public const string Booking = "BOK";
+        public const string BookingSeat = "BKS";
+        public const string BookingFoodItem = "BFI";
+        public const string Payment = "PAY";
+        public const string Refund = "REF";
+        public const string Ticket = "TCK";
+        public const string CinemaInventory = "CFI";
+        public const string Movie = "MOV";
+        public const string Review = "REV";
+        public const string ChatHistory = "CHT";
+    }
+
+    public static class VerificationTokenPurpose
+    {
+        public const string EmailVerification = "EMAIL_VERIFICATION";
+        public const string PasswordReset = "PASSWORD_RESET";
+        public const string EmailUpdate = "EMAIL_UPDATE";
+        public const string PhoneUpdate = "PHONE_UPDATE";
+    }
+
+    public static class EntityStatus
+    {
+        public const string Active = CinemaStatus.Active;
+        public const string Inactive = CinemaStatus.Inactive;
+        public const string Cancelled = BookingStatus.Cancelled;
+        public const string Maintenance = CinemaStatus.Maintenance;
+        public const string Available = ShowtimeSeatStatus.Available;
+        public const string Paid = BookingStatus.Paid;
+        public const string PendingPayment = BookingStatus.PendingPayment;
+        public const string Failed = "FAILED";
+        public const string PendingRefund = BookingStatus.RefundPending;
+        public const string Refunded = BookingStatus.Refunded;
+        public const string Ended = MovieStatus.Ended;
+        public const string Locked = ShowtimeSeatStatus.Locked;
+        public const string Open = ShowtimeStatus.Open;
+        public const string Closed = ShowtimeStatus.Closed;
+        public const string Completed = BookingStatus.Completed;
+        public const string ProcessingUnstable = BookingStatus.ProcessingUnstable;
+        public const string Archived = MovieStatus.Archived;
+        public const string Suspended = ShowtimeStatus.Suspended;
+        public const string NowShowing = MovieStatus.NowShowing;
+        public const string ComingSoon = MovieStatus.ComingSoon;
+        public const string Booked = ShowtimeSeatStatus.Booked;
     }
 
     public static class RefundStatus

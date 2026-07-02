@@ -155,7 +155,8 @@ public sealed class PaymentServiceTests
                     BankName = "Test Bank",
                     BankAccount = "123456789",
                     DevelopmentPaymentAmountOverride = paymentAmountOverride
-                }));
+                }),
+                Options.Create(new BookingSettings()));
 
             return new Fixture(dbContext, service);
         }
