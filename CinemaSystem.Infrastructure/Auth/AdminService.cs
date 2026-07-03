@@ -191,7 +191,7 @@ public sealed class AdminService : IAdminService
             // Map với Cinema đầu tiên trong DB
             CinemaId = cinema.CinemaId,
             // Chức vụ là "Staff"
-            Position = "Staff",
+            Position = DomainConstants.StaffPosition.Staff,
             // Trạng thái công việc đang hoạt động ("ACTIVE")
             EmploymentStatus = DomainConstants.StaffEmploymentStatus.Active
         };

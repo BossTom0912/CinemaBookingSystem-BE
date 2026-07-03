@@ -1,13 +1,16 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Net;
 
 namespace CinemaSystem.Infrastructure.Refunds;
@@ -18,6 +21,7 @@ public sealed class RefundProcessor : IRefundProcessor
     private readonly IPaymentRefundGateway _paymentRefundGateway;
     private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
+    private readonly EmailTemplatesSettings _emailTemplates;
     private readonly ILogger<RefundProcessor> _logger;
 
     public RefundProcessor(
@@ -25,12 +29,14 @@ public sealed class RefundProcessor : IRefundProcessor
         IPaymentRefundGateway paymentRefundGateway,
         IEmailSender emailSender,
         IClock clock,
+        IOptions<EmailTemplatesSettings> emailTemplates,
         ILogger<RefundProcessor> logger)
     {
         _dbContext = dbContext;
         _paymentRefundGateway = paymentRefundGateway;
         _emailSender = emailSender;
         _clock = clock;
+        _emailTemplates = emailTemplates.Value;
         _logger = logger;
     }
 
@@ -223,8 +229,12 @@ public sealed class RefundProcessor : IRefundProcessor
                         now);
                     email = CreateEmail(
                         refund,
-                        "Refund completed",
-                        $"Your refund of {refund.RefundAmount:N0} for {refund.Booking.Showtime.Movie.Title} was completed.");
+                        _emailTemplates.RefundCompletedSubject,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            _emailTemplates.RefundCompletedBody,
+                            refund.RefundAmount,
+                            refund.Booking.Showtime.Movie.Title));
                 }
             }
 
@@ -250,8 +260,11 @@ public sealed class RefundProcessor : IRefundProcessor
                     now);
                 email = CreateEmail(
                     refund,
-                    "Refund requires additional processing",
-                    $"Your refund for {refund.Booking.Showtime.Movie.Title} is being handled manually.");
+                    _emailTemplates.RefundManualRequiredSubject,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        _emailTemplates.RefundManualRequiredBody,
+                        refund.Booking.Showtime.Movie.Title));
             }
 
             await _dbContext.SaveChangesAsync(cancellationToken);

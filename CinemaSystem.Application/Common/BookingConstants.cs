@@ -173,38 +173,38 @@ public static class BookingConstants
 
     public static class RefundErrorCodes
     {
-        public const string InvalidRefundStatus = "INVALID_REFUND_STATUS";
-        public const string InvalidDateRange = "INVALID_DATE_RANGE";
-        public const string RefundIdRequired = "REFUND_ID_REQUIRED";
-        public const string RefundNotFound = "REFUND_NOT_FOUND";
-        public const string RefundNotProcessable = "REFUND_NOT_PROCESSABLE";
-        public const string RefundAlreadyCompleted = "REFUND_ALREADY_COMPLETED";
-        public const string RefundAmountMismatch = "REFUND_AMOUNT_MISMATCH";
-        public const string RefundNotManualRequired = "REFUND_NOT_MANUAL_REQUIRED";
-        public const string RefundTotalExceedsPayment = "REFUND_TOTAL_EXCEEDS_PAYMENT";
-        public const string RefundTransactionCodeDuplicate = "REFUND_TRANSACTION_CODE_DUPLICATE";
-        public const string InvalidRefundProofUrl = "INVALID_REFUND_PROOF_URL";
-        public const string ManualRefundNotFound = "MANUAL_REFUND_NOT_FOUND";
-        public const string ManualRefundAlreadyAssigned = "MANUAL_REFUND_ALREADY_ASSIGNED";
-        public const string ManualRefundNotAssignedToUser = "MANUAL_REFUND_NOT_ASSIGNED_TO_USER";
-        public const string RefundClaimNotFound = "REFUND_CLAIM_NOT_FOUND";
-        public const string RefundClaimForbidden = "REFUND_CLAIM_FORBIDDEN";
-        public const string RefundClaimTokenUsed = "REFUND_CLAIM_TOKEN_USED";
-        public const string RefundClaimExpired = "REFUND_CLAIM_EXPIRED";
-        public const string RefundClaimNotEditable = "REFUND_CLAIM_NOT_EDITABLE";
-        public const string RefundClaimNotReissuable = "REFUND_CLAIM_NOT_REISSUABLE";
-        public const string RefundRequestTicketForbidden = "REFUND_REQUEST_TICKET_FORBIDDEN";
-        public const string BankNotSupported = "BANK_NOT_SUPPORTED";
-        public const string BankAccountRequired = "BANK_ACCOUNT_REQUIRED";
-        public const string ShowtimeIdRequired = "SHOWTIME_ID_REQUIRED";
-        public const string ShowtimeNotFound = "SHOWTIME_NOT_FOUND";
-        public const string ShowtimeAlreadyCancelled = "SHOWTIME_ALREADY_CANCELLED";
-        public const string ShowtimeAlreadyStarted = "SHOWTIME_ALREADY_STARTED";
-        public const string CancellationReasonRequired = "CANCEL_REASON_REQUIRED";
-        public const string CancellationReasonTooLong = "CANCEL_REASON_TOO_LONG";
-        public const string PaidBookingPaymentNotFound = "PAID_BOOKING_PAYMENT_NOT_FOUND";
-        public const string UserRequired = "USER_REQUIRED";
-        public const string UserNotFound = "USER_NOT_FOUND";
+        public const string InvalidRefundStatus = DomainConstants.RefundErrorCode.InvalidRefundStatus;
+        public const string InvalidDateRange = DomainConstants.RefundErrorCode.InvalidDateRange;
+        public const string RefundIdRequired = DomainConstants.RefundErrorCode.RefundIdRequired;
+        public const string RefundNotFound = DomainConstants.RefundErrorCode.RefundNotFound;
+        public const string RefundNotProcessable = DomainConstants.RefundErrorCode.RefundNotProcessable;
+        public const string RefundAlreadyCompleted = DomainConstants.RefundErrorCode.RefundAlreadyCompleted;
+        public const string RefundAmountMismatch = DomainConstants.RefundErrorCode.RefundAmountMismatch;
+        public const string RefundNotManualRequired = DomainConstants.RefundErrorCode.RefundNotManualRequired;
+        public const string RefundTotalExceedsPayment = DomainConstants.RefundErrorCode.RefundTotalExceedsPayment;
+        public const string RefundTransactionCodeDuplicate = DomainConstants.RefundErrorCode.RefundTransactionCodeDuplicate;
+        public const string InvalidRefundProofUrl = DomainConstants.RefundErrorCode.InvalidRefundProofUrl;
+        public const string ManualRefundNotFound = DomainConstants.RefundErrorCode.ManualRefundNotFound;
+        public const string ManualRefundAlreadyAssigned = DomainConstants.RefundErrorCode.ManualRefundAlreadyAssigned;
+        public const string ManualRefundNotAssignedToUser = DomainConstants.RefundErrorCode.ManualRefundNotAssignedToUser;
+        public const string RefundClaimNotFound = DomainConstants.RefundErrorCode.RefundClaimNotFound;
+        public const string RefundClaimForbidden = DomainConstants.RefundErrorCode.RefundClaimForbidden;
+        public const string RefundClaimTokenUsed = DomainConstants.RefundErrorCode.RefundClaimTokenUsed;
+        public const string RefundClaimExpired = DomainConstants.RefundErrorCode.RefundClaimExpired;
+        public const string RefundClaimNotEditable = DomainConstants.RefundErrorCode.RefundClaimNotEditable;
+        public const string RefundClaimNotReissuable = DomainConstants.RefundErrorCode.RefundClaimNotReissuable;
+        public const string RefundRequestTicketForbidden = DomainConstants.RefundErrorCode.RefundRequestTicketForbidden;
+        public const string BankNotSupported = DomainConstants.RefundErrorCode.BankNotSupported;
+        public const string BankAccountRequired = DomainConstants.RefundErrorCode.BankAccountRequired;
+        public const string ShowtimeIdRequired = DomainConstants.RefundErrorCode.ShowtimeIdRequired;
+        public const string ShowtimeNotFound = DomainConstants.RefundErrorCode.ShowtimeNotFound;
+        public const string ShowtimeAlreadyCancelled = DomainConstants.RefundErrorCode.ShowtimeAlreadyCancelled;
+        public const string ShowtimeAlreadyStarted = DomainConstants.RefundErrorCode.ShowtimeAlreadyStarted;
+        public const string CancellationReasonRequired = DomainConstants.RefundErrorCode.CancellationReasonRequired;
+        public const string CancellationReasonTooLong = DomainConstants.RefundErrorCode.CancellationReasonTooLong;
+        public const string PaidBookingPaymentNotFound = DomainConstants.RefundErrorCode.PaidBookingPaymentNotFound;
+        public const string UserRequired = DomainConstants.RefundErrorCode.UserRequired;
+        public const string UserNotFound = DomainConstants.RefundErrorCode.UserNotFound;
     }
 
     public static class RewardPointTransactionType

@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
@@ -21,6 +23,7 @@ public sealed class RefundClaimService : IRefundClaimService
     private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
     private readonly RefundSettings _settings;
+    private readonly EmailTemplatesSettings _emailTemplates;
     private readonly ILogger<RefundClaimService> _logger;
 
     public RefundClaimService(
@@ -30,6 +33,7 @@ public sealed class RefundClaimService : IRefundClaimService
         IEmailSender emailSender,
         IClock clock,
         IOptions<RefundSettings> settings,
+        IOptions<EmailTemplatesSettings> emailTemplates,
         ILogger<RefundClaimService> logger)
     {
         _db = db;
@@ -38,6 +42,7 @@ public sealed class RefundClaimService : IRefundClaimService
         _emailSender = emailSender;
         _clock = clock;
         _settings = settings.Value;
+        _emailTemplates = emailTemplates.Value;
         _logger = logger;
     }
 
@@ -392,8 +397,13 @@ public sealed class RefundClaimService : IRefundClaimService
                 + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(rawToken)}";
             await _emailSender.SendEmailAsync(
                 email,
-                "Provide bank information for your refund",
-                $"The showtime for {movieTitle} was cancelled. Submit your refund information before {expiresAt:O}: {link}",
+                _emailTemplates.RefundClaimSubject,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    _emailTemplates.RefundClaimBody,
+                    movieTitle,
+                    expiresAt,
+                    link),
                 cancellationToken);
         }
         catch (Exception exception)

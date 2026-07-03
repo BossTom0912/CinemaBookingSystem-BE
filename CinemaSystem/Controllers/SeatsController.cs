@@ -224,7 +224,7 @@ public sealed class SeatsController : ControllerBase
 
     private string GetUserId()
     {
-        return User.FindFirst("userId")?.Value
+        return User.FindFirst(AuthConstants.Claims.UserId)?.Value
             ?? User.FindFirst("sub")?.Value
             ?? string.Empty;
     }

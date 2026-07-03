@@ -39,4 +39,34 @@ public sealed class EmailTemplatesSettings
     public string ShowtimeCancellationSubject { get; set; } = "Cinema Booking - Showtime Cancelled";
     public string ShowtimeCancellationBody { get; set; } =
         "Your showtime was cancelled. Reason: {0}. Please wait for refund processing.";
+
+    public string RefundClaimSubject { get; set; } =
+        "Cinema Booking - Refund Information Required";
+    public string RefundClaimBody { get; set; } =
+        "The showtime for {0} was cancelled. Submit your refund information before {1:O}: {2}";
+
+    public string ShowtimeCancelledNoRefundSubject { get; set; } =
+        "Cinema Booking - Showtime Cancelled";
+    public string ShowtimeCancelledNoRefundBody { get; set; } =
+        "Showtime {0} at {1:O} has been cancelled. Booking status: {2}.";
+
+    public string ShowtimeCancelledRefundSubject { get; set; } =
+        "Cinema Booking - Showtime Cancelled, Refund Information Required";
+    public string ShowtimeCancelledRefundBody { get; set; } =
+        "Showtime {0} at {1:O} was cancelled. Expected refund: {2:N0}. Submit bank information before {3:O}: {4}";
+
+    public string RefundCompletedSubject { get; set; } =
+        "Cinema Booking - Refund Completed";
+    public string RefundCompletedBody { get; set; } =
+        "Your refund of {0:N0} for {1} was completed.";
+
+    public string RefundManualRequiredSubject { get; set; } =
+        "Cinema Booking - Refund Requires Manual Processing";
+    public string RefundManualRequiredBody { get; set; } =
+        "Your refund for {0} is being handled manually.";
+
+    public string ManualRefundCompletedSubject { get; set; } =
+        "Cinema Booking - Refund Transfer Completed";
+    public string ManualRefundCompletedBody { get; set; } =
+        "Your refund of {0:N0} for {1} has been transferred successfully.";
 }

@@ -1,5 +1,6 @@
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Refunds;
@@ -7,6 +8,7 @@ using CinemaSystem.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Tests;
 
@@ -153,6 +155,7 @@ public sealed class RefundProcessorTests
                 gateway,
                 effectiveEmailSender,
                 clock,
+                Options.Create(new EmailTemplatesSettings()),
                 NullLogger<RefundProcessor>.Instance);
 
             await SeedAsync(dbContext, clock.UtcNow);

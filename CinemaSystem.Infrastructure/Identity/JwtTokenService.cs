@@ -71,7 +71,7 @@ public sealed class JwtTokenService : IJwtTokenService
             // Claim chứa quyền (role) đã chuẩn hóa
             new Claim(ClaimTypes.Role, normalizedRole),
             // Claim tùy chỉnh chứa userId
-            new Claim("userId", userId),
+            new Claim(AuthConstants.Claims.UserId, userId),
             // Claim tùy chỉnh chứa quyền (role)
             new Claim("role", normalizedRole)
         };

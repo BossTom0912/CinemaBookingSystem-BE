@@ -130,7 +130,7 @@ public sealed class MoviesController : ControllerBase
     private string GetUserId()
     {
         return User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("userId")?.Value
+            ?? User.FindFirst(AuthConstants.Claims.UserId)?.Value
             ?? string.Empty;
     }
 }

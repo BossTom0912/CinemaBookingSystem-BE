@@ -775,29 +775,15 @@ public sealed class ShowtimeService : IShowtimeService
             .ToList();
 
         // Định nghĩa lý do Hủy mặc định
-        var cancelReason = $"Showtime cancelled due to Admin update/delete.";
+        var cancelReason = DomainConstants.ShowtimeCancellationReason.AdministrativeUpdate;
         
-        // Cố gắng lấy UserId của người đang thao tác từ JWT Token
+        // Lấy UserId của người đang thao tác từ JWT Token.
         var userId = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         
-        // Nếu không lấy được hoặc chuỗi lỗi (string, user)
-        if (string.IsNullOrWhiteSpace(userId) || userId == "string" || userId == "user")
+        if (string.IsNullOrWhiteSpace(userId))
         {
-            // Chạy fallback lấy một tài khoản Admin đang hoạt động bất kỳ từ Database
-            var adminUser = await _dbContext.Users
-                .FirstOrDefaultAsync(u => u.Role.RoleName == AuthConstants.Roles.Admin && u.Status == DomainConstants.EntityStatus.Active, cancellationToken);
-                
-            // Nếu có admin
-            if (adminUser != null)
-            {
-                // Gán ID bằng Admin đó
-                userId = adminUser.UserId;
-            }
-            else
-            {
-                // Nếu không có admin nào, ném lỗi hệ thống không thể xử lý
-                throw new Exception("Invalid Bearer Token or no active Admin user found for cancelling showtime.");
-            }
+            throw new InvalidOperationException(
+                "An authenticated user is required to cancel a showtime.");
         }
 
         // Lấy thông tin bản ghi Hủy hiện tại (nếu có)

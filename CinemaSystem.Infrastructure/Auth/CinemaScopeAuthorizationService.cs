@@ -189,7 +189,7 @@ public sealed class CinemaScopeAuthorizationService : ICinemaScopeAuthorizationS
 
     private static string GetUserId(ClaimsPrincipal user)
     {
-        return user.FindFirst("userId")?.Value
+        return user.FindFirst(AuthConstants.Claims.UserId)?.Value
             ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? user.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
             ?? string.Empty;

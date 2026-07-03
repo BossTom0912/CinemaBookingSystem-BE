@@ -30,6 +30,12 @@ public static class DomainConstants
         public const string ProcessingUnstable = "PROCESSING_UNSTABLE";
     }
 
+    public static class ShowtimeCancellationReason
+    {
+        public const string AdministrativeUpdate =
+            "Showtime cancelled due to an administrative update or deletion.";
+    }
+
     public static class ShowtimeSeatStatus
     {
         public const string Available = "AVAILABLE";
@@ -67,6 +73,11 @@ public static class DomainConstants
         public const string Active = "ACTIVE";
         public const string Inactive = "INACTIVE";
         public const string Suspended = "SUSPENDED";
+    }
+
+    public static class StaffPosition
+    {
+        public const string Staff = "Staff";
     }
 
     public static class MemberLevel
@@ -260,6 +271,42 @@ public static class DomainConstants
     public static class RefundPolicy
     {
         public const int ClaimTokenEntropyBytes = 32;
+    }
+
+    public static class RefundErrorCode
+    {
+        public const string InvalidRefundStatus = "INVALID_REFUND_STATUS";
+        public const string InvalidDateRange = "INVALID_DATE_RANGE";
+        public const string RefundIdRequired = "REFUND_ID_REQUIRED";
+        public const string RefundNotFound = "REFUND_NOT_FOUND";
+        public const string RefundNotProcessable = "REFUND_NOT_PROCESSABLE";
+        public const string RefundAlreadyCompleted = "REFUND_ALREADY_COMPLETED";
+        public const string RefundAmountMismatch = "REFUND_AMOUNT_MISMATCH";
+        public const string RefundNotManualRequired = "REFUND_NOT_MANUAL_REQUIRED";
+        public const string RefundTotalExceedsPayment = "REFUND_TOTAL_EXCEEDS_PAYMENT";
+        public const string RefundTransactionCodeDuplicate = "REFUND_TRANSACTION_CODE_DUPLICATE";
+        public const string InvalidRefundProofUrl = "INVALID_REFUND_PROOF_URL";
+        public const string ManualRefundNotFound = "MANUAL_REFUND_NOT_FOUND";
+        public const string ManualRefundAlreadyAssigned = "MANUAL_REFUND_ALREADY_ASSIGNED";
+        public const string ManualRefundNotAssignedToUser = "MANUAL_REFUND_NOT_ASSIGNED_TO_USER";
+        public const string RefundClaimNotFound = "REFUND_CLAIM_NOT_FOUND";
+        public const string RefundClaimForbidden = "REFUND_CLAIM_FORBIDDEN";
+        public const string RefundClaimTokenUsed = "REFUND_CLAIM_TOKEN_USED";
+        public const string RefundClaimExpired = "REFUND_CLAIM_EXPIRED";
+        public const string RefundClaimNotEditable = "REFUND_CLAIM_NOT_EDITABLE";
+        public const string RefundClaimNotReissuable = "REFUND_CLAIM_NOT_REISSUABLE";
+        public const string RefundRequestTicketForbidden = "REFUND_REQUEST_TICKET_FORBIDDEN";
+        public const string BankNotSupported = "BANK_NOT_SUPPORTED";
+        public const string BankAccountRequired = "BANK_ACCOUNT_REQUIRED";
+        public const string ShowtimeIdRequired = "SHOWTIME_ID_REQUIRED";
+        public const string ShowtimeNotFound = "SHOWTIME_NOT_FOUND";
+        public const string ShowtimeAlreadyCancelled = "SHOWTIME_ALREADY_CANCELLED";
+        public const string ShowtimeAlreadyStarted = "SHOWTIME_ALREADY_STARTED";
+        public const string CancellationReasonRequired = "CANCEL_REASON_REQUIRED";
+        public const string CancellationReasonTooLong = "CANCEL_REASON_TOO_LONG";
+        public const string PaidBookingPaymentNotFound = "PAID_BOOKING_PAYMENT_NOT_FOUND";
+        public const string UserRequired = "USER_REQUIRED";
+        public const string UserNotFound = "USER_NOT_FOUND";
     }
 
     public static class ManagerDashboard

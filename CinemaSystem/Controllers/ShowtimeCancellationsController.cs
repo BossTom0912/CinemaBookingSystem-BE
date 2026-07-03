@@ -76,7 +76,7 @@ public sealed class ShowtimeCancellationsController : ControllerBase
 
     private string GetUserId()
     {
-        return User.FindFirst("userId")?.Value
+        return User.FindFirst(AuthConstants.Claims.UserId)?.Value
             ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.FindFirst("sub")?.Value
             ?? string.Empty;

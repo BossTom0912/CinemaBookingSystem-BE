@@ -1,13 +1,16 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Net;
 
 namespace CinemaSystem.Infrastructure.Refunds;
@@ -18,6 +21,7 @@ public sealed class ManualRefundService : IManualRefundService
     private readonly ISensitiveDataProtector _protector;
     private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
+    private readonly EmailTemplatesSettings _emailTemplates;
     private readonly ILogger<ManualRefundService> _logger;
 
     public ManualRefundService(
@@ -25,12 +29,14 @@ public sealed class ManualRefundService : IManualRefundService
         ISensitiveDataProtector protector,
         IEmailSender emailSender,
         IClock clock,
+        IOptions<EmailTemplatesSettings> emailTemplates,
         ILogger<ManualRefundService> logger)
     {
         _db = db;
         _protector = protector;
         _emailSender = emailSender;
         _clock = clock;
+        _emailTemplates = emailTemplates.Value;
         _logger = logger;
     }
 
@@ -392,8 +398,12 @@ public sealed class ManualRefundService : IManualRefundService
         {
             await _emailSender.SendEmailAsync(
                 email,
-                "Refund completed",
-                $"Your refund of {amount:N0} for {movieTitle} has been transferred successfully.",
+                _emailTemplates.ManualRefundCompletedSubject,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    _emailTemplates.ManualRefundCompletedBody,
+                    amount,
+                    movieTitle),
                 cancellationToken);
         }
         catch (Exception exception)

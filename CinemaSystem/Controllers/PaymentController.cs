@@ -95,7 +95,7 @@ public class PaymentController : ControllerBase
 
     private string? GetUserId()
     {
-        return User.FindFirst("userId")?.Value
+        return User.FindFirst(AuthConstants.Claims.UserId)?.Value
             ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
     }
 }

@@ -1,7 +1,9 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Domain.Constants;
@@ -24,6 +26,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
     private readonly RefundSettings _refundSettings;
+    private readonly EmailTemplatesSettings _emailTemplates;
     private readonly ILogger<ShowtimeCancellationService> _logger;
 
     public ShowtimeCancellationService(
@@ -32,6 +35,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         IEmailSender emailSender,
         IClock clock,
         IOptions<RefundSettings> refundSettings,
+        IOptions<EmailTemplatesSettings> emailTemplates,
         ILogger<ShowtimeCancellationService> logger)
     {
         _dbContext = dbContext;
@@ -39,6 +43,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         _emailSender = emailSender;
         _clock = clock;
         _refundSettings = refundSettings.Value;
+        _emailTemplates = emailTemplates.Value;
         _logger = logger;
     }
 
@@ -430,7 +435,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         });
     }
 
-    private static void AddCancellationEmail(
+    private void AddCancellationEmail(
         ICollection<CancellationEmail> emails,
         Booking booking,
         Showtime showtime)
@@ -443,8 +448,13 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         emails.Add(new CancellationEmail(
             email,
-            "Showtime cancelled",
-            $"Showtime {showtime.Movie.Title} at {showtime.StartTime:O} has been cancelled. Booking status: {booking.BookingStatus}."));
+            _emailTemplates.ShowtimeCancelledNoRefundSubject,
+            string.Format(
+                CultureInfo.InvariantCulture,
+                _emailTemplates.ShowtimeCancelledNoRefundBody,
+                showtime.Movie.Title,
+                showtime.StartTime,
+                booking.BookingStatus)));
     }
 
     private void AddPaidCancellationEmail(
@@ -465,9 +475,15 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(rawToken)}";
         emails.Add(new CancellationEmail(
             email,
-            "Showtime cancelled - refund information required",
-            $"Showtime {showtime.Movie.Title} at {showtime.StartTime:O} was cancelled. "
-            + $"Expected refund: {amount:N0}. Submit bank information before {expiresAt:O}: {link}"));
+            _emailTemplates.ShowtimeCancelledRefundSubject,
+            string.Format(
+                CultureInfo.InvariantCulture,
+                _emailTemplates.ShowtimeCancelledRefundBody,
+                showtime.Movie.Title,
+                showtime.StartTime,
+                amount,
+                expiresAt,
+                link)));
     }
 
     private async Task SendCancellationEmailsAsync(
