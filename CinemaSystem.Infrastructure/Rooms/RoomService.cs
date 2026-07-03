@@ -9,16 +9,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Rooms;
 
-/// <summary>
-/// Runtime room CRUD and bulk seat-generation implementation reached from
-/// <c>RoomsController</c> through <see cref="IRoomService"/>.
-/// </summary>
-/// <remarks>
-/// Validates CINEMA/ROOM state, reads and writes ROOM/SEAT with
-/// <c>CinemaDbContext</c>, and returns contract DTOs through
-/// <c>ServiceResult</c>. Delete is a room soft delete; it does not trigger
-/// showtime cancellation or refund orchestration.
-/// </remarks>
 public sealed class RoomService : IRoomService
 {
     // ID loại ghế mặc định
@@ -113,7 +103,10 @@ public sealed class RoomService : IRoomService
         // Trả về kết quả thành công kèm dữ liệu phòng chiếu vừa tạo
         return ServiceResult<RoomResponse>.Ok(response, "Room created successfully.", 201);
     }
-    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(bool includeInactive, CancellationToken cancellationToken)
+    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(
+        string? cinemaScopeId,
+        bool includeInactive,
+        CancellationToken cancellationToken)
     {
         // Khởi tạo truy vấn danh sách phòng chiếu và không theo dõi sự thay đổi (AsNoTracking) để tối ưu hiệu suất
         var query = _dbContext.Rooms.AsNoTracking();
@@ -123,6 +116,11 @@ public sealed class RoomService : IRoomService
         {
             // Lọc bỏ các phòng chiếu có trạng thái INACTIVE
             query = query.Where(room => room.RoomStatus != DomainConstants.RoomStatus.Inactive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(cinemaScopeId))
+        {
+            query = query.Where(room => room.CinemaId == cinemaScopeId);
         }
 
         // Thực thi truy vấn lấy danh sách phòng chiếu

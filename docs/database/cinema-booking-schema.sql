@@ -10,6 +10,11 @@ creates the entire database structure smoothly from scratch.
 ============================================================
 */
 
+-- When using sqlcmd, pass -f 65001 so Vietnamese seed data is read as UTF-8.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+
 USE [master];
 GO
 

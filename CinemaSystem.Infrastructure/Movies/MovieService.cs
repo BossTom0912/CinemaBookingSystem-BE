@@ -16,15 +16,6 @@ using System.Threading.Tasks;
 
 namespace CinemaSystem.Infrastructure.Movies;
 
-/// <summary>
-/// Runtime movie-query implementation reached from <c>MoviesController</c> and
-/// reused by <c>GeminiChatbotService</c>.
-/// </summary>
-/// <remarks>
-/// Queries MOVIE with no tracking, applies public visibility rules, projects to
-/// Contracts DTOs, and returns the result to callers through
-/// <c>ServiceResult</c>. Movie administration is not implemented here.
-/// </remarks>
 public sealed class MovieService : IMovieService
 {
     private readonly CinemaDbContext _dbContext;
@@ -443,8 +434,16 @@ public sealed class MovieService : IMovieService
             throw; // Ném lỗi lên trên để Middleware quản lý lỗi xử lý
         }
 
+        var createdMovie = await _dbContext.Movies
+            .AsNoTracking()
+            .Include(item => item.MovieGenres)
+                .ThenInclude(item => item.Genre)
+            .SingleAsync(item => item.MovieId == movieId, cancellationToken);
+
         // Trả về kết quả thành công cùng thông tin chi tiết phim vừa tạo
-        return ServiceResult<MovieDetailResponse>.Ok(ToDetailResponse(movie), "Movie created successfully.");
+        return ServiceResult<MovieDetailResponse>.Ok(
+            ToDetailResponse(createdMovie),
+            "Movie created successfully.");
     }
 
     public async Task<ServiceResult<MovieDetailResponse>> UpdateMovieAsync(

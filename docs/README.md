@@ -45,6 +45,7 @@ agents discover them there automatically.
 - [`testing/auth-manual-test-cases.md`](testing/auth-manual-test-cases.md)
 - [`testing/otp-confirmation-bug.md`](testing/otp-confirmation-bug.md)
 - [`testing/sepay-webhook-test-notes.md`](testing/sepay-webhook-test-notes.md)
+- [`testing/manual-refund-api-test-guide.md`](testing/manual-refund-api-test-guide.md)
 
 ## Historical Reports
 
@@ -55,3 +56,8 @@ are retained for traceability but are not authoritative specifications.
 - [`reports/forgot-password-implementation.md`](reports/forgot-password-implementation.md)
 - [`reports/scrum-157-checkout-implementation-plan.md`](reports/scrum-157-checkout-implementation-plan.md)
 - [`reports/sprint-1-auth-implementation.md`](reports/sprint-1-auth-implementation.md)
+- [`reports/main-manager-admin-integration-test-2026-06-28.md`](reports/main-manager-admin-integration-test-2026-06-28.md):
+  merge-conflict decisions, integrated feature/database scope, and build/test
+  evidence for `main` + `MangerAndAdmin_1`.
+- [`reports/SCRUM-193-customer-assisted-refund.md`](reports/SCRUM-193-customer-assisted-refund.md)
+- [`reports/MangerAndAdmin_1-admin-merge-report.md`](reports/MangerAndAdmin_1-admin-merge-report.md)

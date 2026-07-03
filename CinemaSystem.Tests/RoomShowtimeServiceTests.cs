@@ -173,7 +173,7 @@ public sealed class RoomShowtimeServiceTests
         });
         await fixture.DbContext.SaveChangesAsync();
 
-        var result = await fixture.RoomService.GetRoomsAsync(false, CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomsAsync(null, false, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Single(result.Data!);

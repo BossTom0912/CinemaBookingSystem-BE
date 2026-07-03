@@ -15,17 +15,6 @@ using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Infrastructure.Services;
 
-/// <summary>
-/// Runtime implementation for the original booking create/detail/history
-/// routes reached from <c>BookingsController</c>.
-/// </summary>
-/// <remarks>
-/// Reads customer/showtime/seat/F&amp;B data, creates a PENDING_PAYMENT booking
-/// and records temporary seat state through <c>CinemaDbContext</c>. The richer
-/// transactional checkout path is implemented separately by
-/// <c>CinemaSystem.Infrastructure.Bookings.CheckoutService</c>; payment is the
-/// next use case handled by <c>PaymentService</c>.
-/// </remarks>
 public sealed class BookingService : IBookingService
 {
     private readonly CinemaDbContext _dbContext;

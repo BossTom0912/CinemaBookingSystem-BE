@@ -48,4 +48,8 @@ public partial class User
     public virtual ICollection<ShowtimeSeat> ShowtimeSeats { get; set; } = new List<ShowtimeSeat>();
 
     public virtual StaffProfile? StaffProfile { get; set; }
+
+    public virtual ICollection<ManualRefundProcess> AssignedManualRefundProcesses { get; set; } = new List<ManualRefundProcess>();
+
+    public virtual ICollection<CustomerRefundRequest> ProcessedCustomerRefundRequests { get; set; } = new List<CustomerRefundRequest>();
 }

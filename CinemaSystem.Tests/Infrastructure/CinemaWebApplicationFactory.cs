@@ -5,6 +5,9 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
+using Hangfire;
+using Hangfire.Common;
+using Hangfire.States;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
@@ -84,7 +87,11 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IOtpGenerator>();
             services.AddSingleton<IOtpGenerator>(new FixedOtpGenerator(FixedOtp));
 
-            // ── 4. Override JWT TokenValidationParameters ─────────────────────
+            // ── 4. Execute Hangfire jobs immediately for deterministic tests ─
+            services.RemoveAll<IBackgroundJobClient>();
+            services.AddSingleton<IBackgroundJobClient, ImmediateBackgroundJobClient>();
+
+            // ── 5. Override JWT TokenValidationParameters ─────────────────────
             //
             // appsettings.json đã cấu hình cùng Secret/Issuer/Audience với TestAuthTokens
             // nên token sẽ validate đúng ngay cả không có override.
@@ -162,7 +169,28 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["SepaySettings:WebhookSecret"] = TestSepayWebhookSecret,
                 ["SepaySettings:BankName"] = "Test Bank",
                 ["SepaySettings:BankAccount"] = "0000000000",
-                ["Redis:ConnectionString"] = string.Empty
+                ["Redis:ConnectionString"] = string.Empty,
+                ["SecuritySettings:ConfirmationTokenSecret"] =
+                    "test-confirmation-token-secret-32-characters",
+                ["EmailTemplates:SeatMaintenanceSubject"] = "Seat Maintenance Notification",
+                ["EmailTemplates:SeatMaintenanceBody"] =
+                    "Seat {0} is unavailable for {1}. Booking {2}. Token {3}.",
+                ["EmailTemplates:ShowtimeTimeChangeSubject"] =
+                    "Unexpected Update Notification",
+                ["EmailTemplates:ShowtimeTimeChangeBody"] =
+                    "Movie {0}. Start time changed to {1}. Booking {2}. Token {3}. Please wait for the cinema to handle it.",
+                ["EmailTemplates:ShowtimeTimeChangeNoticeSubject"] =
+                    "Showtime Update Notification",
+                ["EmailTemplates:ShowtimeTimeChangeNoticeBody"] =
+                    "Movie {0}. Start time changed to {1}. {2}.",
+                ["EmailTemplates:ShowtimeRoomChangeSubject"] =
+                    "Showtime Room Change",
+                ["EmailTemplates:ShowtimeRoomChangeBody"] =
+                    "The showtime moved to room {0}.",
+                ["EmailTemplates:ShowtimeCancellationSubject"] =
+                    "Showtime Cancellation",
+                ["EmailTemplates:ShowtimeCancellationBody"] =
+                    "The showtime was cancelled: {0}."
             });
         });
     }
@@ -171,6 +199,45 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
     {
         await DisposeAsync();
         GC.SuppressFinalize(this);
+    }
+}
+
+public sealed class ImmediateBackgroundJobClient : IBackgroundJobClient
+{
+    private readonly IServiceProvider _services;
+
+    public ImmediateBackgroundJobClient(IServiceProvider services)
+    {
+        _services = services;
+    }
+
+    public string Create(Job job, IState state)
+    {
+        using var scope = _services.CreateScope();
+        var target = scope.ServiceProvider.GetRequiredService(job.Type);
+
+        try
+        {
+            var result = job.Method.Invoke(target, job.Args.ToArray());
+            if (result is Task task)
+            {
+                task.GetAwaiter().GetResult();
+            }
+        }
+        catch (System.Reflection.TargetInvocationException exception)
+            when (exception.InnerException is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(exception.InnerException)
+                .Throw();
+        }
+
+        return Guid.NewGuid().ToString("N");
+    }
+
+    public bool ChangeState(string jobId, IState state, string expectedState)
+    {
+        return true;
     }
 }
 

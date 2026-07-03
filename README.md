@@ -213,7 +213,7 @@ Dưới đây là tổng hợp các ý tưởng nghiệp vụ và kiến trúc h
 *   **Tự động hóa:** Sau khi đổi phòng và chuyển ghế cho các vé đã mua thành công, Suất chiếu sẽ tự động trở lại trạng thái `OPEN`. Đồng thời hệ thống gửi Email thông báo đổi phòng cho tất cả các khách hàng đã thanh toán.
 
 ### 3. Nghiệp vụ Đổi Giờ Chiếu & Token Xác Nhận (Time Change Approval)
-*   **Lệch giờ $\ge$ 15 phút:** Khi Admin cập nhật giờ chiếu lệch quá 15 phút so với giờ cũ, vé của khách sẽ bị đưa vào trạng thái chờ `ProcessingUnstable`. 
+*   **Lệch giờ $\ge$ 15 phút:** Khi Admin cập nhật giờ chiếu lệch quá 15 phút so với giờ cũ, vé của khách sẽ bị đưa vào trạng thái chờ `ProcessingUnstable`.
 *   **Mã hóa Token không cần DB:** Backend tạo bảo mật `HMACSHA256` dựa trên `BookingId` để sinh ra link xác nhận mà không cần tạo thêm bảng trong Database.
 *   **Quyền quyết định của User:** Hệ thống tự gửi mail song ngữ (Anh-Việt) kèm 2 lựa chọn (Links):
     1.  *Chấp nhận:* Gọi API `GET /api/bookings/{id}/confirm-time-change?accept=true` $\rightarrow$ Vé về lại `PAID`.

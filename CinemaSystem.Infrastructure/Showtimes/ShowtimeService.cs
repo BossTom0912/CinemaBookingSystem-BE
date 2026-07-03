@@ -15,16 +15,6 @@ using System.Security.Claims;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
-/// <summary>
-/// Runtime showtime query/CRUD implementation reached from
-/// <c>ShowtimesController</c> and queried by <c>GeminiChatbotService</c>.
-/// </summary>
-/// <remarks>
-/// Uses MOVIE, CINEMA, ROOM, SEAT, SHOWTIME and SHOWTIME_SEAT through
-/// <c>CinemaDbContext</c>. Create/update validate availability and overlap;
-/// create generates per-showtime seats. Direct delete is allowed only before
-/// bookings/refunds exist and must not be confused with cancel/refund UC003.
-/// </remarks>
 public sealed class ShowtimeService : IShowtimeService
 {
     // Tập hợp các trạng thái suất chiếu hợp lệ (Không phân biệt hoa thường)
@@ -741,14 +731,16 @@ public sealed class ShowtimeService : IShowtimeService
             return ServiceResult<object>.Fail(409, "Showtime has refund history and cannot be permanently deleted.", "RESOURCE_HAS_REFUNDS");
         }
 
-        // Nếu thỏa mãn điều kiện an toàn, tiến hành xóa cứng các ShowtimeSeats của suất chiếu
-        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
-
-        // Nếu đã có bản ghi Hủy thì tiến hành xóa cả bản ghi Hủy
         if (existing.ShowtimeCancellation is not null)
         {
-            _dbContext.ShowtimeCancellations.Remove(existing.ShowtimeCancellation);
+            return ServiceResult<object>.Fail(
+                409,
+                "Showtime has cancellation history and cannot be permanently deleted.",
+                "RESOURCE_HAS_CANCELLATION_HISTORY");
         }
+
+        // Nếu thỏa mãn điều kiện an toàn, tiến hành xóa cứng các ShowtimeSeats của suất chiếu
+        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
 
         // Tiến hành xóa cứng suất chiếu ra khỏi bảng Showtimes
         _dbContext.Showtimes.Remove(existing);

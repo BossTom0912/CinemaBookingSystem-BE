@@ -36,4 +36,10 @@ public partial class Refund
     public virtual PaymentProvider PaymentProvider { get; set; } = null!;
 
     public virtual ShowtimeCancellation? ShowtimeCancellation { get; set; }
+
+    public virtual RefundClaim? RefundClaim { get; set; }
+
+    public virtual ManualRefundProcess? ManualRefundProcess { get; set; }
+
+    public virtual ICollection<CustomerRefundRequest> CustomerRefundRequests { get; set; } = new List<CustomerRefundRequest>();
 }

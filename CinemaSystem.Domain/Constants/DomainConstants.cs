@@ -156,6 +156,13 @@ public static class DomainConstants
         public const string BookingFoodItem = "BFI";
         public const string Payment = "PAY";
         public const string Refund = "REF";
+        public const string RefundClaim = "RFC";
+        public const string RefundClaimToken = "RFT";
+        public const string Notification = "NOT";
+        public const string AuditLog = "AUD";
+        public const string RewardPointTransaction = "RPT";
+        public const string ManualRefundProcess = "MRP";
+        public const string CustomerRefundRequest = "CRR";
         public const string Ticket = "TCK";
         public const string CinemaInventory = "CFI";
         public const string Movie = "MOV";
@@ -203,6 +210,63 @@ public static class DomainConstants
         public const string Success = "SUCCESS";
         public const string Failed = "FAILED";
         public const string Requested = "REQUESTED";
+        public const string ManualRequired = "MANUAL_REQUIRED";
+    }
+
+    public static class RefundWorkflowStatus
+    {
+        public const string AwaitingCustomerInfo = "AWAITING_CUSTOMER_INFO";
+    }
+
+    public static class RefundClaimStatus
+    {
+        public const string PendingInfo = "PENDING_INFO";
+        public const string Submitted = "SUBMITTED";
+        public const string Completed = "COMPLETED";
+        public const string Expired = "EXPIRED";
+        public const string ManualRequired = RefundStatus.ManualRequired;
+        public const string Revoked = "REVOKED";
+    }
+
+    public static class AccountValidationStatus
+    {
+        public const string NotStarted = "NOT_STARTED";
+        public const string Unavailable = "UNAVAILABLE";
+    }
+
+    public static class ManualRefundProcessStatus
+    {
+        public const string Open = "OPEN";
+        public const string InProgress = "IN_PROGRESS";
+        public const string Confirmed = "CONFIRMED";
+        public const string Rejected = "REJECTED";
+    }
+
+    public static class CustomerRefundRequestStatus
+    {
+        public const string Pending = "PENDING";
+        public const string Fulfilled = "FULFILLED";
+        public const string Rejected = "REJECTED";
+    }
+
+    public static class RewardPointTransactionType
+    {
+        public const string Earn = "EARN";
+        public const string Redeem = "REDEEM";
+        public const string Revert = "REVERT";
+        public const string Adjust = "ADJUST";
+    }
+
+    public static class RefundPolicy
+    {
+        public const int ClaimTokenEntropyBytes = 32;
+    }
+
+    public static class ManagerDashboard
+    {
+        public const string AllCinemasLabel = "All cinemas";
+        public const decimal PercentageMultiplier = 100m;
+        public const int OccupancyRateDecimalPlaces = 2;
     }
 
     public static class TicketStatus
@@ -269,5 +333,22 @@ public static class DomainConstants
         public const string Pending = "PENDING";
         public const string Approved = "APPROVED";
         public const string Rejected = "REJECTED";
+    }
+
+    public static class AuditAction
+    {
+        public const string CancelShowtime = "CANCEL_SHOWTIME";
+        public const string ProcessRefund = "PROCESS_REFUND";
+        public const string SubmitRefundClaim = "SUBMIT_REFUND_CLAIM";
+        public const string ReissueRefundClaimLink = "REISSUE_REFUND_CLAIM_LINK";
+        public const string AssignManualRefund = "ASSIGN_MANUAL_REFUND";
+        public const string ConfirmManualRefund = "CONFIRM_MANUAL_REFUND";
+    }
+
+    public static class AuditEntity
+    {
+        public const string Showtime = "SHOWTIME";
+        public const string Refund = "REFUND";
+        public const string RefundClaim = "REFUND_CLAIM";
     }
 }
