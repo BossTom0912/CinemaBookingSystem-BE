@@ -3,11 +3,13 @@ using CinemaSystem.Infrastructure.Auth;
 using CinemaSystem.Infrastructure.Cinemas;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Data;
+using CinemaSystem.Infrastructure.Dashboard;
 using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
+using CinemaSystem.Infrastructure.Refunds;
 using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Services;
 using CinemaSystem.Infrastructure.Showtimes;
@@ -157,6 +159,25 @@ public static class DependencyInjection
                 "Image extensions must start with a period.")
             .ValidateOnStart();
 
+        services.AddOptions<RefundSettings>()
+            .Configure(options =>
+            {
+                options.FrontendBaseUrl = configuration[
+                    $"{RefundSettings.SectionName}:FrontendBaseUrl"] ?? string.Empty;
+                options.ClaimTokenMinutes = ReadInt(
+                    configuration[$"{RefundSettings.SectionName}:ClaimTokenMinutes"],
+                    options.ClaimTokenMinutes);
+            })
+            .Validate(
+                options => Uri.TryCreate(options.FrontendBaseUrl, UriKind.Absolute, out _),
+                "Refund frontend base URL must be an absolute URL.")
+            .Validate(
+                options => options.ClaimTokenMinutes >= RefundSettings.MinimumClaimTokenMinutes,
+                $"Refund claim-token lifetime must be at least {RefundSettings.MinimumClaimTokenMinutes} minute.")
+            .ValidateOnStart();
+
+        services.AddDataProtection();
+
         // Read connection string and fail fast with clear error if missing
         var defaultConnection = configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrWhiteSpace(defaultConnection))
@@ -198,6 +219,16 @@ public static class DependencyInjection
         services.AddScoped<IRoomService, RoomService>();
         services.AddScoped<IFileStorageService, LocalFileStorageService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
+        services.AddScoped<ICinemaScopeAuthorizationService, CinemaScopeAuthorizationService>();
+        services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
+        services.AddScoped<IRefundService, RefundService>();
+        services.AddScoped<IRefundClaimService, RefundClaimService>();
+        services.AddScoped<IManualRefundService, ManualRefundService>();
+        services.AddScoped<IRefundProcessor, RefundProcessor>();
+        services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
+        services.AddSingleton<IRefundClaimIssuer, RefundClaimIssuer>();
+        services.AddSingleton<ISensitiveDataProtector, SensitiveDataProtector>();
+        services.AddSingleton<IPaymentRefundGateway, UnsupportedPaymentRefundGateway>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();

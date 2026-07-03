@@ -1,4 +1,5 @@
 using CinemaSystem.Contracts.Payments;
+using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
@@ -6,6 +7,8 @@ using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace CinemaSystem.Tests;
 
@@ -156,7 +159,16 @@ public sealed class PaymentServiceTests
                     BankAccount = "123456789",
                     DevelopmentPaymentAmountOverride = paymentAmountOverride
                 }),
-                Options.Create(new BookingSettings()));
+                Options.Create(new BookingSettings()),
+                Mock.Of<IRefundClaimIssuer>(),
+                Mock.Of<IEmailSender>(),
+                Options.Create(new RefundSettings
+                {
+                    FrontendBaseUrl = "https://frontend.test",
+                    ClaimTokenMinutes = 5
+                }),
+                new CinemaSystem.Infrastructure.Time.SystemClock(),
+                NullLogger<PaymentService>.Instance);
 
             return new Fixture(dbContext, service);
         }

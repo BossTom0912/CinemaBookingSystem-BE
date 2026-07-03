@@ -8,6 +8,7 @@ using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 namespace CinemaSystem.Infrastructure.Refunds;
 
@@ -40,18 +41,18 @@ public sealed class RefundProcessor : IRefundProcessor
         if (string.IsNullOrWhiteSpace(refundId))
         {
             return ServiceResult<RefundProcessingResponse>.Fail(
-                400,
+                (int)HttpStatusCode.BadRequest,
                 "Refund ID is required.",
-                "REFUND_ID_REQUIRED");
+                BookingConstants.RefundErrorCodes.RefundIdRequired);
         }
 
         var snapshot = await LoadSnapshotAsync(refundId.Trim(), cancellationToken);
         if (snapshot is null)
         {
             return ServiceResult<RefundProcessingResponse>.Fail(
-                404,
+                (int)HttpStatusCode.NotFound,
                 "Refund was not found.",
-                "REFUND_NOT_FOUND");
+                BookingConstants.RefundErrorCodes.RefundNotFound);
         }
 
         if (IsFinalStatus(snapshot.RefundStatus))
@@ -64,9 +65,9 @@ public sealed class RefundProcessor : IRefundProcessor
         if (!IsStatus(snapshot.RefundStatus, BookingConstants.RefundStatus.Pending))
         {
             return ServiceResult<RefundProcessingResponse>.Fail(
-                409,
+                (int)HttpStatusCode.Conflict,
                 "Only pending refunds can be processed.",
-                "REFUND_NOT_PROCESSABLE");
+                BookingConstants.RefundErrorCodes.RefundNotProcessable);
         }
 
         var successfulRefundAmount = await _dbContext.Refunds
@@ -149,9 +150,9 @@ public sealed class RefundProcessor : IRefundProcessor
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ServiceResult<RefundProcessingResponse>.Fail(
-                    404,
+                    (int)HttpStatusCode.NotFound,
                     "Refund was not found.",
-                    "REFUND_NOT_FOUND");
+                    BookingConstants.RefundErrorCodes.RefundNotFound);
             }
 
             if (IsFinalStatus(refund.RefundStatus))
@@ -166,9 +167,9 @@ public sealed class RefundProcessor : IRefundProcessor
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ServiceResult<RefundProcessingResponse>.Fail(
-                    409,
+                    (int)HttpStatusCode.Conflict,
                     "Only pending refunds can be processed.",
-                    "REFUND_NOT_PROCESSABLE");
+                    BookingConstants.RefundErrorCodes.RefundNotProcessable);
             }
 
             var now = _clock.UtcNow;

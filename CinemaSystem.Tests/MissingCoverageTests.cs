@@ -797,6 +797,8 @@ public sealed class RoomMissingCoverageTests
             });
             await db.SaveChangesAsync();
         }
+
+        await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_RM_TEST");
     }
 
     private static async Task SeedSeatTypeAsync(CinemaWebApplicationFactory factory)
@@ -973,6 +975,7 @@ public sealed class ShowtimeMissingCoverageTests
         }
 
         await db.SaveChangesAsync();
+        await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_SHW_TEST");
     }
 
     private static async Task<T?> DeserializeAsync<T>(HttpResponseMessage response)
@@ -1388,7 +1391,16 @@ public sealed class PaymentServiceMissingCoverageTests
                     BankName = "Test Bank",
                     BankAccount = "123456789"
                 }),
-                Microsoft.Extensions.Options.Options.Create(new BookingSettings()));
+                Microsoft.Extensions.Options.Options.Create(new BookingSettings()),
+                Mock.Of<IRefundClaimIssuer>(),
+                Mock.Of<IEmailSender>(),
+                Microsoft.Extensions.Options.Options.Create(new RefundSettings
+                {
+                    FrontendBaseUrl = "https://frontend.test",
+                    ClaimTokenMinutes = 5
+                }),
+                new CinemaSystem.Infrastructure.Time.SystemClock(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentService>.Instance);
             return new Fixture(dbContext, service);
         }
 

@@ -9,6 +9,7 @@ using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Net;
 
 namespace CinemaSystem.Infrastructure.Refunds;
 
@@ -82,7 +83,10 @@ public sealed class RefundClaimService : IRefundClaimService
 
         if (token is null)
         {
-            return FailClaim(404, "Refund claim link was not found.", "REFUND_CLAIM_NOT_FOUND");
+            return FailClaim(
+                (int)HttpStatusCode.NotFound,
+                "Refund claim link was not found.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotFound);
         }
 
         var ownsClaim = await _db.CustomerProfiles.AnyAsync(
@@ -91,21 +95,33 @@ public sealed class RefundClaimService : IRefundClaimService
             cancellationToken);
         if (!ownsClaim)
         {
-            return FailClaim(403, "Refund claim does not belong to this customer.", "REFUND_CLAIM_FORBIDDEN");
+            return FailClaim(
+                (int)HttpStatusCode.Forbidden,
+                "Refund claim does not belong to this customer.",
+                BookingConstants.RefundErrorCodes.RefundClaimForbidden);
         }
 
         var now = _clock.UtcNow;
         if (token.RevokedAt.HasValue || token.UsedAt.HasValue)
         {
-            return FailClaim(409, "Refund claim link has already been used.", "REFUND_CLAIM_TOKEN_USED");
+            return FailClaim(
+                (int)HttpStatusCode.Conflict,
+                "Refund claim link has already been used.",
+                BookingConstants.RefundErrorCodes.RefundClaimTokenUsed);
         }
         if (token.ExpiresAt <= now)
         {
-            return FailClaim(410, "Refund claim link has expired.", "REFUND_CLAIM_EXPIRED");
+            return FailClaim(
+                (int)HttpStatusCode.Gone,
+                "Refund claim link has expired.",
+                BookingConstants.RefundErrorCodes.RefundClaimExpired);
         }
         if (IsFinal(token.RefundClaim))
         {
-            return FailClaim(409, "Refund claim can no longer be edited.", "REFUND_CLAIM_NOT_EDITABLE");
+            return FailClaim(
+                (int)HttpStatusCode.Conflict,
+                "Refund claim can no longer be edited.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotEditable);
         }
 
         token.UsedAt = now;
@@ -122,11 +138,17 @@ public sealed class RefundClaimService : IRefundClaimService
         var claim = await LoadOwnedClaimAsync(userId, claimId, cancellationToken);
         if (claim is null)
         {
-            return FailClaim(404, "Refund claim was not found.", "REFUND_CLAIM_NOT_FOUND");
+            return FailClaim(
+                (int)HttpStatusCode.NotFound,
+                "Refund claim was not found.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotFound);
         }
         if (IsFinal(claim))
         {
-            return FailClaim(409, "Bank information cannot be changed after submission.", "REFUND_CLAIM_NOT_EDITABLE");
+            return FailClaim(
+                (int)HttpStatusCode.Conflict,
+                "Bank information cannot be changed after submission.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotEditable);
         }
 
         var bankCode = request.BankCode.Trim().ToUpperInvariant();
@@ -134,7 +156,10 @@ public sealed class RefundClaimService : IRefundClaimService
             .FirstOrDefaultAsync(item => item.BankCode == bankCode && item.IsActive, cancellationToken);
         if (bank is null)
         {
-            return FailClaim(400, "Bank code is not supported.", "BANK_NOT_SUPPORTED");
+            return FailClaim(
+                (int)HttpStatusCode.BadRequest,
+                "Bank code is not supported.",
+                BookingConstants.RefundErrorCodes.BankNotSupported);
         }
 
         var accountNumber = request.AccountNumber.Trim();
@@ -162,7 +187,10 @@ public sealed class RefundClaimService : IRefundClaimService
         var claim = await LoadOwnedClaimAsync(userId, claimId, cancellationToken);
         if (claim is null)
         {
-            return FailClaim(404, "Refund claim was not found.", "REFUND_CLAIM_NOT_FOUND");
+            return FailClaim(
+                (int)HttpStatusCode.NotFound,
+                "Refund claim was not found.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotFound);
         }
         if (claim.ClaimStatus == BookingConstants.RefundClaimStatus.ManualRequired)
         {
@@ -170,11 +198,17 @@ public sealed class RefundClaimService : IRefundClaimService
         }
         if (IsFinal(claim))
         {
-            return FailClaim(409, "Refund claim can no longer be submitted.", "REFUND_CLAIM_NOT_EDITABLE");
+            return FailClaim(
+                (int)HttpStatusCode.Conflict,
+                "Refund claim can no longer be submitted.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotEditable);
         }
         if (claim.BankAccountEncrypted is null || claim.AccountHolderNameEncrypted is null || claim.BankCode is null)
         {
-            return FailClaim(400, "Bank information is required.", "BANK_ACCOUNT_REQUIRED");
+            return FailClaim(
+                (int)HttpStatusCode.BadRequest,
+                "Bank information is required.",
+                BookingConstants.RefundErrorCodes.BankAccountRequired);
         }
 
         var now = _clock.UtcNow;
@@ -230,20 +264,32 @@ public sealed class RefundClaimService : IRefundClaimService
                 cancellationToken);
         if (refund is null)
         {
-            return ServiceResult<object>.Fail(404, "Refund was not found.", "REFUND_NOT_FOUND");
+            return ServiceResult<object>.Fail(
+                (int)HttpStatusCode.NotFound,
+                "Refund was not found.",
+                BookingConstants.RefundErrorCodes.RefundNotFound);
         }
         if (refund.RefundStatus == BookingConstants.RefundStatus.Success)
         {
-            return ServiceResult<object>.Fail(409, "Refund has already been completed.", "REFUND_ALREADY_COMPLETED");
+            return ServiceResult<object>.Fail(
+                (int)HttpStatusCode.Conflict,
+                "Refund has already been completed.",
+                BookingConstants.RefundErrorCodes.RefundAlreadyCompleted);
         }
         if (!string.IsNullOrWhiteSpace(request.TicketId)
             && !refund.Booking.BookingSeats.Any(item => item.Ticket?.TicketId == request.TicketId.Trim()))
         {
-            return ServiceResult<object>.Fail(403, "Ticket does not belong to this booking.", "REFUND_REQUEST_TICKET_FORBIDDEN");
+            return ServiceResult<object>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "Ticket does not belong to this booking.",
+                BookingConstants.RefundErrorCodes.RefundRequestTicketForbidden);
         }
         if (refund.RefundClaim is null || refund.RefundClaim.ClaimStatus != BookingConstants.RefundClaimStatus.PendingInfo)
         {
-            return ServiceResult<object>.Fail(409, "A new link cannot be issued for this refund.", "REFUND_CLAIM_NOT_REISSUABLE");
+            return ServiceResult<object>.Fail(
+                (int)HttpStatusCode.Conflict,
+                "A new link cannot be issued for this refund.",
+                BookingConstants.RefundErrorCodes.RefundClaimNotReissuable);
         }
 
         var now = _clock.UtcNow;

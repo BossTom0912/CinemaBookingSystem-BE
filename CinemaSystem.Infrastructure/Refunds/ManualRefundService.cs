@@ -8,6 +8,7 @@ using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 namespace CinemaSystem.Infrastructure.Refunds;
 
@@ -73,20 +74,26 @@ public sealed class ManualRefundService : IManualRefundService
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ServiceResult<AssignManualRefundResponse>.Fail(
-                    404, "Manual refund was not found.", "MANUAL_REFUND_NOT_FOUND");
+                    (int)HttpStatusCode.NotFound,
+                    "Manual refund was not found.",
+                    BookingConstants.RefundErrorCodes.ManualRefundNotFound);
             }
             if (process.ProcessStatus == BookingConstants.ManualRefundProcessStatus.Confirmed)
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ServiceResult<AssignManualRefundResponse>.Fail(
-                    409, "Manual refund has already been confirmed.", "REFUND_ALREADY_COMPLETED");
+                    (int)HttpStatusCode.Conflict,
+                    "Manual refund has already been confirmed.",
+                    BookingConstants.RefundErrorCodes.RefundAlreadyCompleted);
             }
             if (!string.IsNullOrWhiteSpace(process.AssignedToUserId)
                 && !string.Equals(process.AssignedToUserId, adminUserId, StringComparison.OrdinalIgnoreCase))
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return ServiceResult<AssignManualRefundResponse>.Fail(
-                    409, "Manual refund is assigned to another administrator.", "MANUAL_REFUND_ALREADY_ASSIGNED");
+                    (int)HttpStatusCode.Conflict,
+                    "Manual refund is assigned to another administrator.",
+                    BookingConstants.RefundErrorCodes.ManualRefundAlreadyAssigned);
             }
 
             var now = _clock.UtcNow;
@@ -147,7 +154,10 @@ public sealed class ManualRefundService : IManualRefundService
             if (process is null)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(404, "Manual refund was not found.", "MANUAL_REFUND_NOT_FOUND");
+                return FailConfirm(
+                    (int)HttpStatusCode.NotFound,
+                    "Manual refund was not found.",
+                    BookingConstants.RefundErrorCodes.ManualRefundNotFound);
             }
             if (process.ProcessStatus == BookingConstants.ManualRefundProcessStatus.Confirmed
                 && process.Refund.RefundStatus == BookingConstants.RefundStatus.Success)
@@ -160,23 +170,35 @@ public sealed class ManualRefundService : IManualRefundService
             if (!string.Equals(process.AssignedToUserId, adminUserId, StringComparison.OrdinalIgnoreCase))
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(409, "Assign this refund before confirming it.", "MANUAL_REFUND_NOT_ASSIGNED_TO_USER");
+                return FailConfirm(
+                    (int)HttpStatusCode.Conflict,
+                    "Assign this refund before confirming it.",
+                    BookingConstants.RefundErrorCodes.ManualRefundNotAssignedToUser);
             }
             if (process.Refund.RefundStatus != BookingConstants.RefundStatus.ManualRequired)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(409, "Refund is not awaiting manual processing.", "REFUND_NOT_MANUAL_REQUIRED");
+                return FailConfirm(
+                    (int)HttpStatusCode.Conflict,
+                    "Refund is not awaiting manual processing.",
+                    BookingConstants.RefundErrorCodes.RefundNotManualRequired);
             }
             if (request.TransferredAmount != process.Refund.RefundAmount)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(400, "Transferred amount must match the refund amount.", "REFUND_AMOUNT_MISMATCH");
+                return FailConfirm(
+                    (int)HttpStatusCode.BadRequest,
+                    "Transferred amount must match the refund amount.",
+                    BookingConstants.RefundErrorCodes.RefundAmountMismatch);
             }
             if (!Uri.TryCreate(request.ProofUrl.Trim(), UriKind.Absolute, out var proofUri)
                 || proofUri.Scheme != Uri.UriSchemeHttps)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(400, "Proof URL must be an absolute HTTPS URL.", "INVALID_REFUND_PROOF_URL");
+                return FailConfirm(
+                    (int)HttpStatusCode.BadRequest,
+                    "Proof URL must be an absolute HTTPS URL.",
+                    BookingConstants.RefundErrorCodes.InvalidRefundProofUrl);
             }
 
             var transactionCode = request.BankTransactionCode.Trim();
@@ -187,7 +209,10 @@ public sealed class ManualRefundService : IManualRefundService
             if (duplicateCode)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(409, "Bank transaction code has already been used.", "REFUND_TRANSACTION_CODE_DUPLICATE");
+                return FailConfirm(
+                    (int)HttpStatusCode.Conflict,
+                    "Bank transaction code has already been used.",
+                    BookingConstants.RefundErrorCodes.RefundTransactionCodeDuplicate);
             }
 
             var otherSuccessfulAmount = process.Refund.Payment.Refunds
@@ -197,7 +222,10 @@ public sealed class ManualRefundService : IManualRefundService
             if (otherSuccessfulAmount + process.Refund.RefundAmount > process.Refund.Payment.Amount)
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(409, "Successful refund total would exceed the payment amount.", "REFUND_TOTAL_EXCEEDS_PAYMENT");
+                return FailConfirm(
+                    (int)HttpStatusCode.Conflict,
+                    "Successful refund total would exceed the payment amount.",
+                    BookingConstants.RefundErrorCodes.RefundTotalExceedsPayment);
             }
 
             var now = _clock.UtcNow;

@@ -3,6 +3,7 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Net;
 
 namespace CinemaSystem.Infrastructure.Refunds;
 
@@ -32,9 +33,9 @@ public sealed class RefundService : IRefundService
         if (status is not null && !ValidRefundStatuses.Contains(status))
         {
             return ServiceResult<IReadOnlyList<RefundResponse>>.Fail(
-                400,
+                (int)HttpStatusCode.BadRequest,
                 "Refund status is invalid.",
-                "INVALID_REFUND_STATUS");
+                BookingConstants.RefundErrorCodes.InvalidRefundStatus);
         }
 
         var from = EnsureUtc(request.From);
@@ -42,9 +43,9 @@ public sealed class RefundService : IRefundService
         if (from.HasValue && to.HasValue && from.Value > to.Value)
         {
             return ServiceResult<IReadOnlyList<RefundResponse>>.Fail(
-                400,
+                (int)HttpStatusCode.BadRequest,
                 "From date must be earlier than or equal to To date.",
-                "INVALID_DATE_RANGE");
+                BookingConstants.RefundErrorCodes.InvalidDateRange);
         }
 
         var showtimeId = NormalizeId(request.ShowtimeId);

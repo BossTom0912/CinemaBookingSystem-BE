@@ -152,6 +152,8 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("SepaySettings:WebhookSecret", TestSepayWebhookSecret);
         builder.UseSetting("SepaySettings:BankName", "Test Bank");
         builder.UseSetting("SepaySettings:BankAccount", "0000000000");
+        builder.UseSetting("RefundSettings:FrontendBaseUrl", "https://frontend.test");
+        builder.UseSetting("RefundSettings:ClaimTokenMinutes", "5");
         builder.UseSetting("Redis:ConnectionString", string.Empty);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
@@ -169,6 +171,8 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["SepaySettings:WebhookSecret"] = TestSepayWebhookSecret,
                 ["SepaySettings:BankName"] = "Test Bank",
                 ["SepaySettings:BankAccount"] = "0000000000",
+                ["RefundSettings:FrontendBaseUrl"] = "https://frontend.test",
+                ["RefundSettings:ClaimTokenMinutes"] = "5",
                 ["Redis:ConnectionString"] = string.Empty,
                 ["SecuritySettings:ConfirmationTokenSecret"] =
                     "test-confirmation-token-secret-32-characters",

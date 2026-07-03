@@ -13,13 +13,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Net;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
 public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 {
-    private const string ActiveEmploymentStatus = DomainConstants.EntityStatus.Active;
-
     private readonly CinemaDbContext _dbContext;
     private readonly IRefundClaimIssuer _refundClaimIssuer;
     private readonly IEmailSender _emailSender;
@@ -51,26 +50,35 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     {
         if (string.IsNullOrWhiteSpace(showtimeId))
         {
-            return Fail(400, "Showtime ID is required.", "SHOWTIME_ID_REQUIRED");
+            return Fail(
+                (int)HttpStatusCode.BadRequest,
+                "Showtime ID is required.",
+                BookingConstants.RefundErrorCodes.ShowtimeIdRequired);
         }
 
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return Fail(401, "User is required.", "USER_REQUIRED");
+            return Fail(
+                (int)HttpStatusCode.Unauthorized,
+                "User is required.",
+                BookingConstants.RefundErrorCodes.UserRequired);
         }
 
         var reason = request.Reason.Trim();
         if (string.IsNullOrWhiteSpace(reason))
         {
-            return Fail(400, "Cancellation reason is required.", "CANCEL_REASON_REQUIRED");
+            return Fail(
+                (int)HttpStatusCode.BadRequest,
+                "Cancellation reason is required.",
+                BookingConstants.RefundErrorCodes.CancellationReasonRequired);
         }
 
         if (reason.Length > RefundContractConstants.CancellationReasonMaxLength)
         {
             return Fail(
-                400,
+                (int)HttpStatusCode.BadRequest,
                 $"Cancellation reason must not exceed {RefundContractConstants.CancellationReasonMaxLength} characters.",
-                "CANCEL_REASON_TOO_LONG");
+                BookingConstants.RefundErrorCodes.CancellationReasonTooLong);
         }
 
         var actorExists = await _dbContext.Users
@@ -78,7 +86,10 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             .AnyAsync(item => item.UserId == userId, cancellationToken);
         if (!actorExists)
         {
-            return Fail(401, "User was not found.", "USER_NOT_FOUND");
+            return Fail(
+                (int)HttpStatusCode.Unauthorized,
+                "User was not found.",
+                BookingConstants.RefundErrorCodes.UserNotFound);
         }
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(
@@ -92,9 +103,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             {
                 return await RollbackAndFailAsync(
                     transaction,
-                    404,
+                    (int)HttpStatusCode.NotFound,
                     "Showtime was not found.",
-                    "SHOWTIME_NOT_FOUND",
+                    BookingConstants.RefundErrorCodes.ShowtimeNotFound,
                     cancellationToken);
             }
 
@@ -103,9 +114,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             {
                 return await RollbackAndFailAsync(
                     transaction,
-                    409,
+                    (int)HttpStatusCode.Conflict,
                     "Showtime has already been cancelled.",
-                    "SHOWTIME_ALREADY_CANCELLED",
+                    BookingConstants.RefundErrorCodes.ShowtimeAlreadyCancelled,
                     cancellationToken);
             }
 
@@ -114,9 +125,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             {
                 return await RollbackAndFailAsync(
                     transaction,
-                    409,
+                    (int)HttpStatusCode.Conflict,
                     "A showtime that has already started cannot be cancelled.",
-                    "SHOWTIME_ALREADY_STARTED",
+                    BookingConstants.RefundErrorCodes.ShowtimeAlreadyStarted,
                     cancellationToken);
             }
 
@@ -160,7 +171,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     {
                         return await RollbackAndFailAsync(
                             transaction,
-                            409,
+                            (int)HttpStatusCode.Conflict,
                             refundResult.Message,
                             refundResult.ErrorCode,
                             cancellationToken);
@@ -257,9 +268,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             if (alreadyCancelled)
             {
                 return Fail(
-                    409,
+                    (int)HttpStatusCode.Conflict,
                     "Showtime has already been cancelled.",
-                    "SHOWTIME_ALREADY_CANCELLED");
+                    BookingConstants.RefundErrorCodes.ShowtimeAlreadyCancelled);
             }
 
             throw;
@@ -324,7 +335,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         {
             return RefundCreationResult.Fail(
                 $"Paid booking {booking.BookingId} has no successful payment.",
-                "PAID_BOOKING_PAYMENT_NOT_FOUND");
+                BookingConstants.RefundErrorCodes.PaidBookingPaymentNotFound);
         }
 
         booking.BookingStatus = BookingConstants.BookingStatus.RefundPending;

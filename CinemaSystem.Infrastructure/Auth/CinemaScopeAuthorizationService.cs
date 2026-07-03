@@ -10,7 +10,6 @@ namespace CinemaSystem.Infrastructure.Auth;
 
 public sealed class CinemaScopeAuthorizationService : ICinemaScopeAuthorizationService
 {
-    private const string ActiveEmploymentStatus = DomainConstants.EntityStatus.Active;
     private const string ScopeForbiddenMessage = "You do not have permission to access this cinema resource.";
     private const string ScopeForbiddenCode = "CINEMA_SCOPE_FORBIDDEN";
 
