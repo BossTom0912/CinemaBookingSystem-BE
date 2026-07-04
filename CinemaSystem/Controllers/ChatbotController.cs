@@ -41,9 +41,9 @@ public class ChatbotController : ControllerBase
         // nhánh main hiện không chuyển tiếp sang class lưu CHAT_HISTORY.
         if (!result.Success)
         {
-            return BadRequest(ApiResponse<object>.Fail(result.Message, result.ErrorCode ?? "ERROR"));
+            return StatusCode(result.StatusCode, ApiResponse<object>.Fail(result.Message, result.ErrorCode ?? "ERROR"));
         }
 
-        return Ok(ApiResponse<ChatbotResponse>.Ok(result.Data!));
+        return StatusCode(result.StatusCode, ApiResponse<ChatbotResponse>.Ok(result.Data!));
     }
 }
