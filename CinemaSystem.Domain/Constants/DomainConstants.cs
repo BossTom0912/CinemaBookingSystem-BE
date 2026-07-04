@@ -317,6 +317,13 @@ public static class DomainConstants
         public const int OccupancyRateDecimalPlaces = 2;
     }
 
+    public static class ManagerDashboardErrorCode
+    {
+        public const string DateRangeRequired = "DATE_RANGE_REQUIRED";
+        public const string InvalidDateRange = "INVALID_DATE_RANGE";
+        public const string CinemaNotFound = "CINEMA_NOT_FOUND";
+    }
+
     public static class TicketStatus
     {
         public const string Generated = "GENERATED";

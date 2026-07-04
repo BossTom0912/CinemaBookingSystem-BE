@@ -370,7 +370,35 @@ Results:
 
 - Build: passed with 0 warnings and 0 errors.
 - SCRUM-195 integration tests: 6 passed.
-- Full solution: 255 passed, 0 failed, 0 skipped.
+- Full solution: 244 passed, 0 failed, 0 skipped.
+
+## Source Recovery and Hardcode Review - 2026-07-04
+
+Repository history was checked before changing the current branch:
+
+- `d26d24c` on `RevenueAndTicketOverview` is the completed SCRUM-195 commit.
+- `8cc9267` is the earlier Manager dashboard implementation commit.
+- `d26d24c` is already an ancestor of the current `Tom/remove-hardcodes` branch,
+  so no cherry-pick or merge was required.
+- `stash@{1}` contains an earlier dashboard cleanup, but its
+  `ManagerDashboardService.cs` content already matches the current branch. The
+  stash was not applied because it also contains unrelated refund changes.
+
+The current runtime path was retained and the remaining avoidable literals were
+removed:
+
+- dashboard error codes are declared in `DomainConstants.ManagerDashboardErrorCode`
+  and exposed through `BookingConstants`;
+- HTTP status codes use `HttpStatusCode` instead of numeric `400` and `404`;
+- the `movieId` validation limit is declared in
+  `DashboardContractConstants.MovieIdMaxLength`;
+- payment, refund, showtime, and seat statuses continue to use Domain-backed
+  constants.
+
+Unique response messages and zero-value arithmetic remain local because they are
+not reusable domain rules or environment-dependent configuration.
+
+This cleanup does not change the database schema and requires no SQL patch.
 
 ## Known Data Limitation
 

@@ -75,6 +75,13 @@ public static class BookingConstants
         public const int OccupancyRateDecimalPlaces = DomainConstants.ManagerDashboard.OccupancyRateDecimalPlaces;
     }
 
+    public static class ManagerDashboardErrorCode
+    {
+        public const string DateRangeRequired = DomainConstants.ManagerDashboardErrorCode.DateRangeRequired;
+        public const string InvalidDateRange = DomainConstants.ManagerDashboardErrorCode.InvalidDateRange;
+        public const string CinemaNotFound = DomainConstants.ManagerDashboardErrorCode.CinemaNotFound;
+    }
+
     public static class EntityIdPrefix
     {
         public const string RefundClaim = DomainConstants.EntityIdPrefix.RefundClaim;

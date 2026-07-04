@@ -10,6 +10,6 @@ public sealed class ManagerDashboardQueryRequest
     [Required]
     public DateTime? To { get; init; }
 
-    [MaxLength(50)]
+    [MaxLength(DashboardContractConstants.MovieIdMaxLength)]
     public string? MovieId { get; init; }
 }

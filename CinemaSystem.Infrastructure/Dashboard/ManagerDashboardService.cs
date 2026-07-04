@@ -1,3 +1,4 @@
+using System.Net;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Dashboard;
@@ -23,9 +24,9 @@ public sealed class ManagerDashboardService : IManagerDashboardService
         if (!request.From.HasValue || !request.To.HasValue)
         {
             return ServiceResult<ManagerDashboardResponse>.Fail(
-                400,
+                (int)HttpStatusCode.BadRequest,
                 "From and to are required.",
-                "DATE_RANGE_REQUIRED");
+                BookingConstants.ManagerDashboardErrorCode.DateRangeRequired);
         }
 
         var from = EnsureUtc(request.From.Value);
@@ -33,9 +34,9 @@ public sealed class ManagerDashboardService : IManagerDashboardService
         if (from >= to)
         {
             return ServiceResult<ManagerDashboardResponse>.Fail(
-                400,
+                (int)HttpStatusCode.BadRequest,
                 "From must be earlier than to.",
-                "INVALID_DATE_RANGE");
+                BookingConstants.ManagerDashboardErrorCode.InvalidDateRange);
         }
 
         var movieId = Normalize(request.MovieId);
@@ -43,9 +44,9 @@ public sealed class ManagerDashboardService : IManagerDashboardService
         if (cinemaScopeId is not null && cinemaName is null)
         {
             return ServiceResult<ManagerDashboardResponse>.Fail(
-                404,
+                (int)HttpStatusCode.NotFound,
                 "Cinema was not found.",
-                "CINEMA_NOT_FOUND");
+                BookingConstants.ManagerDashboardErrorCode.CinemaNotFound);
         }
 
         var payments = _dbContext.Payments
