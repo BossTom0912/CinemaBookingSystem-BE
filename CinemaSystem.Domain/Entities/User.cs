@@ -33,6 +33,8 @@ public partial class User
 
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
+    public virtual ICollection<CheckinLog> CheckinLogs { get; set; } = new List<CheckinLog>();
+
     public virtual CustomerProfile? CustomerProfile { get; set; }
 
     public virtual ICollection<EmailVerificationToken> EmailVerificationTokens { get; set; } = new List<EmailVerificationToken>();

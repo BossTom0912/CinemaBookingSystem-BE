@@ -58,6 +58,7 @@ File ánh xạ:
 | `ISeatService` | `SeatService` | `CinemaSystem.Infrastructure/Services` |
 | `IShowtimeService` | `ShowtimeService` | `CinemaSystem.Infrastructure/Showtimes` |
 | `IBookingService` | `BookingService` | `CinemaSystem.Infrastructure/Services` |
+| `ITicketScanService` | `TicketScanService` | `CinemaSystem.Infrastructure/Tickets` |
 | `IPaymentService` | `PaymentService` | `CinemaSystem.Infrastructure/Services` |
 | `IPaymentWebhookService` | `PaymentWebhookService` | `CinemaSystem.Infrastructure/Services` |
 | `IReviewService` | `ReviewService` | `CinemaSystem.Infrastructure/Services` |
@@ -267,7 +268,9 @@ POST /api/chatbot
 Các policy sau tồn tại trong `Program.cs`, nhưng không nên kết luận chức năng đã
 hoàn chỉnh nếu chưa tìm thấy controller/service:
 
-- `CanScanTicket`: chưa có Ticket/Checkin controller hoàn chỉnh.
+- `CanScanTicket`: `TicketsController` gọi `ITicketScanService` để kiểm tra scope
+  rạp, phòng, trạng thái vé và cửa sổ check-in; mọi lần quét được ghi vào
+  `CHECKIN_LOG`.
 - `CanManageFoodAndBeverage`: chưa có F&B management controller.
 - `CanManageVoucher`: chưa có Voucher management controller.
 - `CanViewBranchDashboard`: chưa có ManagerDashboard controller/service.

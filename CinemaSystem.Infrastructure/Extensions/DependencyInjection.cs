@@ -14,6 +14,7 @@ using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Infrastructure.Services;
 using CinemaSystem.Infrastructure.Showtimes;
 using CinemaSystem.Infrastructure.Time;
+using CinemaSystem.Infrastructure.Tickets;
 using CinemaSystem.Application.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -176,6 +177,30 @@ public static class DependencyInjection
                 $"Refund claim-token lifetime must be at least {RefundSettings.MinimumClaimTokenMinutes} minute.")
             .ValidateOnStart();
 
+        services.AddOptions<TicketScanSettings>()
+            .Configure(options =>
+            {
+                options.OpenBeforeStartMinutes = ReadNullableInt(
+                    configuration[
+                        $"{TicketScanSettings.SectionName}:OpenBeforeStartMinutes"]);
+                options.CloseAfterEndMinutes = ReadNullableInt(
+                    configuration[
+                        $"{TicketScanSettings.SectionName}:CloseAfterEndMinutes"]);
+            })
+            .Validate(
+                options => options.OpenBeforeStartMinutes.HasValue,
+                "Ticket scan opening window must be configured.")
+            .Validate(
+                options => options.OpenBeforeStartMinutes >= 0,
+                "Ticket scan opening window cannot be negative.")
+            .Validate(
+                options => options.CloseAfterEndMinutes.HasValue,
+                "Ticket scan closing window must be configured.")
+            .Validate(
+                options => options.CloseAfterEndMinutes >= 0,
+                "Ticket scan closing window cannot be negative.")
+            .ValidateOnStart();
+
         services.AddDataProtection();
 
         // Read connection string and fail fast with clear error if missing
@@ -226,6 +251,7 @@ public static class DependencyInjection
         services.AddScoped<IManualRefundService, ManualRefundService>();
         services.AddScoped<IRefundProcessor, RefundProcessor>();
         services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
+        services.AddScoped<ITicketScanService, TicketScanService>();
         services.AddSingleton<IRefundClaimIssuer, RefundClaimIssuer>();
         services.AddSingleton<ISensitiveDataProtector, SensitiveDataProtector>();
         services.AddSingleton<IPaymentRefundGateway, UnsupportedPaymentRefundGateway>();
@@ -302,6 +328,11 @@ public static class DependencyInjection
     private static int ReadInt(string? value, int fallback)
     {
         return int.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
+    private static int? ReadNullableInt(string? value)
+    {
+        return int.TryParse(value, out var parsed) ? parsed : null;
     }
 
     private static bool ReadBool(string? value, bool fallback)

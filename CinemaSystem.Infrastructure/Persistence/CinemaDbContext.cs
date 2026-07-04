@@ -302,6 +302,10 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.RawQrCode, "IX_CHECKIN_LOG_RAW_QR_CODE").HasFilter("([rawQrCode] IS NOT NULL)");
 
+            entity.HasIndex(
+                e => new { e.ScannedByUserId, e.ScanTime },
+                "IX_CHECKIN_LOG_SCANNED_BY_USER_TIME");
+
             entity.HasIndex(e => e.TicketId, "IX_CHECKIN_LOG_TICKET_ID");
 
             entity.Property(e => e.CheckInLogId)
@@ -310,10 +314,15 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.FailureReason)
                 .HasMaxLength(500)
                 .HasColumnName("failureReason");
-            entity.Property(e => e.RawQrCode).HasColumnName("rawQrCode");
+            entity.Property(e => e.RawQrCode)
+                .HasMaxLength(450)
+                .HasColumnName("rawQrCode");
             entity.Property(e => e.Result)
                 .HasMaxLength(30)
                 .HasColumnName("result");
+            entity.Property(e => e.ScannedByUserId)
+                .HasMaxLength(50)
+                .HasColumnName("scannedByUserId");
             entity.Property(e => e.ScanTime)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("scanTime");
@@ -326,8 +335,12 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasOne(d => d.StaffProfile).WithMany(p => p.CheckinLogs)
                 .HasForeignKey(d => d.StaffProfileId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_CHECKIN_LOG_STAFF_PROFILE");
+
+            entity.HasOne(d => d.ScannedByUser).WithMany(p => p.CheckinLogs)
+                .HasForeignKey(d => d.ScannedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CHECKIN_LOG_SCANNED_BY_USER");
 
             entity.HasOne(d => d.Ticket).WithMany(p => p.CheckinLogs)
                 .HasForeignKey(d => d.TicketId)
@@ -1444,7 +1457,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.GeneratedAt)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("generatedAt");
-            entity.Property(e => e.QrCode).HasColumnName("qrCode");
+            entity.Property(e => e.QrCode)
+                .HasMaxLength(450)
+                .HasColumnName("qrCode");
             entity.Property(e => e.TicketStatus)
                 .HasMaxLength(30)
                 .HasDefaultValue("UNUSED")

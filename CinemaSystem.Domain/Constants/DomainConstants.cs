@@ -175,6 +175,7 @@ public static class DomainConstants
         public const string ManualRefundProcess = "MRP";
         public const string CustomerRefundRequest = "CRR";
         public const string Ticket = "TCK";
+        public const string CheckInLog = "CIL";
         public const string CinemaInventory = "CFI";
         public const string Movie = "MOV";
         public const string Review = "REV";
@@ -323,6 +324,31 @@ public static class DomainConstants
         public const string CheckedIn = "CHECKED_IN";
         public const string Cancelled = "CANCELLED";
         public const string Refunded = "REFUNDED";
+    }
+
+    public static class CheckInResult
+    {
+        public const string Success = "SUCCESS";
+        public const string Failed = "FAILED";
+    }
+
+    public static class TicketScanErrorCode
+    {
+        public const string InvalidQrCode = "INVALID_QR_CODE";
+        public const string TicketNotFound = "TICKET_NOT_FOUND";
+        public const string TicketWrongCinema = "TICKET_WRONG_CINEMA";
+        public const string TicketWrongRoom = "TICKET_WRONG_ROOM";
+        public const string TicketAlreadyCheckedIn = "TICKET_ALREADY_CHECKED_IN";
+        public const string TicketCancelled = "TICKET_CANCELLED";
+        public const string TicketRefunded = "TICKET_REFUNDED";
+        public const string TicketNotUsable = "TICKET_NOT_USABLE";
+        public const string BookingNotEligibleForCheckIn = "BOOKING_NOT_ELIGIBLE_FOR_CHECKIN";
+        public const string ShowtimeCancelled = "SHOWTIME_CANCELLED";
+        public const string CheckInTooEarly = "CHECKIN_TOO_EARLY";
+        public const string CheckInWindowClosed = "CHECKIN_WINDOW_CLOSED";
+        public const string TicketScanConflict = "TICKET_SCAN_CONFLICT";
+        public const string ScanActorNotFound = "SCAN_ACTOR_NOT_FOUND";
+        public const string ScanActorRoleForbidden = "SCAN_ACTOR_ROLE_FORBIDDEN";
     }
 
     public static class PaymentStatus

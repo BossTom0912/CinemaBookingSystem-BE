@@ -9,7 +9,9 @@ public partial class CheckinLog
 
     public string? TicketId { get; set; }
 
-    public string StaffProfileId { get; set; } = null!;
+    public string? StaffProfileId { get; set; }
+
+    public string ScannedByUserId { get; set; } = null!;
 
     public DateTime ScanTime { get; set; }
 
@@ -19,7 +21,9 @@ public partial class CheckinLog
 
     public string? RawQrCode { get; set; }
 
-    public virtual StaffProfile StaffProfile { get; set; } = null!;
+    public virtual User ScannedByUser { get; set; } = null!;
+
+    public virtual StaffProfile? StaffProfile { get; set; }
 
     public virtual Ticket? Ticket { get; set; }
 }

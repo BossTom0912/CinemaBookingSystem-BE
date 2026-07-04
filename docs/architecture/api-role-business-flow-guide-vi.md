@@ -99,7 +99,7 @@ Role được lấy từ `USER -> ROLE`, sau đó
 | `CanReviewAndFeedback` | Customer | Tạo/xem review cá nhân/sửa review |
 | `CanManageUserAndRole` | Admin | Tạo Staff |
 | `CanManageSystem` | Admin | Duyệt review, auth-test admin |
-| `CanScanTicket` | Staff, Manager, Admin | **Chưa có API scan ticket** |
+| `CanScanTicket` | Staff, Manager, Admin | `POST /api/tickets/scan` |
 | `CanManageMovie` | Manager, Admin | Đã khai báo nhưng Controller đang dùng `Roles=` trực tiếp |
 | `CanManageCinemaRoomSeat` | Manager, Admin | Đã khai báo nhưng Controller đang dùng `Roles=` trực tiếp |
 | `CanManageShowtime` | Manager, Admin | Đã khai báo nhưng Controller đang dùng `Roles=` trực tiếp |
@@ -169,13 +169,13 @@ Customer có các nhóm nghiệp vụ:
 
 Staff hiện có API thực tế:
 
+- Quét/check-in vé trong phạm vi rạp được phân quyền.
 - Xem danh sách phòng.
 - Xem chi tiết phòng.
 - Xem layout ghế theo phòng.
 - Xem seat map theo suất chiếu.
 - Dùng các API public.
 
-Policy `CanScanTicket` đã có, nhưng chưa có `TicketController` hoặc API scan/check-in.
 Staff cũng chưa có API bán vé tại quầy và chưa có API quản lý F&B.
 
 ### 4.4 Manager
@@ -196,6 +196,8 @@ Manager hiện có API thực tế:
   - Xem seat map.
 - Showtime:
   - Tạo, sửa, đổi phòng, xóa/hủy suất chiếu.
+- Ticket:
+  - Quét/check-in vé trong phạm vi rạp Manager quản lý.
 - Upload ảnh.
 - Dùng các API public.
 
@@ -203,7 +205,6 @@ Manager **chưa có API thực tế** cho:
 
 - Dashboard doanh thu chi nhánh.
 - Ticket overview.
-- Scan ticket.
 - CRUD F&B.
 - CRUD Voucher.
 - Danh sách/xác nhận refund.
@@ -1171,6 +1172,7 @@ Job in-memory sẽ không bền qua restart ứng dụng.
 | `BookingsController` | `IBookingService` | `Infrastructure/Services/BookingService` | BOOKING, ghế, F&B, ticket/refund |
 | `PaymentController` | `IPaymentService` | `Infrastructure/Services/PaymentService` | PAYMENT, BOOKING, TICKET |
 | `PaymentController` webhook | `IPaymentWebhookService` | `PaymentWebhookService` | HMAC -> PaymentService |
+| `TicketsController` | `ITicketScanService` | `Infrastructure/Tickets/TicketScanService` | TICKET, CHECKIN_LOG |
 | `ReviewsController` | `IReviewService` | `Infrastructure/Services/ReviewService` | REVIEW, Gemini, rating |
 | `AdminRefundsController` | `IAdminRefundService` | `AdminRefundService` | REFUND, BOOKING |
 | `ChatbotController` | `IChatbotService` | `GeminiChatbotService` | Movie/Showtime -> Gemini -> CHAT_HISTORY |
@@ -1229,7 +1231,6 @@ REJECTED -> Admin APPROVED (nếu duyệt thủ công)
    - Role đúng nhưng scope chi nhánh chưa được áp dụng.
 
 2. Policy có nhưng API chưa có:
-   - Scan ticket.
    - Dashboard Manager/Admin.
    - CRUD F&B.
    - CRUD Voucher.

@@ -39,6 +39,10 @@ agents discover them there automatically.
 
 - [`database/cinema-booking-schema.sql`](database/cinema-booking-schema.sql):
   complete local database creation script.
+- [`database/SCRUM-198-ticket-scan-db-changes.md`](database/SCRUM-198-ticket-scan-db-changes.md):
+  team handoff and deployment notes for ticket-scan actor auditing.
+- [`database/SCRUM-198-ticket-scan-patch.sql`](database/SCRUM-198-ticket-scan-patch.sql):
+  idempotent patch for existing databases.
 
 ## Testing
 
@@ -60,4 +64,5 @@ are retained for traceability but are not authoritative specifications.
   merge-conflict decisions, integrated feature/database scope, and build/test
   evidence for `main` + `MangerAndAdmin_1`.
 - [`reports/SCRUM-193-customer-assisted-refund.md`](reports/SCRUM-193-customer-assisted-refund.md)
+- [`reports/SCRUM-198-ticket-scan.md`](reports/SCRUM-198-ticket-scan.md)
 - [`reports/MangerAndAdmin_1-admin-merge-report.md`](reports/MangerAndAdmin_1-admin-merge-report.md)

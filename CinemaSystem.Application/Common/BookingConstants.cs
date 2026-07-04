@@ -86,6 +86,7 @@ public static class BookingConstants
         public const string RewardPointTransaction = DomainConstants.EntityIdPrefix.RewardPointTransaction;
         public const string ManualRefundProcess = DomainConstants.EntityIdPrefix.ManualRefundProcess;
         public const string CustomerRefundRequest = DomainConstants.EntityIdPrefix.CustomerRefundRequest;
+        public const string CheckInLog = DomainConstants.EntityIdPrefix.CheckInLog;
     }
 
     public static class TicketStatus
@@ -95,6 +96,33 @@ public static class BookingConstants
         public const string CheckedIn = DomainConstants.TicketStatus.CheckedIn;
         public const string Cancelled = DomainConstants.TicketStatus.Cancelled;
         public const string Refunded = DomainConstants.TicketStatus.Refunded;
+    }
+
+    public static class CheckInResult
+    {
+        public const string Success = DomainConstants.CheckInResult.Success;
+        public const string Failed = DomainConstants.CheckInResult.Failed;
+    }
+
+    public static class TicketScanErrorCodes
+    {
+        public const string InvalidQrCode = DomainConstants.TicketScanErrorCode.InvalidQrCode;
+        public const string TicketNotFound = DomainConstants.TicketScanErrorCode.TicketNotFound;
+        public const string TicketWrongCinema = DomainConstants.TicketScanErrorCode.TicketWrongCinema;
+        public const string TicketWrongRoom = DomainConstants.TicketScanErrorCode.TicketWrongRoom;
+        public const string TicketAlreadyCheckedIn = DomainConstants.TicketScanErrorCode.TicketAlreadyCheckedIn;
+        public const string TicketCancelled = DomainConstants.TicketScanErrorCode.TicketCancelled;
+        public const string TicketRefunded = DomainConstants.TicketScanErrorCode.TicketRefunded;
+        public const string TicketNotUsable = DomainConstants.TicketScanErrorCode.TicketNotUsable;
+        public const string BookingNotEligibleForCheckIn =
+            DomainConstants.TicketScanErrorCode.BookingNotEligibleForCheckIn;
+        public const string ShowtimeCancelled = DomainConstants.TicketScanErrorCode.ShowtimeCancelled;
+        public const string CheckInTooEarly = DomainConstants.TicketScanErrorCode.CheckInTooEarly;
+        public const string CheckInWindowClosed = DomainConstants.TicketScanErrorCode.CheckInWindowClosed;
+        public const string TicketScanConflict = DomainConstants.TicketScanErrorCode.TicketScanConflict;
+        public const string ScanActorNotFound = DomainConstants.TicketScanErrorCode.ScanActorNotFound;
+        public const string ScanActorRoleForbidden =
+            DomainConstants.TicketScanErrorCode.ScanActorRoleForbidden;
     }
 
     public static class ResourceStatus
