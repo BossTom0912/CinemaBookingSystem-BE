@@ -436,6 +436,28 @@ public class ReviewService : IReviewService
         return ServiceResult<bool>.Ok(true);
     }
 
+    // Admin từ chối tay một bình luận bị đánh dấu
+    public async Task<ServiceResult<bool>> AdminRejectReviewAsync(string reviewId, string adminUserId, string? reason = null, CancellationToken cancellationToken = default)
+    {
+        // Tìm Review
+        var review = await _dbContext.Set<Review>().FindAsync(new object[] { reviewId }, cancellationToken);
+        // Nếu không có
+        if (review == null) return ServiceResult<bool>.Fail(404, "Không tìm thấy đánh giá.", "REVIEW_NOT_FOUND");
+
+        // Chuyển sang Rejected
+        review.Status = ReviewConstants.Rejected;
+        // Ghi nhận Admin nào đã duyệt
+        review.ModeratedBy = adminUserId;
+        // Cập nhật lý do từ chối
+        review.RejectedReason = string.IsNullOrWhiteSpace(reason) ? "Nội dung vi phạm tiêu chuẩn (Admin xử lý)" : reason;
+
+        // Lưu vào DB
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // Báo thành công
+        return ServiceResult<bool>.Ok(true);
+    }
+
     // Hàm chuyển đổi Model sang Response
     private ReviewResponse MapToResponse(Review review)
     {
@@ -484,6 +506,18 @@ public class ReviewService : IReviewService
             .ToListAsync(cancellationToken);
 
         // Ánh xạ ra Response và trả về
+        return ServiceResult<List<ReviewResponse>>.Ok(reviews.Select(MapToResponse).ToList());
+    }
+
+    // Lấy danh sách các bài đánh giá đang bị cắm cờ (Flagged) hoặc chờ duyệt (Pending) cho Admin
+    public async Task<ServiceResult<List<ReviewResponse>>> GetFlaggedReviewsAsync(CancellationToken cancellationToken = default)
+    {
+        var reviews = await _dbContext.Set<Review>()
+            .AsNoTracking()
+            .Where(r => r.Status == ReviewConstants.Flagged || r.Status == ReviewConstants.Pending)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync(cancellationToken);
+
         return ServiceResult<List<ReviewResponse>>.Ok(reviews.Select(MapToResponse).ToList());
     }
 }
