@@ -33,7 +33,14 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await CleanupExpiredBookingsAsync(stoppingToken);
+        try
+        {
+            await CleanupExpiredBookingsAsync(stoppingToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Initial pending payment cleanup failed.");
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -73,7 +80,9 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                 item.BookingStatus == BookingConstants.BookingStatus.PendingPayment &&
                 ((item.ExpiredAt.HasValue && item.ExpiredAt <= now) ||
                  (!item.ExpiredAt.HasValue && item.CreatedAt <= createdBefore)))
+            .OrderBy(item => item.CreatedAt)
             .Take(100)
+            .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
         if (expiredBookings.Count == 0)
