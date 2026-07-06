@@ -146,6 +146,7 @@ public static class DependencyInjection
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAiModerationService, GeminiModerationService>();
         services.AddScoped<IAdminRefundService, AdminRefundService>();
+        services.AddScoped<IFbItemService, FbItemService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
         
 

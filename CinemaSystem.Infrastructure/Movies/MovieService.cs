@@ -31,12 +31,12 @@ public sealed class MovieService : IMovieService
     private readonly IFileStorageService _fileStorageService;
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
-    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService fileStorageService, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
+    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService? fileStorageService = null, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings>? options = null)
     {
         _dbContext = dbContext;
         _refundService = refundService;
-        _fileStorageService = fileStorageService;
-        _settings = options.Value;
+        _fileStorageService = fileStorageService!;
+        _settings = options?.Value ?? new CinemaSystem.Application.Settings.CinemaProcessingSettings();
     }
 
     public async Task<ServiceResult<PagedList<MovieResponse>>> GetMoviesAsync(

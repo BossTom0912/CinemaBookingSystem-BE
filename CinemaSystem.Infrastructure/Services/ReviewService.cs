@@ -38,7 +38,7 @@ public class ReviewService : IReviewService
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
     // Phương thức khởi tạo (Constructor) nhận các dependency injection
-    public ReviewService(CinemaDbContext dbContext, IAiModerationService aiService, IMovieService movieService, Hangfire.IBackgroundJobClient backgroundJobClient, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
+    public ReviewService(CinemaDbContext dbContext, IAiModerationService aiService, IMovieService movieService, Hangfire.IBackgroundJobClient? backgroundJobClient = null, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings>? options = null)
     {
         // Gán DbContext
         _dbContext = dbContext;
@@ -47,9 +47,9 @@ public class ReviewService : IReviewService
         // Gán Movie Service
         _movieService = movieService;
         // Gán Background Job Client
-        _backgroundJobClient = backgroundJobClient;
+        _backgroundJobClient = backgroundJobClient!;
         // Lấy và gán giá trị các cấu hình Processing
-        _settings = options.Value;
+        _settings = options?.Value ?? new CinemaSystem.Application.Settings.CinemaProcessingSettings();
     }
 
     // Phương thức tạo bài đánh giá (Review) mới

@@ -57,23 +57,22 @@ public sealed class ShowtimeService : IShowtimeService
     // Khai báo biến chứa cấu hình mẫu email gửi đi
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
-    // Constructor khởi tạo các dependency thông qua Dependency Injection
-    public ShowtimeService(CinemaDbContext dbContext, IClock clock, IOptions<CinemaProcessingSettings> options, IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions, IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplatesOptions, IBackgroundJobClient backgroundJobClient, IHttpContextAccessor httpContextAccessor)
+    public ShowtimeService(
+        CinemaDbContext dbContext,
+        IClock clock,
+        IOptions<CinemaProcessingSettings>? options = null,
+        IOptions<CinemaSystem.Application.Settings.SecuritySettings>? securityOptions = null,
+        IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings>? emailTemplatesOptions = null,
+        IBackgroundJobClient? backgroundJobClient = null,
+        IHttpContextAccessor? httpContextAccessor = null)
     {
-        // Gán DbContext
         _dbContext = dbContext;
-        // Gán dịch vụ thời gian
         _clock = clock;
-        // Gán giá trị cấu hình xử lý hệ thống
-        _settings = options.Value;
-        // Gán giá trị cấu hình bảo mật
-        _securitySettings = securityOptions.Value;
-        // Gán giá trị cấu hình mẫu email
-        _emailTemplates = emailTemplatesOptions.Value;
-        // Gán client để đặt lịch Hangfire job
-        _backgroundJobClient = backgroundJobClient;
-        // Gán dịch vụ truy cập HttpContext
-        _httpContextAccessor = httpContextAccessor;
+        _settings = options?.Value ?? new CinemaProcessingSettings();
+        _securitySettings = securityOptions?.Value ?? new CinemaSystem.Application.Settings.SecuritySettings();
+        _emailTemplates = emailTemplatesOptions?.Value ?? new CinemaSystem.Application.Settings.EmailTemplatesSettings();
+        _backgroundJobClient = backgroundJobClient!;
+        _httpContextAccessor = httpContextAccessor!;
     }
 
     // Phương thức lấy danh sách tất cả các suất chiếu
