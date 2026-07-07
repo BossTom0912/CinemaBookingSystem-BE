@@ -199,7 +199,7 @@ Mapped tables:
 The canonical reset schema and the idempotent existing-database patch are:
 
 - `docs/database/cinema-booking-schema.sql`
-- `docs/database/customer-assisted-refund-patch.txt`
+- `docs/database/SCRUM-193-customer-assisted-refund-patch.sql`
 
 ## Verification
 

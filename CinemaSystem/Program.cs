@@ -157,7 +157,7 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(corsSettings.AllowedOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod();  
     });
 });
 
@@ -171,6 +171,9 @@ builder.Services.AddHangfireServer();
 var jwtSettings = builder.Configuration
     .GetSection(JwtSettings.SectionName)
     .Get<JwtSettings>() ?? new JwtSettings();
+Console.WriteLine($"JWT Secret Raw = [{jwtSettings.Secret}]");
+Console.WriteLine($"JWT Secret Length = {jwtSettings.Secret?.Length ?? 0}");
+Console.WriteLine($"JWT Secret Valid = {SecretSettingsValidator.IsConfigured(jwtSettings.Secret, 32)}");
 if (!SecretSettingsValidator.IsConfigured(jwtSettings.Secret, 32))
 {
     throw new InvalidOperationException(

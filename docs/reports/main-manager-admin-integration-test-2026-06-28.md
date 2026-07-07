@@ -457,7 +457,7 @@ Các cột tồn tại:
 ### 5.4 Script database được đưa vào nhánh
 
 - `docs/database/Genre_Languge.sql`
-- `docs/database/customer-assisted-refund-patch.txt`
+- `docs/database/SCRUM-193-customer-assisted-refund-patch.sql`
 - `docs/database/sprint-2-full-architecture.sql`
 - `docs/database/sprint-2-review-and-views.sql`
 - `docs/database/sprint-2-update-constraints.sql`

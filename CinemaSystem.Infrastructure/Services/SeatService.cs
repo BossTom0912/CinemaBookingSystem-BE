@@ -122,6 +122,7 @@ public sealed class SeatService : ISeatService
 
     // Phương thức lấy danh sách ghế có phân trang và lọc
     public async Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
+        string? cinemaScopeId,
         string? roomId,
         bool? isActive,
         int pageIndex,
@@ -130,6 +131,11 @@ public sealed class SeatService : ISeatService
     {
         // Bắt đầu truy vấn ghế, không theo dõi các thay đổi
         var query = _dbContext.Seats.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(cinemaScopeId))
+        {
+            query = query.Where(seat => seat.Room.CinemaId == cinemaScopeId);
+        }
 
         // Nếu mã phòng chiếu không trống
         if (!string.IsNullOrWhiteSpace(roomId))

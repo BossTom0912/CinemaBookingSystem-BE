@@ -146,7 +146,16 @@ public sealed class SeatsController : ControllerBase
         [FromQuery] int pageSize = PaginationDefaults.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
+        var scope = await _cinemaScopeAuthorizationService.GetUserCinemaScopeAsync(
+            User,
+            cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _seatService.GetSeatsAsync(
+            scope.CinemaId,
             roomId,
             isActive,
             pageIndex,
@@ -165,6 +174,15 @@ public sealed class SeatsController : ControllerBase
         string seatId,
         CancellationToken cancellationToken)
     {
+        var scope = await _cinemaScopeAuthorizationService.AuthorizeSeatAsync(
+            User,
+            seatId,
+            cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
         var result = await _seatService.GetSeatByIdAsync(seatId, cancellationToken);
 
         return ToActionResult(result.MapDataTo<Contracts.Seats.SeatResponse, SeatResponse>());

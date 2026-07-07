@@ -26,7 +26,7 @@ summary, not a replacement.
 - `docs/database/README.md`
 - `docs/database/cinema-booking-schema.sql`
 - `docs/database/cinema-booking-schema.txt`
-- `docs/database/customer-assisted-refund-patch.txt`
+- `docs/database/SCRUM-193-customer-assisted-refund-patch.sql`
 - `docs/database/sprint-2-full-architecture.sql`
 - `docs/database/sprint-2-review-and-views.sql`
 
@@ -97,7 +97,7 @@ This branch adds the customer-assisted refund and manual refund database flow.
 
 ### Seed data
 
-`customer-assisted-refund-patch.txt` seeds the following bank directory rows:
+`SCRUM-193-customer-assisted-refund-patch.sql` seeds the following bank directory rows:
 
 - `VCB`
 - `MB`

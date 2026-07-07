@@ -41,6 +41,8 @@ Applied scope checks to:
   - `PUT /api/seats/{seatId}`: checks seat's room cinema.
   - `DELETE /api/seats/{seatId}`: checks seat's room cinema.
   - `GET /api/seats/room/{roomId}`: checks room cinema.
+  - `GET /api/seats`: filters the paged query by the authenticated Manager's cinema.
+  - `GET /api/seats/{seatId}`: checks the seat's cinema before returning details.
 - `ShowtimesController`
   - `POST /api/showtimes`: checks request `roomId`.
   - `PUT /api/showtimes/{showtimeId}`: checks both current showtime cinema and target request room cinema.
@@ -66,6 +68,12 @@ Added `ManagerCinemaScopeApiIntegrationTests`:
 - Manager assigned to cinema A cannot update a cinema A showtime to a cinema B room.
 - Manager assigned to cinema A cannot delete a cinema B showtime.
 
+Scope-gap regression coverage added on 2026-07-05:
+
+- Manager assigned to cinema A lists seats and receives only cinema A seats.
+- Manager assigned to cinema A cannot read a cinema B seat by ID.
+- Admin still bypasses cinema scope and can list seats from both cinemas.
+
 Updated existing integration tests to seed active `StaffProfile` rows for Manager/Staff tokens.
 
 Updated controller mock tests to include an allow-all cinema scope mock where the test target is controller response mapping, not authorization.
@@ -88,3 +96,9 @@ Results:
 Build warnings:
 
 - Existing nullable warnings in test files remained; no new build errors.
+
+## Scope-Gap Fix Verification - 2026-07-05
+
+- Targeted `ManagerCinemaScopeApiIntegrationTests`: 9 passed.
+- Full solution: 247 passed, 0 failed, 0 skipped.
+- Build: 0 warnings, 0 errors.

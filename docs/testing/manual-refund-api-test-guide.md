@@ -5,15 +5,15 @@
 Run the idempotent patch against the existing database:
 
 ```powershell
-sqlcmd -S YOUR_SERVER -d CinemaBookingDB -U sa -P "YOUR_PASSWORD" -b `
-  -i "docs\database\customer-assisted-refund-patch.txt"
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -U YOUR_USER -P "YOUR_PASSWORD" -b `
+  -i "docs\database\SCRUM-193-customer-assisted-refund-patch.sql"
 ```
 
 If Windows authentication is used:
 
 ```powershell
-sqlcmd -S YOUR_SERVER -d CinemaBookingDB -E -b `
-  -i "docs\database\customer-assisted-refund-patch.txt"
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -E -b `
+  -i "docs\database\SCRUM-193-customer-assisted-refund-patch.sql"
 ```
 
 Confirm:

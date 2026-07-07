@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Rooms;
+using CinemaSystem.Contracts.Seats;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Tests.Infrastructure;
@@ -33,6 +34,63 @@ public sealed class ManagerCinemaScopeApiIntegrationTests
         Assert.NotNull(body?.Data);
         Assert.Contains(body.Data, room => room.RoomId == "ROOM_SCOPE_A");
         Assert.DoesNotContain(body.Data, room => room.RoomId == "ROOM_SCOPE_B");
+    }
+
+    [Fact]
+    public async Task GetSeats_ManagerScope_ReturnsOnlyAssignedCinemaSeats()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedTwoCinemaDataAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
+
+        var response = await client.GetAsync("/api/seats?pageSize=20");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<PagedList<SeatResponse>>>(response);
+        Assert.NotNull(body?.Data);
+        Assert.Equal(5, body.Data.TotalCount);
+        Assert.All(body.Data.Items, seat => Assert.Equal("ROOM_SCOPE_A", seat.RoomId));
+        Assert.DoesNotContain(body.Data.Items, seat => seat.RoomId == "ROOM_SCOPE_B");
+    }
+
+    [Fact]
+    public async Task GetSeatById_ManagerOtherCinema_ReturnsForbidden()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedTwoCinemaDataAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
+
+        var response = await client.GetAsync("/api/seats/SEAT_SCOPE_B_1");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<object>>(response);
+        Assert.Equal("CINEMA_SCOPE_FORBIDDEN", body!.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetSeats_AdminBypassesCinemaScope_ReturnsAllSeats()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedTwoCinemaDataAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin());
+
+        var response = await client.GetAsync("/api/seats?pageSize=20");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<PagedList<SeatResponse>>>(response);
+        Assert.NotNull(body?.Data);
+        Assert.Equal(10, body.Data.TotalCount);
+        Assert.Contains(body.Data.Items, seat => seat.RoomId == "ROOM_SCOPE_A");
+        Assert.Contains(body.Data.Items, seat => seat.RoomId == "ROOM_SCOPE_B");
     }
 
     [Fact]
