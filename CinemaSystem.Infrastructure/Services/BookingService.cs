@@ -32,18 +32,21 @@ public sealed class BookingService : IBookingService
     private readonly ISeatLockStore _seatLockStore;
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
+    private readonly IAiEmailService _aiEmailService;
 
     public BookingService(
         CinemaDbContext dbContext,
         IClock clock,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
         ISeatLockStore seatLockStore,
+        IAiEmailService aiEmailService,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
         _clock = clock;
         _seatLockStore = seatLockStore;
         _securitySettings = securityOptions.Value;
+        _aiEmailService = aiEmailService;
         _backgroundJobClient = backgroundJobClient!;
     }
 
@@ -630,13 +633,18 @@ public sealed class BookingService : IBookingService
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            // Gửi email thông báo chuyển ghế thủ công cho khách hàng
+            // Gửi email thông báo chuyển ghế thủ công cho khách hàng qua AI
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
             if (!string.IsNullOrEmpty(customerEmail) && _backgroundJobClient != null)
             {
                 string subject = "Thông báo thay đổi ghế ngồi / Showtime Seat Change Notice";
-                string message = $"[VI] Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu kỹ thuật.\n\n[EN] Your seat for booking {booking.BookingId} has been changed from {oldShowtimeSeat.Seat.SeatCode} to {newShowtimeSeat.Seat.SeatCode} due to operational requirements.";
-                _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(
+                        customerEmail, 
+                        subject, 
+                        "Thay đổi ghế ngồi do yêu cầu kỹ thuật rạp", 
+                        $"Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được điều chỉnh đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu vận hành kỹ thuật phòng chiếu.", 
+                        CancellationToken.None));
             }
 
             return ServiceResult<bool>.Ok(true, "Seat reassigned successfully.");

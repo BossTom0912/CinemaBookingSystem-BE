@@ -13,6 +13,7 @@ using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Contracts.Movies;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Services;

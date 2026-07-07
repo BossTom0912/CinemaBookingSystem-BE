@@ -101,4 +101,101 @@ public class GeminiAiEmailService : IAiEmailService
         // Send fallback email if AI fails
         await _emailService.SendEmailAsync(toEmail, subject, fallbackBody, cancellationToken);
     }
+
+    public async Task SendAiTimeChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string newTime,
+        string bookingId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var fallbackBody = $"""
+            <html>
+            <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                <p>[VI] Phim <strong>{movieTitle}</strong> của bạn được điều chỉnh sang giờ: <strong>{newTime}</strong>. Sự chênh lệch lớn hơn 15 phút.</p>
+                <p>Vui lòng chọn 1 trong 2 lựa chọn:</p>
+                <div style='margin: 20px 0;'>
+                    <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=true&token={token}' style='display: inline-block; padding: 10px 20px; margin-right: 10px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #34d399; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Chấp nhận giờ mới</a>
+                    <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=false&token={token}' style='display: inline-block; padding: 10px 20px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #f43f5e; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Hủy vé hoàn tiền</a>
+                </div>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p>[EN] Your movie <strong>{movieTitle}</strong> has been rescheduled to: <strong>{newTime}</strong>.</p>
+                <p>Please click a button below to accept or reject (refund):</p>
+                <div style='margin: 20px 0;'>
+                    <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=true&token={token}' style='display: inline-block; padding: 10px 20px; margin-right: 10px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #34d399; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Accept</a>
+                    <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=false&token={token}' style='display: inline-block; padding: 10px 20px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #f43f5e; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Reject & Refund</a>
+                </div>
+            </body>
+            </html>
+            """;
+
+        if (string.IsNullOrEmpty(_settings.ApiKey))
+        {
+            await _emailService.SendEmailAsync(toEmail, subject, fallbackBody, cancellationToken);
+            return;
+        }
+
+        try
+        {
+            var prompt = $"""
+                Write a formal, polite, and empathetic bilingual apology email in both English and Vietnamese for a cinema showtime change.
+                Movie: {movieTitle}
+                New Showtime: {newTime}
+                Requirements:
+                1. Make sure it has a professional tone, apologizes for the showtime adjustment.
+                2. Explicitly structure it with clear [VI] (Vietnamese) and [EN] (English) sections.
+                3. Do not include any Markdown wrappers (like ```html or ```text), subject line, or headers in the output. Just return the email body.
+                4. At the end of the email, we will provide buttons for them to accept or request a refund, so keep your text friendly and ask them to choose one of the options below.
+                """;
+
+            var payload = new
+            {
+                contents = new[]
+                {
+                    new { role = "user", parts = new[] { new { text = prompt } } }
+                }
+            };
+
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={_settings.ApiKey}";
+            var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var jsonDoc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+                var aiReply = jsonDoc.GetProperty("candidates")[0]
+                                   .GetProperty("content")
+                                   .GetProperty("parts")[0]
+                                   .GetProperty("text").GetString();
+
+                if (!string.IsNullOrWhiteSpace(aiReply))
+                {
+                    var bodyHtml = $"""
+                    <html>
+                    <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                        <div style='margin-bottom: 20px; white-space: pre-line;'>
+                            {aiReply.Trim()}
+                        </div>
+                        <div style='margin: 20px 0;'>
+                            <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=true&token={token}' style='display: inline-block; padding: 10px 20px; margin-right: 10px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #34d399; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Chấp nhận giờ mới / Accept New Time</a>
+                            <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=false&token={token}' style='display: inline-block; padding: 10px 20px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #f43f5e; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Hủy vé hoàn tiền / Reject & Refund</a>
+                        </div>
+                    </body>
+                    </html>
+                    """;
+
+                    await _emailService.SendEmailAsync(toEmail, subject, bodyHtml, cancellationToken);
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore AI exception and send fallback
+        }
+
+        // Send fallback email if AI fails
+        await _emailService.SendEmailAsync(toEmail, subject, fallbackBody, cancellationToken);
+    }
 }

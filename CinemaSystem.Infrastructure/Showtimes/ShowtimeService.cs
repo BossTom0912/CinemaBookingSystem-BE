@@ -398,29 +398,35 @@ public sealed class ShowtimeService : IShowtimeService
                             
                             // Lấy tiêu đề email cho sự kiện đổi giờ chiếu
                             string subject = _emailTemplates.ShowtimeTimeChangeSubject;
-                            // Tạo nội dung email từ template, truyền vào tên phim, thời gian mới, booking ID và token xác nhận
-                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeBody,
-                                showtime.Movie.Title,
-                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
-                                booking.BookingId,
-                                encodedToken);
-                                
-                            // Đẩy job gửi email này vào hàng đợi của Hangfire chạy ngầm
-                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                            var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                            var newTimeStr = normalizedStartTime.ToString("dd/MM/yyyy HH:mm");
+                            var bookingId = booking.BookingId;
+                            
+                            // Đẩy job gửi email AI song ngữ kèm các nút bấm chấp nhận/hoàn tiền qua Hangfire
+                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                ai.SendAiTimeChangeEmailAsync(
+                                    customerEmail, 
+                                    subject, 
+                                    movieTitle,
+                                    newTimeStr, 
+                                    bookingId, 
+                                    encodedToken, 
+                                    CancellationToken.None));
                         }
                         else
                         {
-                            // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng
-                            // Lấy tiêu đề email thông báo sự thay đổi
+                            // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng qua dịch vụ AI
                             string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
-                            // Tạo nội dung thông báo từ template
-                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeNoticeBody,
-                                showtime.Movie.Title,
-                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
-                                updateReason);
-                                
-                            // Đẩy job gửi email vào Hangfire
-                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                            var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
+                            var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm");
+                            
+                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                ai.SendAiApologyEmailAsync(
+                                    customerEmail, 
+                                    subject, 
+                                    "Điều chỉnh thông tin suất chiếu", 
+                                    $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice} (Chi tiết thay đổi: {updateReason}).", 
+                                    CancellationToken.None));
                         }
                     }
                 }
@@ -690,10 +696,17 @@ public sealed class ShowtimeService : IShowtimeService
             {
                 // Lấy tiêu đề từ cấu hình template cho việc đổi phòng
                 string subject = _emailTemplates.ShowtimeRoomChangeSubject;
-                // Format nội dung chứa tên phòng mới
-                string message = string.Format(_emailTemplates.ShowtimeRoomChangeBody, newRoom.RoomName);
-                // Đẩy job nền gửi email
-                _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, subject, message, CancellationToken.None));
+                var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                var roomName = newRoom.RoomName;
+                
+                // Đẩy job nền gửi email qua dịch vụ AI
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(
+                        email, 
+                        subject, 
+                        "Thay đổi phòng chiếu của suất chiếu", 
+                        $"Suất chiếu phim {movieTitle} của bạn đã được chuyển sang phòng chiếu mới: {roomName}. Vui lòng kiểm tra lại vé để xem vị trí ghế mới của bạn.", 
+                        CancellationToken.None));
             }
         }
 
@@ -951,12 +964,18 @@ public sealed class ShowtimeService : IShowtimeService
             // Nếu có email
             if (!string.IsNullOrEmpty(customerEmail))
             {
-                // Lấy tiêu đề và nội dung email hủy từ cấu hình
                 string subject = _emailTemplates.ShowtimeCancellationSubject;
-                string message = _emailTemplates.ShowtimeCancellationBody;
+                var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                var startTimeStr = showtime.StartTime.ToString("dd/MM/yyyy HH:mm");
                 
-                // Đẩy tiến trình gửi Email vào Hangfire
-                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                // Đẩy tiến trình gửi Email vào Hangfire sử dụng AI viết thư xin lỗi
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(
+                        customerEmail, 
+                        subject, 
+                        "Hủy suất chiếu", 
+                        $"Suất chiếu của phim {movieTitle} vào lúc {startTimeStr} bị hủy bỏ do sự cố kỹ thuật đột xuất của rạp. Hệ thống đang tiến hành thủ tục hoàn tiền tự động.", 
+                        CancellationToken.None));
             }
         }
 

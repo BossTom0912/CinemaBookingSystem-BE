@@ -113,8 +113,14 @@ public class AdminRefundService : IAdminRefundService
                         // Nếu có email hợp lệ
                         if (!string.IsNullOrEmpty(customerEmail))
                         {
-                            // Đẩy một Job chạy nền vào Hangfire để gửi email thông báo sự cố khẩn cấp
-                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, "Unexpected Update Notification", $"Your showtime {showtime.Movie.Title} has been unexpectedly updated. Reason: {reason}. Please wait for the cinema to handle it.", CancellationToken.None));
+                            // Đẩy một Job chạy nền vào Hangfire để gửi email thông báo sự cố khẩn cấp qua AI
+                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                ai.SendAiApologyEmailAsync(
+                                    customerEmail, 
+                                    "Thông báo cập nhật suất chiếu đột xuất / Unexpected Showtime Update Notice", 
+                                    "Thay đổi đột xuất thông tin suất chiếu", 
+                                    $"Suất chiếu của phim {showtime.Movie.Title} đã bị thay đổi đột xuất ngoài ý muốn. Chi tiết lý do: {reason}. Xin vui lòng chờ rạp chiếu phim xử lý và phản hồi thêm.", 
+                                    CancellationToken.None));
                         }
                     }
                     // Bỏ qua các bước hủy tiếp theo cho suất chiếu này
