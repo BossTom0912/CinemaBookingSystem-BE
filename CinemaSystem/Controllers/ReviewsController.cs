@@ -104,6 +104,35 @@ public sealed class ReviewsController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpPut("admin/{reviewId}/reject")]
+    [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> AdminRejectReview(
+        [FromRoute] string reviewId,
+        [FromQuery] string? reason,
+        CancellationToken cancellationToken)
+    {
+        var adminIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        if (adminIdClaim == null)
+            return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
+
+        var result = await _reviewService.AdminRejectReviewAsync(reviewId, adminIdClaim.Value, reason, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpGet("admin/flagged")]
+    [Authorize(Policy = AuthConstants.Policies.CanManageSystem)]
+    [ProducesResponseType(typeof(ApiResponse<List<ReviewResponse>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetFlaggedReviews(CancellationToken cancellationToken)
+    {
+        var adminIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        if (adminIdClaim == null)
+            return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
+
+        var result = await _reviewService.GetFlaggedReviewsAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success
