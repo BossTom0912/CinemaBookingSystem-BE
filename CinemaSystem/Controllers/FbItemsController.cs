@@ -120,7 +120,7 @@ public sealed class FbItemsController : ControllerBase
     [Authorize(Policy = AuthConstants.Policies.CanScanTicket)]
     public async Task<IActionResult> CreateCounterOrder(CreateCounterFbOrderRequest request, CancellationToken cancellationToken)
     {
-        var staffProfileId = GetStaffProfileId() ?? GetUserId() ?? "STAFF_UNKNOWN";
+        var staffProfileId = GetStaffProfileId() ?? GetUserId() ?? CinemaSystem.Domain.Constants.DomainConstants.Staff.Unknown;
         var staffCinemaId = GetStaffCinemaId() ?? request.CinemaId;
 
         var result = await _fbItemService.CreateCounterOrderAsync(request, staffProfileId, staffCinemaId, cancellationToken);
@@ -134,7 +134,7 @@ public sealed class FbItemsController : ControllerBase
     [Authorize(Policy = AuthConstants.Policies.CanScanTicket)]
     public async Task<IActionResult> FulfillOrder(string bookingId, CancellationToken cancellationToken)
     {
-        var staffProfileId = GetStaffProfileId() ?? GetUserId() ?? "STAFF_UNKNOWN";
+        var staffProfileId = GetStaffProfileId() ?? GetUserId() ?? CinemaSystem.Domain.Constants.DomainConstants.Staff.Unknown;
         var staffCinemaId = GetStaffCinemaId() ?? string.Empty;
 
         var result = await _fbItemService.FulfillOrderAsync(bookingId, staffProfileId, staffCinemaId, cancellationToken);

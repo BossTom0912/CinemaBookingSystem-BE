@@ -40,7 +40,7 @@ public sealed class DashboardService : IDashboardService
         // TC-17: Dùng subquery EXISTS thay vì IN (...) để tránh sập SQL Server khi có hàng triệu BookingId
         var totalRefunds = await _dbContext.Refunds
             .AsNoTracking()
-            .Where(r => r.RefundStatus == "COMPLETED" &&
+            .Where(r => r.RefundStatus == DomainConstants.RefundStatus.Success &&
                         _dbContext.Bookings.Where(b => (b.BookingStatus == DomainConstants.EntityStatus.Paid ||
                                                         b.BookingStatus == DomainConstants.EntityStatus.Completed) &&
                                                        b.CreatedAt >= fromDate && b.CreatedAt <= toDate &&
@@ -83,7 +83,7 @@ public sealed class DashboardService : IDashboardService
     {
         var (fromDate, toDate) = ResolveDateRange(request.FromDate, request.ToDate);
 
-        var isWeekly = string.Equals(request.Period, "week", StringComparison.OrdinalIgnoreCase);
+        var isWeekly = string.Equals(request.Period, DomainConstants.DashboardPeriod.Week, StringComparison.OrdinalIgnoreCase);
 
         if (isWeekly)
         {
@@ -106,7 +106,7 @@ public sealed class DashboardService : IDashboardService
 
             var refundMap = await _dbContext.Refunds
                 .AsNoTracking()
-                .Where(r => bookingIds.Contains(r.BookingId) && r.RefundStatus == "COMPLETED")
+                .Where(r => bookingIds.Contains(r.BookingId) && r.RefundStatus == DomainConstants.RefundStatus.Success)
                 .GroupBy(r => r.BookingId)
                 .Select(g => new { BookingId = g.Key, TotalRefund = g.Sum(r => r.RefundAmount) })
                 .ToDictionaryAsync(x => x.BookingId, x => x.TotalRefund, cancellationToken);
@@ -150,7 +150,7 @@ public sealed class DashboardService : IDashboardService
         {
             var totalRefundForMonth = await _dbContext.Refunds
                 .AsNoTracking()
-                .Where(r => m.BookingIds.Contains(r.BookingId) && r.RefundStatus == "COMPLETED")
+                .Where(r => m.BookingIds.Contains(r.BookingId) && r.RefundStatus == DomainConstants.RefundStatus.Success)
                 .SumAsync(r => (decimal?)r.RefundAmount, cancellationToken) ?? 0m;
 
             result.Add(new RevenueTrendItemResponse
@@ -288,7 +288,7 @@ public sealed class DashboardService : IDashboardService
         var result = channelGroups.Select(c => new SalesChannelBreakdownResponse
         {
             Channel = c.Channel,
-            ChannelLabel = string.Equals(c.Channel, "ONLINE", StringComparison.OrdinalIgnoreCase)
+            ChannelLabel = string.Equals(c.Channel, FbConstants.Channel.Online, StringComparison.OrdinalIgnoreCase)
                 ? "Trực tuyến (Online)"
                 : "Tại quầy (Counter)",
             TotalRevenue = c.TotalRevenue,

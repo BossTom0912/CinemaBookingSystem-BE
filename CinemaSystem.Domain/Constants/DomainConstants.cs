@@ -101,4 +101,15 @@ public static class DomainConstants
         public const string Approved = "APPROVED";
         public const string Rejected = "REJECTED";
     }
+
+    public static class DashboardPeriod
+    {
+        public const string Week = "week";
+        public const string Month = "month";
+    }
+
+    public static class Staff
+    {
+        public const string Unknown = "STAFF_UNKNOWN";
+    }
 }
