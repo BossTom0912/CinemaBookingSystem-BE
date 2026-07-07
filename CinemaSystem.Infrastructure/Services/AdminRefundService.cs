@@ -32,14 +32,22 @@ public class AdminRefundService : IAdminRefundService
     private readonly CinemaProcessingSettings _settings;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly EmailTemplatesSettings _emailTemplates;
+    private readonly IAiEmailService _aiEmailService;
 
-    public AdminRefundService(CinemaDbContext dbContext, ISeatLockStore seatLockStore, IOptions<CinemaProcessingSettings> options, Hangfire.IBackgroundJobClient backgroundJobClient, IOptions<EmailTemplatesSettings> emailTemplatesOptions)
+    public AdminRefundService(
+        CinemaDbContext dbContext, 
+        ISeatLockStore seatLockStore, 
+        IOptions<CinemaProcessingSettings> options, 
+        Hangfire.IBackgroundJobClient backgroundJobClient, 
+        IOptions<EmailTemplatesSettings> emailTemplatesOptions,
+        IAiEmailService? aiEmailService = null)
     {
         _dbContext = dbContext;
         _seatLockStore = seatLockStore;
         _settings = options.Value;
         _backgroundJobClient = backgroundJobClient;
         _emailTemplates = emailTemplatesOptions.Value;
+        _aiEmailService = aiEmailService!;
     }
 
     public async Task<ServiceResult<bool>> CancelShowtimesAndRefundAsync(string[] showtimeIds, string reason, bool forceCancel, string actionUserId, CancellationToken cancellationToken)
@@ -208,13 +216,14 @@ public class AdminRefundService : IAdminRefundService
                         existingRefund.RefundReason = reason;
                     }
 
-                    // Send cancellation email
+                    // Send cancellation email using AI service
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
                         string subject = _emailTemplates.ShowtimeCancellationSubject;
-                        string message = string.Format(_emailTemplates.ShowtimeCancellationBody, reason);
-                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                        string details = $"Suất chiếu phim {showtime.Movie?.Title ?? "bạn đã đặt"} vào lúc {showtime.StartTime:dd/MM/yyyy HH:mm} bị hủy bỏ do sự cố/lỗi kỹ thuật của rạp chiếu phim.";
+                        _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                            ai.SendAiApologyEmailAsync(customerEmail, subject, reason, details, CancellationToken.None));
                     }
                 }
             }

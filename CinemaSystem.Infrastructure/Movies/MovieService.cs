@@ -501,13 +501,15 @@ public sealed class MovieService : IMovieService
         // Kiểm tra xem thời lượng phim (Duration) có bị thay đổi không
         if (movie.DurationMinutes != request.DurationMinutes)
         {
-            // O phan update chi duoc chinh sua thoi luong phim khi khong co showtime
-            var hasShowtimes = await _dbContext.Showtimes
-                .AnyAsync(s => s.MovieId == movieId, cancellationToken);
+            // Chỉ chặn thay đổi thời lượng phim khi phim đã có suất chiếu có khách đặt vé (booking hoạt động, không bị hủy)
+            var hasBookings = await _dbContext.Bookings
+                .AnyAsync(b => b.Showtime != null 
+                    && b.Showtime.MovieId == movieId 
+                    && b.BookingStatus != DomainConstants.EntityStatus.Cancelled, cancellationToken);
 
-            if (hasShowtimes)
+            if (hasBookings)
             {
-                return ServiceResult<MovieDetailResponse>.Fail(400, "Không thể thay đổi thời lượng phim vì phim đã có lịch chiếu.", "DURATION_CANNOT_BE_CHANGED_HAS_SHOWTIMES");
+                return ServiceResult<MovieDetailResponse>.Fail(400, "Không thể thay đổi thời lượng phim vì phim đã có suất chiếu có khách đặt vé.", "DURATION_CANNOT_BE_CHANGED_HAS_SHOWTIMES");
             }
         }
 

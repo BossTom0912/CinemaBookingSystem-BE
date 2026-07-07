@@ -143,6 +143,7 @@ public static class DependencyInjection
             options.ApiKey = configuration["GeminiSettings:ApiKey"] ?? string.Empty;
         });
         services.AddScoped<IChatbotService, GeminiChatbotService>();
+        services.AddScoped<IAiEmailService, GeminiAiEmailService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAiModerationService, GeminiModerationService>();
         services.AddScoped<IAdminRefundService, AdminRefundService>();

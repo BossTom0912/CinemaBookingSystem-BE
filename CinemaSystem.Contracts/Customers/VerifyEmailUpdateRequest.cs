@@ -4,4 +4,5 @@ public sealed class VerifyEmailUpdateRequest
 {
     public string NewEmail { get; init; } = string.Empty;
     public string Otp { get; init; } = string.Empty;
+    public string OldEmailOtp { get; init; } = string.Empty;
 }

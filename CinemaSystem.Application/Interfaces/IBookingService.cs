@@ -32,4 +32,8 @@ public interface IBookingService
         bool accept,
         string token,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> ReassignBookingSeatAsync(
+        ReassignSeatRequest request,
+        CancellationToken cancellationToken);
 }

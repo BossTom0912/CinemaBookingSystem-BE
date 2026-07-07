@@ -56,6 +56,8 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     // Khai báo biến chứa cấu hình mẫu email gửi đi
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
+    // Khai báo biến dịch vụ AI viết thư xin lỗi
+    private readonly IAiEmailService _aiEmailService;
 
     public ShowtimeService(
         CinemaDbContext dbContext,
@@ -64,7 +66,8 @@ public sealed class ShowtimeService : IShowtimeService
         IOptions<CinemaSystem.Application.Settings.SecuritySettings>? securityOptions = null,
         IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings>? emailTemplatesOptions = null,
         IBackgroundJobClient? backgroundJobClient = null,
-        IHttpContextAccessor? httpContextAccessor = null)
+        IHttpContextAccessor? httpContextAccessor = null,
+        IAiEmailService? aiEmailService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
@@ -73,6 +76,7 @@ public sealed class ShowtimeService : IShowtimeService
         _emailTemplates = emailTemplatesOptions?.Value ?? new CinemaSystem.Application.Settings.EmailTemplatesSettings();
         _backgroundJobClient = backgroundJobClient!;
         _httpContextAccessor = httpContextAccessor!;
+        _aiEmailService = aiEmailService!;
     }
 
     // Phương thức lấy danh sách tất cả các suất chiếu
@@ -604,16 +608,22 @@ public sealed class ShowtimeService : IShowtimeService
         
         // Cần gán lại SeatId cho các vé đã đặt (BookingSeat)
         // Note: do EF Core theo dõi, ta chỉ cần update thẳng BookingSeat.ShowtimeSeatId
-        // Truy vấn tất cả BookingSeats liên quan đến những Booking của suất chiếu này
+        // Truy vấn tất cả BookingSeats liên quan đến những Booking của suất chiếu này kèm thông tin Booking
         var bookingSeats = await _dbContext.BookingSeats
             // Lọc những BookingSeat thuộc về các Booking của suất chiếu
             .Where(bs => showtime.Bookings.Select(b => b.BookingId).Contains(bs.BookingId))
+            // Include để lấy thông tin Booking liên quan để chuyển trạng thái và gửi email
+            .Include(bs => bs.Booking)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
             // Include để lấy ShowtimeSeat hiện tại của BookingSeat
             .Include(bs => bs.ShowtimeSeat)
                 // Lấy thông tin Seat từ ShowtimeSeat
                 .ThenInclude(sts => sts.Seat)
             // Lấy kết quả ra List
             .ToListAsync(cancellationToken);
+
+        var affectedBookings = new System.Collections.Generic.HashSet<string>();
 
         // Duyệt qua từng bản ghi ghế của đơn đặt vé
         foreach (var bs in bookingSeats)
@@ -643,23 +653,33 @@ public sealed class ShowtimeService : IShowtimeService
                     bs.ShowtimeSeatId = newSts.ShowtimeSeatId;
                     // Đánh dấu trạng thái ghế mới là đã bán (Booked)
                     newSts.SeatStatus = DomainConstants.EntityStatus.Booked;
+
+                    // Kiểm tra xem loại ghế ở phòng mới có trùng khớp với phòng cũ không
+                    var newSeat = activeNewSeats.FirstOrDefault(s => s.SeatId == newSeatId);
+                    if (newSeat != null && newSeat.SeatTypeId != bs.ShowtimeSeat.Seat.SeatTypeId)
+                    {
+                        // Đánh dấu Booking bị ảnh hưởng (hạ cấp hoặc đổi loại ghế)
+                        bs.Booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
+                        affectedBookings.Add(bs.BookingId);
+                    }
                 }
             }
         }
 
         // Cập nhật ID phòng mới cho suất chiếu
         showtime.RoomId = request.NewRoomId;
-        // Đặt trạng thái của suất chiếu về Mở bán (Open) do đã đổi xong phòng êm thấm
-        showtime.Status = DomainConstants.EntityStatus.Open;
+        // Đặt trạng thái của suất chiếu về Mở bán (Open) hoặc ProcessingUnstable nếu có ghế bị xung đột loại
+        showtime.Status = affectedBookings.Any() 
+            ? DomainConstants.EntityStatus.ProcessingUnstable 
+            : DomainConstants.EntityStatus.Open;
 
         // Lưu toàn bộ thay đổi xuống DB
         await _dbContext.SaveChangesAsync(cancellationToken);
         
-        // Gửi email thông báo sơ đồ ghế mới cho khách
-        // Lấy các Booking đã thanh toán của suất chiếu
+        // Gửi email thông báo sơ đồ ghế mới cho các khách hàng không bị ảnh hưởng (giữ nguyên loại ghế)
         var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
         
-        // Lặp qua từng Booking
+        // Lặp qua từng Booking ổn định
         foreach(var booking in paidBookings)
         {
             // Lấy Email khách (ưu tiên email account)
@@ -674,6 +694,29 @@ public sealed class ShowtimeService : IShowtimeService
                 string message = string.Format(_emailTemplates.ShowtimeRoomChangeBody, newRoom.RoomName);
                 // Đẩy job nền gửi email
                 _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, subject, message, CancellationToken.None));
+            }
+        }
+
+        // Gửi email AI thông báo và xin lỗi song ngữ cho các khách hàng có vé bị ảnh hưởng (ProcessingUnstable)
+        var unstableBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.ProcessingUnstable).ToList();
+        foreach (var booking in unstableBookings)
+        {
+            var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            if (!string.IsNullOrEmpty(email))
+            {
+                var secret = _securitySettings.ConfirmationTokenSecret;
+                using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                var token = Convert.ToBase64String(hash);
+                var encodedToken = System.Uri.EscapeDataString(token);
+
+                string subject = "Thông báo đổi phòng chiếu và loại ghế / Showtime Room and Seat Type Change Notice";
+                string reason = "Thay đổi phòng chiếu dẫn đến thay đổi loại ghế của bạn (Hạ cấp/Thay đổi loại ghế)";
+                string details = $"Suất chiếu của phim {showtime.Movie.Title} đã chuyển sang phòng mới: {newRoom.RoomName}. Do đó ghế của bạn bị thay đổi loại ghế. Vui lòng bấm vào Link xác nhận để chấp nhận thay đổi hoặc yêu cầu hủy hoàn tiền.";
+
+                // Đẩy job gửi Email AI ngầm qua Hangfire
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(email, subject, reason, details, CancellationToken.None));
             }
         }
 

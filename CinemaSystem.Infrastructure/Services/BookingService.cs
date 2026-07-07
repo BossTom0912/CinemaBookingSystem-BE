@@ -10,6 +10,7 @@ using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using CinemaSystem.Domain.Constants;
+using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -30,17 +31,20 @@ public sealed class BookingService : IBookingService
     private readonly IClock _clock;
     private readonly ISeatLockStore _seatLockStore;
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
+    private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
 
     public BookingService(
         CinemaDbContext dbContext,
         IClock clock,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
-        ISeatLockStore seatLockStore)
+        ISeatLockStore seatLockStore,
+        Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
         _clock = clock;
         _seatLockStore = seatLockStore;
         _securitySettings = securityOptions.Value;
+        _backgroundJobClient = backgroundJobClient!;
     }
 
     public async Task<ServiceResult<BookingResponse>> CreateBookingAsync(
@@ -370,9 +374,17 @@ public sealed class BookingService : IBookingService
 
         var booking = await _dbContext.Bookings
             .Include(b => b.Payments)
+            .Include(b => b.Showtime)
             .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
 
         if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
+
+        // Kiểm tra thời hạn Token (Token hết hạn trước giờ chiếu 2 tiếng)
+        if (booking.Showtime != null && booking.Showtime.StartTime.AddHours(-2) < _clock.UtcNow)
+        {
+            return ServiceResult<bool>.Fail(400, "Token has expired because it is less than 2 hours before showtime.", "TOKEN_EXPIRED_TIME_LIMIT");
+        }
+
         if (booking.BookingStatus != DomainConstants.EntityStatus.ProcessingUnstable)
             return ServiceResult<bool>.Fail(400, "Booking is not pending a time change confirmation.", "INVALID_STATUS");
 
@@ -548,4 +560,91 @@ public sealed class BookingService : IBookingService
     }
 
     private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+
+    public async Task<ServiceResult<bool>> ReassignBookingSeatAsync(
+        ReassignSeatRequest request,
+        CancellationToken cancellationToken)
+    {
+        // 1. Tìm Booking cần chuyển ghế kèm theo các Seat liên quan
+        var booking = await _dbContext.Bookings
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.ShowtimeSeat)
+                    .ThenInclude(ss => ss.Seat)
+            .Include(b => b.CustomerProfile)
+                .ThenInclude(cp => cp!.User)
+            .FirstOrDefaultAsync(b => b.BookingId == request.BookingId, cancellationToken);
+
+        if (booking == null)
+        {
+            return ServiceResult<bool>.Fail(404, "Booking not found.", "BOOKING_NOT_FOUND");
+        }
+
+        // Không cho phép chuyển ghế đối với các vé đã hủy
+        if (booking.BookingStatus == "CANCELLED")
+        {
+            return ServiceResult<bool>.Fail(400, "Cannot reassign seats for a cancelled booking.", "BOOKING_CANCELLED");
+        }
+
+        // 2. Tìm BookingSeat ứng với oldShowtimeSeatId trong đơn đặt vé này
+        var bookingSeat = booking.BookingSeats.FirstOrDefault(bs => bs.ShowtimeSeatId == request.OldShowtimeSeatId);
+        if (bookingSeat == null)
+        {
+            return ServiceResult<bool>.Fail(404, "The specified old seat was not found in this booking.", "OLD_SEAT_NOT_IN_BOOKING");
+        }
+
+        // 3. Tìm ShowtimeSeat mới trong CSDL
+        var newShowtimeSeat = await _dbContext.ShowtimeSeats
+            .Include(ss => ss.Seat)
+            .FirstOrDefaultAsync(ss => ss.ShowtimeSeatId == request.NewShowtimeSeatId && ss.ShowtimeId == booking.ShowtimeId, cancellationToken);
+
+        if (newShowtimeSeat == null)
+        {
+            return ServiceResult<bool>.Fail(404, "The specified new seat was not found in this showtime.", "NEW_SEAT_NOT_FOUND");
+        }
+
+        // Kiểm tra xem ghế mới có trống hay không
+        if (newShowtimeSeat.SeatStatus != "AVAILABLE")
+        {
+            return ServiceResult<bool>.Fail(400, "The target new seat is not available.", "NEW_SEAT_NOT_AVAILABLE");
+        }
+
+        // 4. Tìm ShowtimeSeat cũ trong CSDL
+        var oldShowtimeSeat = bookingSeat.ShowtimeSeat;
+
+        // 5. Sử dụng Transaction để cập nhật an toàn
+        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Giải phóng ghế cũ
+            oldShowtimeSeat.SeatStatus = "AVAILABLE";
+            oldShowtimeSeat.LockedUntil = null;
+            oldShowtimeSeat.LockedByUserId = null;
+
+            // Khóa ghế mới cho đơn hàng này
+            newShowtimeSeat.SeatStatus = "BOOKED";
+
+            // Cập nhật lại liên kết ghế cho BookingSeat
+            bookingSeat.ShowtimeSeatId = newShowtimeSeat.ShowtimeSeatId;
+
+            // Lưu thay đổi
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            // Gửi email thông báo chuyển ghế thủ công cho khách hàng
+            var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            if (!string.IsNullOrEmpty(customerEmail) && _backgroundJobClient != null)
+            {
+                string subject = "Thông báo thay đổi ghế ngồi / Showtime Seat Change Notice";
+                string message = $"[VI] Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu kỹ thuật.\n\n[EN] Your seat for booking {booking.BookingId} has been changed from {oldShowtimeSeat.Seat.SeatCode} to {newShowtimeSeat.Seat.SeatCode} due to operational requirements.";
+                _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+            }
+
+            return ServiceResult<bool>.Ok(true, "Seat reassigned successfully.");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ServiceResult<bool>.Fail(500, $"Internal server error while reassigning seat: {ex.Message}", "INTERNAL_ERROR");
+        }
+    }
 }
