@@ -132,6 +132,7 @@ var jwtSettings = new JwtSettings
 var jwtSecret = string.IsNullOrWhiteSpace(jwtSettings.Secret)
     ? "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM"
     : jwtSettings.Secret;
+    
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

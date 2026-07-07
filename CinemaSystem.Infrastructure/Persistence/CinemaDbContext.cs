@@ -184,6 +184,12 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.ShowtimeId)
                 .HasMaxLength(50)
                 .HasColumnName("showtimeId");
+            entity.Property(e => e.FbFulfillmentStatus)
+                .HasMaxLength(30)
+                .HasDefaultValue("NOT_APPLICABLE")
+                .HasColumnName("fbFulfillmentStatus");
+            entity.Property(e => e.FbFulfilledAt)
+                .HasColumnName("fbFulfilledAt");
             entity.Property(e => e.TotalAmount)
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("totalAmount");
@@ -198,7 +204,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasOne(d => d.Showtime).WithMany(p => p.Bookings)
                 .HasForeignKey(d => d.ShowtimeId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
+                .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_BOOKING_SHOWTIME");
         });
 

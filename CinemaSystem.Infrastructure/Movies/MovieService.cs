@@ -31,12 +31,12 @@ public sealed class MovieService : IMovieService
     private readonly IFileStorageService _fileStorageService;
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
-    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService fileStorageService, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
+    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService? fileStorageService = null, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings>? options = null)
     {
         _dbContext = dbContext;
         _refundService = refundService;
-        _fileStorageService = fileStorageService;
-        _settings = options.Value;
+        _fileStorageService = fileStorageService!;
+        _settings = options?.Value ?? new CinemaSystem.Application.Settings.CinemaProcessingSettings();
     }
 
     public async Task<ServiceResult<PagedList<MovieResponse>>> GetMoviesAsync(
@@ -262,11 +262,6 @@ public sealed class MovieService : IMovieService
         string? posterFileName,
         CancellationToken cancellationToken)
     {
-        if (!request.IsDurationConfirmed)
-        {
-            return ServiceResult<MovieDetailResponse>.Fail(400, "Vui lòng kiểm tra lại thời lượng phim và xác nhận.", "DURATION_NOT_CONFIRMED");
-        }
-
         // 1. Kiểm tra tiêu đề bị trùng lặp
         var exists = await _dbContext.Movies.AnyAsync(m => m.Title == request.Title, cancellationToken);
         if (exists)

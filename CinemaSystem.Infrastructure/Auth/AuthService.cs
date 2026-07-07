@@ -50,9 +50,9 @@ public sealed class AuthService : IAuthService
         IEmailSender emailSender,
         IJwtTokenService jwtTokenService,
         IClock clock,
-        IOptions<JwtSettings> jwtOptions,
-        IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
-        Hangfire.IBackgroundJobClient backgroundJobClient,
+        IOptions<JwtSettings>? jwtOptions = null,
+        IOptions<CinemaSystem.Application.Settings.AuthSettings>? authOptions = null,
+        Hangfire.IBackgroundJobClient? backgroundJobClient = null,
         IConfiguration? configuration = null)
     {
         _dbContext = dbContext;
@@ -61,9 +61,9 @@ public sealed class AuthService : IAuthService
         _emailSender = emailSender;
         _jwtTokenService = jwtTokenService;
         _clock = clock;
-        _jwtSettings = jwtOptions.Value;
-        _authSettings = authOptions.Value;
-        _backgroundJobClient = backgroundJobClient;
+        _jwtSettings = jwtOptions?.Value ?? new JwtSettings();
+        _authSettings = authOptions?.Value ?? new CinemaSystem.Application.Settings.AuthSettings();
+        _backgroundJobClient = backgroundJobClient!;
         // Đọc cấu hình AutoConfirmEmail từ appsettings để tự động xác nhận email (thường dùng cho môi trường dev)
         _autoConfirmEmail = bool.TryParse(
             configuration?["EmailSettings:AutoConfirmEmail"],
