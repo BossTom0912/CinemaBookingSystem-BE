@@ -38,6 +38,4 @@ public class CreateMovieRequest
 
     [MaxLength(30)]
     public string? MovieStatus { get; set; }
-
-    public bool IsDurationConfirmed { get; set; }
 }

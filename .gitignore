@@ -503,3 +503,6 @@ $RECYCLE.BIN/
 
 # Local build-check publish output
 build-check-current/
+
+# Local test files (do not push to git)
+CinemaSystem.Tests/DashboardServiceTests.cs
