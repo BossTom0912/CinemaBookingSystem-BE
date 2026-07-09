@@ -261,7 +261,7 @@ public sealed class CinemaSystemBusinessRulesTests
             RowLabel = "A",
             SeatNumber = 1,
             SeatTypeId = "SEAT_TYPE_STANDARD",
-            IsActive = false
+            SeatStatus = DomainConstants.EntityStatus.Inactive
         };
 
         var result = await fixture.SeatService.UpdateSeatAsync(request, "ADMIN", CancellationToken.None);
@@ -284,7 +284,7 @@ public sealed class CinemaSystemBusinessRulesTests
             RowLabel = "A",
             SeatNumber = 1,
             SeatTypeId = "SEAT_TYPE_STANDARD",
-            IsActive = false
+            SeatStatus = DomainConstants.EntityStatus.Inactive
         };
 
         var result = await fixture.SeatService.UpdateSeatAsync(request, "ADMIN", CancellationToken.None);

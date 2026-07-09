@@ -1015,7 +1015,8 @@ public sealed class SeatMissingCoverageTests
             SeatId = "SEAT_GHOST",
             RowLabel = "B",
             SeatNumber = 2,
-            SeatTypeId = "ST_STD"
+            SeatTypeId = "ST_STD",
+            SeatStatus = "ACTIVE"
         });
 
         Assert.True(

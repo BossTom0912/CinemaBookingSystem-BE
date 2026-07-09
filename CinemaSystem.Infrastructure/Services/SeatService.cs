@@ -119,7 +119,7 @@ public sealed class SeatService : ISeatService
     // Phương thức lấy danh sách ghế có phân trang và lọc
     public async Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
         string? roomId,
-        bool? isActive,
+        string? seatStatus,
         int pageIndex,
         int pageSize,
         CancellationToken cancellationToken)
@@ -134,11 +134,11 @@ public sealed class SeatService : ISeatService
             query = query.Where(s => s.RoomId == roomId);
         }
 
-        // Nếu cờ trạng thái hoạt động có giá trị
-        if (isActive.HasValue)
+        // Nếu trạng thái ghế không trống
+        if (!string.IsNullOrWhiteSpace(seatStatus))
         {
-            // Thêm điều kiện lọc theo trạng thái hoạt động
-            query = query.Where(s => s.IsActive == isActive.Value);
+            var isStatusActive = string.Equals(seatStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase);
+            query = query.Where(s => s.IsActive == isStatusActive);
         }
 
         // Đếm tổng số ghế thỏa mãn điều kiện lọc
@@ -308,16 +308,30 @@ public sealed class SeatService : ISeatService
         // Cập nhật loại ghế
         seat.SeatTypeId = request.SeatTypeId;
         
+        // Kiểm tra xem trạng thái truyền vào có hợp lệ không
+        if (string.IsNullOrWhiteSpace(request.SeatStatus))
+        {
+            return ServiceResult<bool>.Fail(400, "Seat status is required.", "SEAT_STATUS_REQUIRED");
+        }
+
+        var isRequestActive = string.Equals(request.SeatStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase);
+        if (!isRequestActive && 
+            !string.Equals(request.SeatStatus, DomainConstants.EntityStatus.Inactive, StringComparison.OrdinalIgnoreCase) && 
+            !string.Equals(request.SeatStatus, DomainConstants.EntityStatus.Maintenance, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<bool>.Fail(400, "Seat status is invalid.", "INVALID_SEAT_STATUS");
+        }
+
         // Khởi tạo biến theo dõi việc ghế chuyển sang trạng thái bảo trì
         bool isMaintenanceTriggered = false;
         // Nếu request yêu cầu vô hiệu hóa ghế và ghế hiện đang kích hoạt
-        if (!request.IsActive && seat.IsActive)
+        if (!isRequestActive && seat.IsActive)
         {
             // Đánh dấu cần xử lý bảo trì ghế
             isMaintenanceTriggered = true;
         }
         // Cập nhật trạng thái hoạt động của ghế
-        seat.IsActive = request.IsActive;
+        seat.IsActive = isRequestActive;
 
         // Nếu trạng thái bảo trì được kích hoạt (chuyển từ Active -> Inactive)
         if (isMaintenanceTriggered)
@@ -411,7 +425,7 @@ public sealed class SeatService : ISeatService
         if (room != null)
         {
             // Đặt trạng thái phòng chiếu thành đang Bảo trì
-            room.RoomStatus = "MAINTENANCE";
+            room.RoomStatus = DomainConstants.EntityStatus.Maintenance;
             // Tìm các suất chiếu đang mở trong phòng chiếu này
             var openShowtimes = await _dbContext.Showtimes
                 .Where(s => s.RoomId == room.RoomId && s.Status == DomainConstants.EntityStatus.Open)
@@ -421,7 +435,7 @@ public sealed class SeatService : ISeatService
             foreach (var st in openShowtimes)
             {
                 // Cập nhật trạng thái suất chiếu thành Tạm ngưng
-                st.Status = "SUSPENDED";
+                st.Status = DomainConstants.EntityStatus.Suspended;
             }
         }
 
@@ -898,6 +912,11 @@ public sealed class SeatService : ISeatService
         // Cập nhật lại loại ghế
         seat.SeatTypeId = updateRequest.SeatTypeId;
 
+        if (!string.IsNullOrWhiteSpace(updateRequest.SeatStatus))
+        {
+            seat.IsActive = string.Equals(updateRequest.SeatStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase);
+        }
+
         // Lưu thay đổi cập nhật vào cơ sở dữ liệu
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -937,7 +956,7 @@ public sealed class SeatService : ISeatService
             .AnyAsync(
                 item =>
                     item.SeatId == seatId
-                    && item.Showtime.Status == "OPEN"
+                    && item.Showtime.Status == DomainConstants.EntityStatus.Open
                     && item.Showtime.StartTime > DateTime.UtcNow,
                 cancellationToken);
         // Nếu có suất chiếu tương lai sử dụng ghế này
@@ -1022,7 +1041,7 @@ public sealed class SeatService : ISeatService
             // Ánh xạ loại ghế
             SeatTypeId = seat.SeatTypeId,
             // Ánh xạ trạng thái hoạt động
-            IsActive = seat.IsActive
+            SeatStatus = seat.IsActive ? DomainConstants.EntityStatus.Active : DomainConstants.EntityStatus.Inactive
         };
     }
 

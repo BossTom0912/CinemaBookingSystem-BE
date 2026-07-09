@@ -429,7 +429,7 @@ public sealed class ControllerMoqCoverageTests
         var controller = WithUser(new SeatsController(service.Object), new Claim("userId", "USR_MANAGER"));
 
         AssertApiResponse<bool>(await controller.CreateSeatRequest(new CreateSeatRequest { RoomId = "ROOM_1", RowLabel = "A", SeatNumber = 1, SeatTypeId = "STD" }, CancellationToken.None), StatusCodes.Status201Created, true);
-        AssertApiResponse<bool>(await controller.UpdateSeat("SEAT_1", new UpdateSeatRequest { RowLabel = "A", SeatNumber = 2, SeatTypeId = "STD" }, CancellationToken.None), StatusCodes.Status200OK, true);
+        AssertApiResponse<bool>(await controller.UpdateSeat("SEAT_1", new UpdateSeatRequest { RowLabel = "A", SeatNumber = 2, SeatTypeId = "STD", SeatStatus = "ACTIVE" }, CancellationToken.None), StatusCodes.Status200OK, true);
         AssertApiResponse<bool>(await controller.DeleteSeat("SEAT_1", CancellationToken.None), StatusCodes.Status409Conflict, false);
         Assert.Single(AssertApiResponse<IEnumerable<SeatResponse>>(await controller.GetSeatsByRoom("ROOM_1", CancellationToken.None), StatusCodes.Status200OK, true).Data!);
         AssertApiResponse<SeatMapResponse>(await controller.GetSeatMap("ST_1", CancellationToken.None), StatusCodes.Status200OK, true);

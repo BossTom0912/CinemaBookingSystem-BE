@@ -29,9 +29,9 @@ public sealed class RoomService : IRoomService
     // Danh sách các trạng thái hợp lệ của phòng chiếu
     private static readonly HashSet<string> ValidRoomStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ACTIVE",
-        "INACTIVE",
-        "MAINTENANCE"
+        DomainConstants.EntityStatus.Active,
+        DomainConstants.EntityStatus.Inactive,
+        DomainConstants.EntityStatus.Maintenance
     };
 
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
@@ -122,7 +122,7 @@ public sealed class RoomService : IRoomService
         if (!includeInactive)
         {
             // Lọc bỏ các phòng chiếu có trạng thái INACTIVE
-            query = query.Where(room => room.RoomStatus != "INACTIVE");
+            query = query.Where(room => room.RoomStatus != DomainConstants.EntityStatus.Inactive);
         }
 
         // Thực thi truy vấn lấy danh sách phòng chiếu
@@ -170,7 +170,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu cấu hình không cho phép lấy phòng INACTIVE và phòng hiện tại đang INACTIVE
-        if (!includeInactive && string.Equals(room.RoomStatus, "INACTIVE", StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive && string.Equals(room.RoomStatus, DomainConstants.EntityStatus.Inactive, StringComparison.OrdinalIgnoreCase))
         {
             // Trả về lỗi không tìm thấy (che giấu phòng INACTIVE)
             return ServiceResult<RoomResponse>.Fail(
@@ -406,7 +406,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu có sự thay đổi trạng thái và trạng thái mới là bảo trì hoặc ngưng hoạt động
-        if (room.RoomStatus != roomStatus && (roomStatus == "MAINTENANCE" || roomStatus == "INACTIVE"))
+        if (room.RoomStatus != roomStatus && (roomStatus == DomainConstants.EntityStatus.Maintenance || roomStatus == DomainConstants.EntityStatus.Inactive))
         {
             // Tìm tất cả các suất chiếu đang mở (Open) tại phòng này
             var openShowtimes = await _dbContext.Showtimes
@@ -417,7 +417,7 @@ public sealed class RoomService : IRoomService
             foreach (var st in openShowtimes)
             {
                 // Cập nhật trạng thái suất chiếu thành bị đình chỉ (SUSPENDED)
-                st.Status = "SUSPENDED";
+                st.Status = DomainConstants.EntityStatus.Suspended;
             }
         }
 
@@ -466,11 +466,11 @@ public sealed class RoomService : IRoomService
         foreach (var st in openShowtimes)
         {
             // Cập nhật trạng thái thành SUSPENDED do phòng bị xóa
-            st.Status = "SUSPENDED";
+            st.Status = DomainConstants.EntityStatus.Suspended;
         }
 
         // Tiến hành xóa mềm bằng cách đổi trạng thái thành INACTIVE
-        room.RoomStatus = "INACTIVE";
+        room.RoomStatus = DomainConstants.EntityStatus.Inactive;
         // Lưu thay đổi vào DB
         await _dbContext.SaveChangesAsync(cancellationToken);
 

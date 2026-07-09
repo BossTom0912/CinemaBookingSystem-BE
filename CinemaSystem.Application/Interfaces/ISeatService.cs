@@ -12,7 +12,7 @@ public interface ISeatService
 
     Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
         string? roomId,
-        bool? isActive,
+        string? seatStatus,
         int pageIndex,
         int pageSize,
         CancellationToken cancellationToken);

@@ -135,14 +135,14 @@ public sealed class SeatsController : ControllerBase
         StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSeats(
         [FromQuery] string? roomId,
-        [FromQuery] bool? isActive,
+        [FromQuery] string? seatStatus,
         [FromQuery] int pageIndex = 1,
         [FromQuery] int pageSize = 10,
         CancellationToken cancellationToken = default)
     {
         var result = await _seatService.GetSeatsAsync(
             roomId,
-            isActive,
+            seatStatus,
             pageIndex,
             pageSize,
             cancellationToken);

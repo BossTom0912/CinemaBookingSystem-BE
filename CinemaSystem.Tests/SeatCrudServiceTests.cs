@@ -82,7 +82,8 @@ public sealed class SeatCrudServiceTests
         SeatId = "SEAT_1",
         RowLabel = "B",
         SeatNumber = 2,
-        SeatTypeId = SeatTypeId
+        SeatTypeId = SeatTypeId,
+        SeatStatus = "ACTIVE"
       },
       UserId,
       CancellationToken.None);
@@ -99,7 +100,7 @@ public sealed class SeatCrudServiceTests
     var fixture = await Fixture.CreateAsync();
 
     var result = await fixture.Service.UpdateSeatAsync(
-      new UpdateSeatRequest { SeatId = "SEAT_2", RowLabel = "A", SeatNumber = 1, SeatTypeId = SeatTypeId },
+      new UpdateSeatRequest { SeatId = "SEAT_2", RowLabel = "A", SeatNumber = 1, SeatTypeId = SeatTypeId, SeatStatus = "ACTIVE" },
       UserId,
       CancellationToken.None);
 
