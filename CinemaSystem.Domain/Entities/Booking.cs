@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using CinemaSystem.Domain.Constants;
+
 namespace CinemaSystem.Domain.Entities;
 
 public partial class Booking
@@ -9,7 +11,11 @@ public partial class Booking
 
     public string? CustomerProfileId { get; set; }
 
-    public string ShowtimeId { get; set; } = null!;
+    public string? ShowtimeId { get; set; }
+
+    public string FbFulfillmentStatus { get; set; } = FbConstants.FulfillmentStatus.NotApplicable;
+
+    public DateTime? FbFulfilledAt { get; set; }
 
     public string BookingStatus { get; set; } = null!;
 
@@ -47,7 +53,7 @@ public partial class Booking
 
     public virtual ICollection<RewardPointTransaction> RewardPointTransactions { get; set; } = new List<RewardPointTransaction>();
 
-    public virtual Showtime Showtime { get; set; } = null!;
+    public virtual Showtime? Showtime { get; set; }
 
     public virtual VoucherUsage? VoucherUsage { get; set; }
 }

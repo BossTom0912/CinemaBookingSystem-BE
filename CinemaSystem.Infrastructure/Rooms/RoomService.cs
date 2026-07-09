@@ -32,14 +32,14 @@ public sealed class RoomService : IRoomService
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
 
     // Constructor khởi tạo các dịch vụ phụ thuộc
-    public RoomService(CinemaDbContext dbContext, IAdminRefundService refundService, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options)
+    public RoomService(CinemaDbContext dbContext, IAdminRefundService? refundService = null, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings>? options = null)
     {
         // Gán DbContext
         _dbContext = dbContext;
         // Gán dịch vụ hoàn tiền
-        _refundService = refundService;
-        // Lấy giá trị cấu hình từ IOptions
-        _settings = options.Value;
+        _refundService = refundService!;
+        // Lấy giá trị cấu hình hệ thống
+        _settings = options?.Value ?? new CinemaSystem.Application.Settings.CinemaProcessingSettings();
     }
 
     public async Task<ServiceResult<RoomResponse>> CreateRoomAsync(

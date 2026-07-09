@@ -431,4 +431,26 @@ public static class DomainConstants
         public const string Refund = "REFUND";
         public const string RefundClaim = "REFUND_CLAIM";
     }
+
+    public static class DashboardPeriod
+    {
+        public const string Week = "week";
+        public const string Month = "month";
+    }
+
+    public static class Staff
+    {
+        public const string Unknown = "STAFF_UNKNOWN";
+    }
+
+    public static class MovieErrorCode
+    {
+        public const string DurationCannotChangeHasShowtimes = "DURATION_CANNOT_BE_CHANGED_HAS_SHOWTIMES";
+    }
+
+    public static class MovieErrorMessage
+    {
+        public const string DurationCannotChangeHasShowtimes =
+            "Cannot change movie duration because the movie already has scheduled showtimes.";
+    }
 }

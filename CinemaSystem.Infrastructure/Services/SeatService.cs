@@ -61,26 +61,22 @@ public sealed class SeatService : ISeatService
     // Constructor khởi tạo SeatService cùng các dependencies được tiêm vào (Dependency Injection)
     public SeatService(
         CinemaDbContext dbContext,
-        IBackgroundJobClient backgroundJobClient,
-        IAdminRefundService refundService,
-        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
-        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplatesOptions,
-        Microsoft.Extensions.Options.IOptions<CinemaSystem.Infrastructure.Configuration.BookingSettings> bookingOptions,
+        IBackgroundJobClient? backgroundJobClient = null,
+        IAdminRefundService? refundService = null,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings>? securityOptions = null,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings>? emailTemplatesOptions = null,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Infrastructure.Configuration.BookingSettings>? bookingOptions = null,
         ISeatLockStore? seatLockStore = null)
     {
         // Gán dbContext, ném ngoại lệ nếu null
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         // Gán dịch vụ chạy nền Hangfire
-        _backgroundJobClient = backgroundJobClient;
+        _backgroundJobClient = backgroundJobClient!;
         // Gán dịch vụ hoàn tiền
-        _refundService = refundService;
-        // Gán các cài đặt bảo mật lấy từ Options
-        _securitySettings = securityOptions.Value;
-        // Gán các cài đặt mẫu email lấy từ Options
-        _emailTemplates = emailTemplatesOptions.Value;
-        // Gán các cài đặt đặt vé lấy từ Options
-        _bookingSettings = bookingOptions.Value;
-        // Khởi tạo dịch vụ khóa ghế, nếu không được tiêm vào thì dùng mặc định là InMemorySeatLockStore
+        _refundService = refundService!;
+        _securitySettings = securityOptions?.Value ?? new CinemaSystem.Application.Settings.SecuritySettings();
+        _emailTemplates = emailTemplatesOptions?.Value ?? new CinemaSystem.Application.Settings.EmailTemplatesSettings();
+        _bookingSettings = bookingOptions?.Value ?? new CinemaSystem.Infrastructure.Configuration.BookingSettings();
         _seatLockStore = seatLockStore ?? new InMemorySeatLockStore();
     }
 

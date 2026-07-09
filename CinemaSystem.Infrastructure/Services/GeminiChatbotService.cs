@@ -73,7 +73,7 @@ public class GeminiChatbotService : IChatbotService
         // Khởi tạo chuỗi động (StringBuilder) để xây dựng bối cảnh (context) cho AI
         var contextBuilder = new StringBuilder("Movie Theater Context:\n");
         // Kiểm tra xem việc lấy dữ liệu phim có thành công và có dữ liệu hay không
-        if (moviesResult.Success && moviesResult.Data != null)
+        if (moviesResult.Success && moviesResult.Data != null && moviesResult.Data.Items != null)
         {
             // Bổ sung tiêu đề thông báo danh sách phim hiện có vào ngữ cảnh
             contextBuilder.AppendLine("Available Movies:");
@@ -145,20 +145,20 @@ public class GeminiChatbotService : IChatbotService
             return ServiceResult<ChatbotResponse>.Fail(500, $"AI API error: {response.StatusCode} - {errorDetails}", "AI_API_ERROR");
         }
 
-        // Chuyển đổi phản hồi của AI (Json) thành đối tượng JsonElement
-        var jsonDoc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
         // Gán tin nhắn trả lời mặc định trong trường hợp lỗi xử lý
         var replyText = "I'm sorry, I couldn't generate a response.";
         // Bắt đầu xử lý giải nén chuỗi JSON phản hồi
         try
         {
+            // Chuyển đổi phản hồi của AI (Json) thành đối tượng JsonElement
+            var jsonDoc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
             // Trích xuất nội dung văn bản AI sinh ra thông qua cấu trúc JSON
             replyText = jsonDoc.GetProperty("candidates")[0]
                                .GetProperty("content")
                                .GetProperty("parts")[0]
                                .GetProperty("text").GetString();
         }
-        // Bắt mọi lỗi xảy ra khi truy cập thuộc tính JSON để giữ lại thông báo mặc định
+        // Bắt mọi lỗi xảy ra khi truy cập thuộc tính JSON hoặc lỗi phân tích cú pháp để giữ lại thông báo mặc định
         catch { }
 
         // Khởi tạo một thực thể lịch sử cuộc hội thoại

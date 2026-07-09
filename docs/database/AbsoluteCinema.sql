@@ -1,0 +1,1452 @@
+USE [CinemaBookingDB]
+GO
+/****** Object:  Table [dbo].[__EFMigrationsHistory]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[__EFMigrationsHistory](
+	[MigrationId] [nvarchar](150) NOT NULL,
+	[ProductVersion] [nvarchar](32) NOT NULL,
+ CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY CLUSTERED 
+(
+	[MigrationId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[AUDIT_LOG]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[AUDIT_LOG](
+	[auditLogId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NULL,
+	[action] [nvarchar](100) NOT NULL,
+	[entityName] [nvarchar](100) NOT NULL,
+	[entityId] [nvarchar](50) NULL,
+	[oldValue] [nvarchar](max) NULL,
+	[newValue] [nvarchar](max) NULL,
+	[ipAddress] [nvarchar](100) NULL,
+	[userAgent] [nvarchar](500) NULL,
+	[correlationId] [nvarchar](100) NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[auditLogId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[BOOKING]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[BOOKING](
+	[bookingId] [nvarchar](50) NOT NULL,
+	[customerProfileId] [nvarchar](50) NULL,
+	[showtimeId] [nvarchar](50) NOT NULL,
+	[createdByStaffProfileId] [nvarchar](50) NULL,
+	[bookingChannel] [nvarchar](30) NOT NULL,
+	[guestName] [nvarchar](255) NULL,
+	[guestPhone] [nvarchar](30) NULL,
+	[guestEmail] [nvarchar](255) NULL,
+	[bookingStatus] [nvarchar](30) NOT NULL,
+	[fbFulfillmentStatus] [nvarchar](30) NOT NULL,
+	[fbFulfilledAt] [datetime2](7) NULL,
+	[totalAmount] [decimal](18, 2) NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+	[expiredAt] [datetime2](7) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[bookingId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[BOOKING_FB_ITEM]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[BOOKING_FB_ITEM](
+	[bookingFBItemId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NOT NULL,
+	[fbItemId] [nvarchar](50) NOT NULL,
+	[quantity] [int] NOT NULL,
+	[unitPrice] [decimal](18, 2) NOT NULL,
+	[subtotal] [decimal](18, 2) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[bookingFBItemId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[BOOKING_SEAT]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[BOOKING_SEAT](
+	[bookingSeatId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NOT NULL,
+	[showtimeSeatId] [nvarchar](50) NOT NULL,
+	[seatPrice] [decimal](18, 2) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[bookingSeatId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_BOOKING_SEAT_SHOWTIME_SEAT] UNIQUE NONCLUSTERED 
+(
+	[showtimeSeatId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[CHAT_HISTORY]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CHAT_HISTORY](
+	[chatHistoryId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NULL,
+	[userMessage] [nvarchar](max) NOT NULL,
+	[aiReplyMessage] [nvarchar](max) NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[chatHistoryId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[CHECKIN_LOG]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CHECKIN_LOG](
+	[checkInLogId] [nvarchar](50) NOT NULL,
+	[ticketId] [nvarchar](50) NULL,
+	[staffProfileId] [nvarchar](50) NOT NULL,
+	[scanTime] [datetime2](7) NOT NULL,
+	[result] [nvarchar](30) NOT NULL,
+	[failureReason] [nvarchar](500) NULL,
+	[rawQrCode] [nvarchar](450) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[checkInLogId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[CINEMA]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CINEMA](
+	[cinemaId] [nvarchar](50) NOT NULL,
+	[cinemaName] [nvarchar](255) NOT NULL,
+	[address] [nvarchar](500) NOT NULL,
+	[city] [nvarchar](100) NOT NULL,
+	[phoneNumber] [nvarchar](30) NULL,
+	[cinemaStatus] [nvarchar](30) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[cinemaId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[CINEMA_FB_INVENTORY]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CINEMA_FB_INVENTORY](
+	[cinemaInventoryId] [nvarchar](50) NOT NULL,
+	[cinemaId] [nvarchar](50) NOT NULL,
+	[fbItemId] [nvarchar](50) NOT NULL,
+	[quantity] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[cinemaInventoryId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_CINEMA_FB_INVENTORY] UNIQUE NONCLUSTERED 
+(
+	[cinemaId] ASC,
+	[fbItemId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[CUSTOMER_PROFILE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[CUSTOMER_PROFILE](
+	[customerProfileId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NOT NULL,
+	[memberLevel] [nvarchar](30) NOT NULL,
+	[rewardPoints] [int] NOT NULL,
+	[dateOfBirth] [date] NULL,
+	[gender] [nvarchar](20) NULL,
+	[identityCard] [nvarchar](50) NULL,
+	[address] [nvarchar](500) NULL,
+	[avatarUrl] [nvarchar](1000) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[customerProfileId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_CUSTOMER_PROFILE_USER] UNIQUE NONCLUSTERED 
+(
+	[userId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[EMAIL_VERIFICATION_TOKEN]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[EMAIL_VERIFICATION_TOKEN](
+	[tokenId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NOT NULL,
+	[token] [nvarchar](255) NOT NULL,
+	[purpose] [nvarchar](30) NOT NULL,
+	[attemptCount] [int] NOT NULL,
+	[expiredAt] [datetime2](7) NOT NULL,
+	[verifiedAt] [datetime2](7) NULL,
+	[isUsed] [bit] NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[tokenId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_EMAIL_VERIFICATION_TOKEN] UNIQUE NONCLUSTERED 
+(
+	[token] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[FB_ITEM]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[FB_ITEM](
+	[fbItemId] [nvarchar](50) NOT NULL,
+	[itemName] [nvarchar](255) NOT NULL,
+	[price] [decimal](18, 2) NOT NULL,
+	[itemStatus] [nvarchar](30) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[fbItemId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[GENRE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[GENRE](
+	[genreId] [int] IDENTITY(1,1) NOT NULL,
+	[name] [nvarchar](100) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[genreId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[LANGUAGE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[LANGUAGE](
+	[languageId] [nvarchar](50) NOT NULL,
+	[name] [nvarchar](100) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[languageId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[MOVIE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[MOVIE](
+	[movieId] [nvarchar](50) NOT NULL,
+	[title] [nvarchar](255) NOT NULL,
+	[durationMinutes] [int] NOT NULL,
+	[languageId] [nvarchar](50) NULL,
+	[releaseDate] [date] NULL,
+	[ageRating] [nvarchar](30) NULL,
+	[description] [nvarchar](max) NULL,
+	[posterUrl] [nvarchar](1000) NULL,
+	[trailerUrl] [nvarchar](1000) NULL,
+	[director] [nvarchar](200) NULL,
+	[highlight] [nvarchar](30) NULL,
+	[movieStatus] [nvarchar](30) NOT NULL,
+	[viewCount] [int] NOT NULL,
+	[averageRating] [decimal](3, 2) NOT NULL,
+	[totalReviews] [int] NOT NULL,
+	[totalViews] [int] NOT NULL,
+	[dailyViews] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[movieId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[MOVIE_DAILY_VIEW]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[MOVIE_DAILY_VIEW](
+	[movieId] [nvarchar](50) NOT NULL,
+	[viewDate] [date] NOT NULL,
+	[viewCount] [int] NOT NULL,
+ CONSTRAINT [PK_MOVIE_DAILY_VIEW] PRIMARY KEY CLUSTERED 
+(
+	[movieId] ASC,
+	[viewDate] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[MOVIE_GENRE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[MOVIE_GENRE](
+	[movieId] [nvarchar](50) NOT NULL,
+	[genreId] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[movieId] ASC,
+	[genreId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[MOVIE_VIEW_LOG]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[MOVIE_VIEW_LOG](
+	[movieViewLogId] [nvarchar](50) NOT NULL,
+	[movieId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NULL,
+	[viewedAt] [datetime2](7) NOT NULL,
+	[ipAddress] [nvarchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[movieViewLogId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[NOTIFICATION]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[NOTIFICATION](
+	[notificationId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NULL,
+	[title] [nvarchar](255) NOT NULL,
+	[message] [nvarchar](1000) NOT NULL,
+	[isRead] [bit] NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[notificationId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[PAYMENT]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[PAYMENT](
+	[paymentId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NOT NULL,
+	[paymentProviderId] [nvarchar](50) NOT NULL,
+	[amount] [decimal](18, 2) NOT NULL,
+	[paymentMethod] [nvarchar](50) NULL,
+	[transactionCode] [nvarchar](255) NULL,
+	[providerTransactionCode] [nvarchar](255) NULL,
+	[paymentStatus] [nvarchar](30) NOT NULL,
+	[failureReason] [nvarchar](1000) NULL,
+	[rawCallbackPayload] [nvarchar](max) NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+	[updatedAt] [datetime2](7) NULL,
+	[paidAt] [datetime2](7) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[paymentId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[PAYMENT_PROVIDER]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[PAYMENT_PROVIDER](
+	[paymentProviderId] [nvarchar](50) NOT NULL,
+	[providerName] [nvarchar](100) NOT NULL,
+	[apiEndpoint] [nvarchar](1000) NULL,
+	[providerStatus] [nvarchar](30) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[paymentProviderId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_PAYMENT_PROVIDER_NAME] UNIQUE NONCLUSTERED 
+(
+	[providerName] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REFRESH_TOKEN]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[REFRESH_TOKEN](
+	[refreshTokenId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NOT NULL,
+	[tokenHash] [nvarchar](450) NOT NULL,
+	[issuedAt] [datetime2](7) NOT NULL,
+	[expiresAt] [datetime2](7) NOT NULL,
+	[revokedAt] [datetime2](7) NULL,
+	[isRevoked] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[refreshTokenId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_REFRESH_TOKEN_HASH] UNIQUE NONCLUSTERED 
+(
+	[tokenHash] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REFUND]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[REFUND](
+	[refundId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NOT NULL,
+	[paymentId] [nvarchar](50) NOT NULL,
+	[paymentProviderId] [nvarchar](50) NOT NULL,
+	[showtimeCancellationId] [nvarchar](50) NULL,
+	[refundAmount] [decimal](18, 2) NOT NULL,
+	[refundStatus] [nvarchar](30) NOT NULL,
+	[refundReason] [nvarchar](1000) NULL,
+	[providerRefundCode] [nvarchar](255) NULL,
+	[failureReason] [nvarchar](1000) NULL,
+	[requestedAt] [datetime2](7) NOT NULL,
+	[refundedAt] [datetime2](7) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[refundId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REVIEW]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[REVIEW](
+	[reviewId] [nvarchar](50) NOT NULL,
+	[customerProfileId] [nvarchar](50) NOT NULL,
+	[movieId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NULL,
+	[rating] [int] NOT NULL,
+	[comment] [nvarchar](1000) NULL,
+	[status] [nvarchar](30) NOT NULL,
+	[editCount] [int] NOT NULL,
+	[moderatedBy] [nvarchar](50) NULL,
+	[rejectedReason] [nvarchar](500) NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[reviewId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REVIEW_EDIT_HISTORY]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[REVIEW_EDIT_HISTORY](
+	[reviewEditHistoryId] [nvarchar](50) NOT NULL,
+	[reviewId] [nvarchar](50) NOT NULL,
+	[oldRating] [int] NOT NULL,
+	[newRating] [int] NOT NULL,
+	[oldComment] [nvarchar](1000) NULL,
+	[newComment] [nvarchar](1000) NULL,
+	[editedAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[reviewEditHistoryId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REVIEW_MODERATION_HISTORY]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[REVIEW_MODERATION_HISTORY](
+	[moderationHistoryId] [nvarchar](50) NOT NULL,
+	[reviewId] [nvarchar](50) NOT NULL,
+	[moderatedBy] [nvarchar](50) NOT NULL,
+	[oldStatus] [nvarchar](30) NULL,
+	[newStatus] [nvarchar](30) NOT NULL,
+	[reason] [nvarchar](1000) NULL,
+	[moderatedAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[moderationHistoryId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[REWARD_POINT_TRANSACTION]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[REWARD_POINT_TRANSACTION](
+	[rewardTransactionId] [nvarchar](50) NOT NULL,
+	[customerProfileId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NULL,
+	[transactionType] [nvarchar](30) NOT NULL,
+	[points] [int] NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[rewardTransactionId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[ROLE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[ROLE](
+	[roleId] [nvarchar](50) NOT NULL,
+	[roleName] [nvarchar](100) NOT NULL,
+	[description] [nvarchar](500) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[roleId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_ROLE_ROLE_NAME] UNIQUE NONCLUSTERED 
+(
+	[roleName] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[ROOM]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[ROOM](
+	[roomId] [nvarchar](50) NOT NULL,
+	[cinemaId] [nvarchar](50) NOT NULL,
+	[roomName] [nvarchar](100) NOT NULL,
+	[capacity] [int] NOT NULL,
+	[roomStatus] [nvarchar](30) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[roomId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_ROOM_CINEMA_ROOM_NAME] UNIQUE NONCLUSTERED 
+(
+	[cinemaId] ASC,
+	[roomName] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[SEAT]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[SEAT](
+	[seatId] [nvarchar](50) NOT NULL,
+	[roomId] [nvarchar](50) NOT NULL,
+	[seatTypeId] [nvarchar](50) NOT NULL,
+	[seatCode] [nvarchar](20) NOT NULL,
+	[rowLabel] [nvarchar](10) NOT NULL,
+	[seatNumber] [int] NOT NULL,
+	[isActive] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[seatId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_SEAT_ROOM_ROW_NUMBER] UNIQUE NONCLUSTERED 
+(
+	[roomId] ASC,
+	[rowLabel] ASC,
+	[seatNumber] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_SEAT_ROOM_SEAT_CODE] UNIQUE NONCLUSTERED 
+(
+	[roomId] ASC,
+	[seatCode] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[SEAT_TYPE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[SEAT_TYPE](
+	[seatTypeId] [nvarchar](50) NOT NULL,
+	[typeName] [nvarchar](100) NOT NULL,
+	[extraFee] [decimal](18, 2) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[seatTypeId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_SEAT_TYPE_NAME] UNIQUE NONCLUSTERED 
+(
+	[typeName] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[SHOWTIME]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[SHOWTIME](
+	[showtimeId] [nvarchar](50) NOT NULL,
+	[movieId] [nvarchar](50) NOT NULL,
+	[roomId] [nvarchar](50) NOT NULL,
+	[startTime] [datetime2](7) NOT NULL,
+	[endTime] [datetime2](7) NOT NULL,
+	[basePrice] [decimal](18, 2) NOT NULL,
+	[status] [nvarchar](30) NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[showtimeId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[SHOWTIME_CANCELLATION]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[SHOWTIME_CANCELLATION](
+	[showtimeCancellationId] [nvarchar](50) NOT NULL,
+	[showtimeId] [nvarchar](50) NOT NULL,
+	[cancelledByUserId] [nvarchar](50) NOT NULL,
+	[cancelledByStaffId] [nvarchar](50) NULL,
+	[cancelReason] [nvarchar](1000) NOT NULL,
+	[cancelledAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[showtimeCancellationId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_SHOWTIME_CANCELLATION_SHOWTIME] UNIQUE NONCLUSTERED 
+(
+	[showtimeId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[SHOWTIME_SEAT]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[SHOWTIME_SEAT](
+	[showtimeSeatId] [nvarchar](50) NOT NULL,
+	[showtimeId] [nvarchar](50) NOT NULL,
+	[seatId] [nvarchar](50) NOT NULL,
+	[seatStatus] [nvarchar](30) NOT NULL,
+	[lockedUntil] [datetime2](7) NULL,
+	[lockedByUserId] [nvarchar](50) NULL,
+	[rowVersion] [timestamp] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[showtimeSeatId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_SHOWTIME_SEAT_SHOWTIME_SEAT] UNIQUE NONCLUSTERED 
+(
+	[showtimeId] ASC,
+	[seatId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[STAFF_PROFILE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[STAFF_PROFILE](
+	[staffProfileId] [nvarchar](50) NOT NULL,
+	[userId] [nvarchar](50) NOT NULL,
+	[cinemaId] [nvarchar](50) NOT NULL,
+	[position] [nvarchar](100) NOT NULL,
+	[hireDate] [date] NULL,
+	[dateOfBirth] [date] NULL,
+	[gender] [nvarchar](20) NULL,
+	[identityCard] [nvarchar](50) NULL,
+	[address] [nvarchar](500) NULL,
+	[avatarUrl] [nvarchar](1000) NULL,
+	[employmentStatus] [nvarchar](30) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[staffProfileId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_STAFF_PROFILE_USER] UNIQUE NONCLUSTERED 
+(
+	[userId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[TICKET]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[TICKET](
+	[ticketId] [nvarchar](50) NOT NULL,
+	[bookingSeatId] [nvarchar](50) NOT NULL,
+	[qrCode] [nvarchar](450) NOT NULL,
+	[ticketStatus] [nvarchar](30) NOT NULL,
+	[generatedAt] [datetime2](7) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[ticketId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_TICKET_BOOKING_SEAT] UNIQUE NONCLUSTERED 
+(
+	[bookingSeatId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_TICKET_QR_CODE] UNIQUE NONCLUSTERED 
+(
+	[qrCode] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[USER]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[USER](
+	[userId] [nvarchar](50) NOT NULL,
+	[roleId] [nvarchar](50) NOT NULL,
+	[email] [nvarchar](255) NOT NULL,
+	[passwordHash] [nvarchar](500) NOT NULL,
+	[fullName] [nvarchar](255) NOT NULL,
+	[phoneNumber] [nvarchar](30) NULL,
+	[status] [nvarchar](30) NOT NULL,
+	[emailVerified] [bit] NOT NULL,
+	[createdAt] [datetime2](7) NOT NULL,
+	[updatedAt] [datetime2](7) NULL,
+	[spamViolationCount] [int] NOT NULL,
+	[isBlocked] [bit] NOT NULL,
+	[blockedUntil] [datetime2](7) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[userId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_USER_EMAIL] UNIQUE NONCLUSTERED 
+(
+	[email] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[VOUCHER]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[VOUCHER](
+	[voucherId] [nvarchar](50) NOT NULL,
+	[voucherCode] [nvarchar](100) NOT NULL,
+	[title] [nvarchar](255) NULL,
+	[description] [nvarchar](1000) NULL,
+	[imageUrl] [nvarchar](1000) NULL,
+	[discountType] [nvarchar](30) NOT NULL,
+	[discountValue] [decimal](18, 2) NOT NULL,
+	[minOrderAmount] [decimal](18, 2) NULL,
+	[maxDiscountAmount] [decimal](18, 2) NULL,
+	[usageLimit] [int] NOT NULL,
+	[perCustomerLimit] [int] NULL,
+	[usedCount] [int] NOT NULL,
+	[startDate] [datetime2](7) NOT NULL,
+	[endDate] [datetime2](7) NOT NULL,
+	[voucherStatus] [nvarchar](30) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[voucherId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_VOUCHER_CODE] UNIQUE NONCLUSTERED 
+(
+	[voucherCode] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[VOUCHER_USAGE]    Script Date: 06-Jul-26 2:18:57 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[VOUCHER_USAGE](
+	[voucherUsageId] [nvarchar](50) NOT NULL,
+	[voucherId] [nvarchar](50) NOT NULL,
+	[customerProfileId] [nvarchar](50) NOT NULL,
+	[bookingId] [nvarchar](50) NOT NULL,
+	[discountAmount] [decimal](18, 2) NOT NULL,
+	[usageStatus] [nvarchar](30) NOT NULL,
+	[usedAt] [datetime2](7) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[voucherUsageId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_VOUCHER_USAGE_BOOKING] UNIQUE NONCLUSTERED 
+(
+	[bookingId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+ALTER TABLE [dbo].[AUDIT_LOG] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[BOOKING] ADD  DEFAULT ('ONLINE') FOR [bookingChannel]
+GO
+ALTER TABLE [dbo].[BOOKING] ADD  DEFAULT ('CREATED') FOR [bookingStatus]
+ALTER TABLE [dbo].[BOOKING] ADD  DEFAULT ('NOT_APPLICABLE') FOR [fbFulfillmentStatus]
+GO
+ALTER TABLE [dbo].[BOOKING] ADD  DEFAULT ((0)) FOR [totalAmount]
+GO
+ALTER TABLE [dbo].[BOOKING] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[CHAT_HISTORY] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG] ADD  DEFAULT (sysutcdatetime()) FOR [scanTime]
+GO
+ALTER TABLE [dbo].[CINEMA] ADD  DEFAULT ('ACTIVE') FOR [cinemaStatus]
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY] ADD  DEFAULT ((0)) FOR [quantity]
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE] ADD  DEFAULT ('STANDARD') FOR [memberLevel]
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE] ADD  DEFAULT ((0)) FOR [rewardPoints]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] ADD  DEFAULT ('EMAIL_VERIFICATION') FOR [purpose]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] ADD  DEFAULT ((0)) FOR [attemptCount]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] ADD  DEFAULT ((0)) FOR [isUsed]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[FB_ITEM] ADD  DEFAULT ('AVAILABLE') FOR [itemStatus]
+GO
+ALTER TABLE [dbo].[MOVIE] ADD  DEFAULT ('COMING_SOON') FOR [movieStatus]
+GO
+ALTER TABLE [dbo].[MOVIE] ADD  DEFAULT ((0)) FOR [viewCount]
+GO
+ALTER TABLE [dbo].[MOVIE] ADD  DEFAULT ((0.00)) FOR [averageRating]
+GO
+ALTER TABLE [dbo].[MOVIE] ADD  DEFAULT ((0)) FOR [totalReviews]
+GO
+ALTER TABLE [dbo].[MOVIE] ADD  DEFAULT ((0)) FOR [totalViews]
+GO
+ALTER TABLE [dbo].[MOVIE] ADD  DEFAULT ((0)) FOR [dailyViews]
+GO
+ALTER TABLE [dbo].[MOVIE_DAILY_VIEW] ADD  DEFAULT ((0)) FOR [viewCount]
+GO
+ALTER TABLE [dbo].[MOVIE_VIEW_LOG] ADD  DEFAULT (sysutcdatetime()) FOR [viewedAt]
+GO
+ALTER TABLE [dbo].[NOTIFICATION] ADD  DEFAULT ((0)) FOR [isRead]
+GO
+ALTER TABLE [dbo].[NOTIFICATION] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[PAYMENT] ADD  DEFAULT ('PENDING') FOR [paymentStatus]
+GO
+ALTER TABLE [dbo].[PAYMENT] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[PAYMENT_PROVIDER] ADD  DEFAULT ('ACTIVE') FOR [providerStatus]
+GO
+ALTER TABLE [dbo].[REFRESH_TOKEN] ADD  DEFAULT (sysutcdatetime()) FOR [issuedAt]
+GO
+ALTER TABLE [dbo].[REFRESH_TOKEN] ADD  DEFAULT ((0)) FOR [isRevoked]
+GO
+ALTER TABLE [dbo].[REFUND] ADD  DEFAULT ('PENDING') FOR [refundStatus]
+GO
+ALTER TABLE [dbo].[REFUND] ADD  DEFAULT (sysutcdatetime()) FOR [requestedAt]
+GO
+ALTER TABLE [dbo].[REVIEW] ADD  DEFAULT ('PENDING') FOR [status]
+GO
+ALTER TABLE [dbo].[REVIEW] ADD  DEFAULT ((0)) FOR [editCount]
+GO
+ALTER TABLE [dbo].[REVIEW] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[REVIEW_EDIT_HISTORY] ADD  DEFAULT (sysutcdatetime()) FOR [editedAt]
+GO
+ALTER TABLE [dbo].[REVIEW_MODERATION_HISTORY] ADD  DEFAULT (sysutcdatetime()) FOR [moderatedAt]
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[ROOM] ADD  DEFAULT ('ACTIVE') FOR [roomStatus]
+GO
+ALTER TABLE [dbo].[SEAT] ADD  DEFAULT ((1)) FOR [isActive]
+GO
+ALTER TABLE [dbo].[SEAT_TYPE] ADD  DEFAULT ((0)) FOR [extraFee]
+GO
+ALTER TABLE [dbo].[SHOWTIME] ADD  DEFAULT ((0)) FOR [basePrice]
+GO
+ALTER TABLE [dbo].[SHOWTIME] ADD  DEFAULT ('OPEN') FOR [status]
+GO
+ALTER TABLE [dbo].[SHOWTIME] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION] ADD  DEFAULT (sysutcdatetime()) FOR [cancelledAt]
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT] ADD  DEFAULT ('AVAILABLE') FOR [seatStatus]
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE] ADD  DEFAULT ('ACTIVE') FOR [employmentStatus]
+GO
+ALTER TABLE [dbo].[TICKET] ADD  DEFAULT ('UNUSED') FOR [ticketStatus]
+GO
+ALTER TABLE [dbo].[TICKET] ADD  DEFAULT (sysutcdatetime()) FOR [generatedAt]
+GO
+ALTER TABLE [dbo].[USER] ADD  DEFAULT ('PENDING_VERIFICATION') FOR [status]
+GO
+ALTER TABLE [dbo].[USER] ADD  DEFAULT ((0)) FOR [emailVerified]
+GO
+ALTER TABLE [dbo].[USER] ADD  DEFAULT (sysutcdatetime()) FOR [createdAt]
+GO
+ALTER TABLE [dbo].[USER] ADD  DEFAULT ((0)) FOR [spamViolationCount]
+GO
+ALTER TABLE [dbo].[USER] ADD  DEFAULT ((0)) FOR [isBlocked]
+GO
+ALTER TABLE [dbo].[VOUCHER] ADD  DEFAULT ((0)) FOR [usedCount]
+GO
+ALTER TABLE [dbo].[VOUCHER] ADD  DEFAULT ('ACTIVE') FOR [voucherStatus]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] ADD  DEFAULT ((0)) FOR [discountAmount]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] ADD  DEFAULT ('APPLIED') FOR [usageStatus]
+GO
+ALTER TABLE [dbo].[AUDIT_LOG]  WITH CHECK ADD  CONSTRAINT [FK_AUDIT_LOG_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[AUDIT_LOG] CHECK CONSTRAINT [FK_AUDIT_LOG_USER]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF] FOREIGN KEY([createdByStaffProfileId])
+REFERENCES [dbo].[STAFF_PROFILE] ([staffProfileId])
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE] FOREIGN KEY([customerProfileId])
+REFERENCES [dbo].[CUSTOMER_PROFILE] ([customerProfileId])
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_SHOWTIME] FOREIGN KEY([showtimeId])
+REFERENCES [dbo].[SHOWTIME] ([showtimeId])
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [FK_BOOKING_SHOWTIME]
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_FB_ITEM_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM] CHECK CONSTRAINT [FK_BOOKING_FB_ITEM_BOOKING]
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_FB_ITEM_FB_ITEM] FOREIGN KEY([fbItemId])
+REFERENCES [dbo].[FB_ITEM] ([fbItemId])
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM] CHECK CONSTRAINT [FK_BOOKING_FB_ITEM_FB_ITEM]
+GO
+ALTER TABLE [dbo].[BOOKING_SEAT]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_SEAT_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[BOOKING_SEAT] CHECK CONSTRAINT [FK_BOOKING_SEAT_BOOKING]
+GO
+ALTER TABLE [dbo].[BOOKING_SEAT]  WITH CHECK ADD  CONSTRAINT [FK_BOOKING_SEAT_SHOWTIME_SEAT] FOREIGN KEY([showtimeSeatId])
+REFERENCES [dbo].[SHOWTIME_SEAT] ([showtimeSeatId])
+GO
+ALTER TABLE [dbo].[BOOKING_SEAT] CHECK CONSTRAINT [FK_BOOKING_SEAT_SHOWTIME_SEAT]
+GO
+ALTER TABLE [dbo].[CHAT_HISTORY]  WITH CHECK ADD  CONSTRAINT [FK_CHAT_HISTORY_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[CHAT_HISTORY] CHECK CONSTRAINT [FK_CHAT_HISTORY_USER]
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG]  WITH CHECK ADD  CONSTRAINT [FK_CHECKIN_LOG_STAFF_PROFILE] FOREIGN KEY([staffProfileId])
+REFERENCES [dbo].[STAFF_PROFILE] ([staffProfileId])
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG] CHECK CONSTRAINT [FK_CHECKIN_LOG_STAFF_PROFILE]
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG]  WITH CHECK ADD  CONSTRAINT [FK_CHECKIN_LOG_TICKET] FOREIGN KEY([ticketId])
+REFERENCES [dbo].[TICKET] ([ticketId])
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG] CHECK CONSTRAINT [FK_CHECKIN_LOG_TICKET]
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY]  WITH CHECK ADD  CONSTRAINT [FK_CINEMA_FB_INVENTORY_CINEMA] FOREIGN KEY([cinemaId])
+REFERENCES [dbo].[CINEMA] ([cinemaId])
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY] CHECK CONSTRAINT [FK_CINEMA_FB_INVENTORY_CINEMA]
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY]  WITH CHECK ADD  CONSTRAINT [FK_CINEMA_FB_INVENTORY_FB_ITEM] FOREIGN KEY([fbItemId])
+REFERENCES [dbo].[FB_ITEM] ([fbItemId])
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY] CHECK CONSTRAINT [FK_CINEMA_FB_INVENTORY_FB_ITEM]
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE]  WITH CHECK ADD  CONSTRAINT [FK_CUSTOMER_PROFILE_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE] CHECK CONSTRAINT [FK_CUSTOMER_PROFILE_USER]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN]  WITH CHECK ADD  CONSTRAINT [FK_EMAIL_VERIFICATION_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] CHECK CONSTRAINT [FK_EMAIL_VERIFICATION_USER]
+GO
+ALTER TABLE [dbo].[MOVIE]  WITH CHECK ADD  CONSTRAINT [FK_MOVIE_LANGUAGE] FOREIGN KEY([languageId])
+REFERENCES [dbo].[LANGUAGE] ([languageId])
+GO
+ALTER TABLE [dbo].[MOVIE] CHECK CONSTRAINT [FK_MOVIE_LANGUAGE]
+GO
+ALTER TABLE [dbo].[MOVIE_DAILY_VIEW]  WITH CHECK ADD  CONSTRAINT [FK_MOVIE_DAILY_VIEW_MOVIE] FOREIGN KEY([movieId])
+REFERENCES [dbo].[MOVIE] ([movieId])
+GO
+ALTER TABLE [dbo].[MOVIE_DAILY_VIEW] CHECK CONSTRAINT [FK_MOVIE_DAILY_VIEW_MOVIE]
+GO
+ALTER TABLE [dbo].[MOVIE_GENRE]  WITH CHECK ADD  CONSTRAINT [FK_MOVIE_GENRE_GENRE] FOREIGN KEY([genreId])
+REFERENCES [dbo].[GENRE] ([genreId])
+ON DELETE CASCADE
+GO
+ALTER TABLE [dbo].[MOVIE_GENRE] CHECK CONSTRAINT [FK_MOVIE_GENRE_GENRE]
+GO
+ALTER TABLE [dbo].[MOVIE_GENRE]  WITH CHECK ADD  CONSTRAINT [FK_MOVIE_GENRE_MOVIE] FOREIGN KEY([movieId])
+REFERENCES [dbo].[MOVIE] ([movieId])
+ON DELETE CASCADE
+GO
+ALTER TABLE [dbo].[MOVIE_GENRE] CHECK CONSTRAINT [FK_MOVIE_GENRE_MOVIE]
+GO
+ALTER TABLE [dbo].[MOVIE_VIEW_LOG]  WITH CHECK ADD  CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE] FOREIGN KEY([movieId])
+REFERENCES [dbo].[MOVIE] ([movieId])
+GO
+ALTER TABLE [dbo].[MOVIE_VIEW_LOG] CHECK CONSTRAINT [FK_MOVIE_VIEW_LOG_MOVIE]
+GO
+ALTER TABLE [dbo].[MOVIE_VIEW_LOG]  WITH CHECK ADD  CONSTRAINT [FK_MOVIE_VIEW_LOG_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[MOVIE_VIEW_LOG] CHECK CONSTRAINT [FK_MOVIE_VIEW_LOG_USER]
+GO
+ALTER TABLE [dbo].[NOTIFICATION]  WITH CHECK ADD  CONSTRAINT [FK_NOTIFICATION_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[NOTIFICATION] CHECK CONSTRAINT [FK_NOTIFICATION_BOOKING]
+GO
+ALTER TABLE [dbo].[NOTIFICATION]  WITH CHECK ADD  CONSTRAINT [FK_NOTIFICATION_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[NOTIFICATION] CHECK CONSTRAINT [FK_NOTIFICATION_USER]
+GO
+ALTER TABLE [dbo].[PAYMENT]  WITH CHECK ADD  CONSTRAINT [FK_PAYMENT_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[PAYMENT] CHECK CONSTRAINT [FK_PAYMENT_BOOKING]
+GO
+ALTER TABLE [dbo].[PAYMENT]  WITH CHECK ADD  CONSTRAINT [FK_PAYMENT_PAYMENT_PROVIDER] FOREIGN KEY([paymentProviderId])
+REFERENCES [dbo].[PAYMENT_PROVIDER] ([paymentProviderId])
+GO
+ALTER TABLE [dbo].[PAYMENT] CHECK CONSTRAINT [FK_PAYMENT_PAYMENT_PROVIDER]
+GO
+ALTER TABLE [dbo].[REFRESH_TOKEN]  WITH CHECK ADD  CONSTRAINT [FK_REFRESH_TOKEN_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[REFRESH_TOKEN] CHECK CONSTRAINT [FK_REFRESH_TOKEN_USER]
+GO
+ALTER TABLE [dbo].[REFUND]  WITH CHECK ADD  CONSTRAINT [FK_REFUND_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[REFUND] CHECK CONSTRAINT [FK_REFUND_BOOKING]
+GO
+ALTER TABLE [dbo].[REFUND]  WITH CHECK ADD  CONSTRAINT [FK_REFUND_PAYMENT] FOREIGN KEY([paymentId])
+REFERENCES [dbo].[PAYMENT] ([paymentId])
+GO
+ALTER TABLE [dbo].[REFUND] CHECK CONSTRAINT [FK_REFUND_PAYMENT]
+GO
+ALTER TABLE [dbo].[REFUND]  WITH CHECK ADD  CONSTRAINT [FK_REFUND_PAYMENT_PROVIDER] FOREIGN KEY([paymentProviderId])
+REFERENCES [dbo].[PAYMENT_PROVIDER] ([paymentProviderId])
+GO
+ALTER TABLE [dbo].[REFUND] CHECK CONSTRAINT [FK_REFUND_PAYMENT_PROVIDER]
+GO
+ALTER TABLE [dbo].[REFUND]  WITH CHECK ADD  CONSTRAINT [FK_REFUND_SHOWTIME_CANCELLATION] FOREIGN KEY([showtimeCancellationId])
+REFERENCES [dbo].[SHOWTIME_CANCELLATION] ([showtimeCancellationId])
+GO
+ALTER TABLE [dbo].[REFUND] CHECK CONSTRAINT [FK_REFUND_SHOWTIME_CANCELLATION]
+GO
+ALTER TABLE [dbo].[REVIEW]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[REVIEW] CHECK CONSTRAINT [FK_REVIEW_BOOKING]
+GO
+ALTER TABLE [dbo].[REVIEW]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_CUSTOMER_PROFILE] FOREIGN KEY([customerProfileId])
+REFERENCES [dbo].[CUSTOMER_PROFILE] ([customerProfileId])
+GO
+ALTER TABLE [dbo].[REVIEW] CHECK CONSTRAINT [FK_REVIEW_CUSTOMER_PROFILE]
+GO
+ALTER TABLE [dbo].[REVIEW]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_MODERATED_BY] FOREIGN KEY([moderatedBy])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[REVIEW] CHECK CONSTRAINT [FK_REVIEW_MODERATED_BY]
+GO
+ALTER TABLE [dbo].[REVIEW]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_MOVIE] FOREIGN KEY([movieId])
+REFERENCES [dbo].[MOVIE] ([movieId])
+GO
+ALTER TABLE [dbo].[REVIEW] CHECK CONSTRAINT [FK_REVIEW_MOVIE]
+GO
+ALTER TABLE [dbo].[REVIEW_EDIT_HISTORY]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_EDIT_HISTORY_REVIEW] FOREIGN KEY([reviewId])
+REFERENCES [dbo].[REVIEW] ([reviewId])
+GO
+ALTER TABLE [dbo].[REVIEW_EDIT_HISTORY] CHECK CONSTRAINT [FK_REVIEW_EDIT_HISTORY_REVIEW]
+GO
+ALTER TABLE [dbo].[REVIEW_MODERATION_HISTORY]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_REVIEW] FOREIGN KEY([reviewId])
+REFERENCES [dbo].[REVIEW] ([reviewId])
+GO
+ALTER TABLE [dbo].[REVIEW_MODERATION_HISTORY] CHECK CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_REVIEW]
+GO
+ALTER TABLE [dbo].[REVIEW_MODERATION_HISTORY]  WITH CHECK ADD  CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_USER] FOREIGN KEY([moderatedBy])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[REVIEW_MODERATION_HISTORY] CHECK CONSTRAINT [FK_REVIEW_MODERATION_HISTORY_USER]
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION]  WITH CHECK ADD  CONSTRAINT [FK_REWARD_POINT_TRANSACTION_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION] CHECK CONSTRAINT [FK_REWARD_POINT_TRANSACTION_BOOKING]
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION]  WITH CHECK ADD  CONSTRAINT [FK_REWARD_POINT_TRANSACTION_CUSTOMER_PROFILE] FOREIGN KEY([customerProfileId])
+REFERENCES [dbo].[CUSTOMER_PROFILE] ([customerProfileId])
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION] CHECK CONSTRAINT [FK_REWARD_POINT_TRANSACTION_CUSTOMER_PROFILE]
+GO
+ALTER TABLE [dbo].[ROOM]  WITH CHECK ADD  CONSTRAINT [FK_ROOM_CINEMA] FOREIGN KEY([cinemaId])
+REFERENCES [dbo].[CINEMA] ([cinemaId])
+GO
+ALTER TABLE [dbo].[ROOM] CHECK CONSTRAINT [FK_ROOM_CINEMA]
+GO
+ALTER TABLE [dbo].[SEAT]  WITH CHECK ADD  CONSTRAINT [FK_SEAT_ROOM] FOREIGN KEY([roomId])
+REFERENCES [dbo].[ROOM] ([roomId])
+GO
+ALTER TABLE [dbo].[SEAT] CHECK CONSTRAINT [FK_SEAT_ROOM]
+GO
+ALTER TABLE [dbo].[SEAT]  WITH CHECK ADD  CONSTRAINT [FK_SEAT_SEAT_TYPE] FOREIGN KEY([seatTypeId])
+REFERENCES [dbo].[SEAT_TYPE] ([seatTypeId])
+GO
+ALTER TABLE [dbo].[SEAT] CHECK CONSTRAINT [FK_SEAT_SEAT_TYPE]
+GO
+ALTER TABLE [dbo].[SHOWTIME]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_MOVIE] FOREIGN KEY([movieId])
+REFERENCES [dbo].[MOVIE] ([movieId])
+GO
+ALTER TABLE [dbo].[SHOWTIME] CHECK CONSTRAINT [FK_SHOWTIME_MOVIE]
+GO
+ALTER TABLE [dbo].[SHOWTIME]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_ROOM] FOREIGN KEY([roomId])
+REFERENCES [dbo].[ROOM] ([roomId])
+GO
+ALTER TABLE [dbo].[SHOWTIME] CHECK CONSTRAINT [FK_SHOWTIME_ROOM]
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_CANCELLATION_SHOWTIME] FOREIGN KEY([showtimeId])
+REFERENCES [dbo].[SHOWTIME] ([showtimeId])
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION] CHECK CONSTRAINT [FK_SHOWTIME_CANCELLATION_SHOWTIME]
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_CANCELLATION_STAFF_PROFILE] FOREIGN KEY([cancelledByStaffId])
+REFERENCES [dbo].[STAFF_PROFILE] ([staffProfileId])
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION] CHECK CONSTRAINT [FK_SHOWTIME_CANCELLATION_STAFF_PROFILE]
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_CANCELLATION_USER] FOREIGN KEY([cancelledByUserId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[SHOWTIME_CANCELLATION] CHECK CONSTRAINT [FK_SHOWTIME_CANCELLATION_USER]
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_SEAT_LOCKED_BY_USER] FOREIGN KEY([lockedByUserId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT] CHECK CONSTRAINT [FK_SHOWTIME_SEAT_LOCKED_BY_USER]
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_SEAT_SEAT] FOREIGN KEY([seatId])
+REFERENCES [dbo].[SEAT] ([seatId])
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT] CHECK CONSTRAINT [FK_SHOWTIME_SEAT_SEAT]
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT]  WITH CHECK ADD  CONSTRAINT [FK_SHOWTIME_SEAT_SHOWTIME] FOREIGN KEY([showtimeId])
+REFERENCES [dbo].[SHOWTIME] ([showtimeId])
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT] CHECK CONSTRAINT [FK_SHOWTIME_SEAT_SHOWTIME]
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE]  WITH CHECK ADD  CONSTRAINT [FK_STAFF_PROFILE_CINEMA] FOREIGN KEY([cinemaId])
+REFERENCES [dbo].[CINEMA] ([cinemaId])
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE] CHECK CONSTRAINT [FK_STAFF_PROFILE_CINEMA]
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE]  WITH CHECK ADD  CONSTRAINT [FK_STAFF_PROFILE_USER] FOREIGN KEY([userId])
+REFERENCES [dbo].[USER] ([userId])
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE] CHECK CONSTRAINT [FK_STAFF_PROFILE_USER]
+GO
+ALTER TABLE [dbo].[TICKET]  WITH CHECK ADD  CONSTRAINT [FK_TICKET_BOOKING_SEAT] FOREIGN KEY([bookingSeatId])
+REFERENCES [dbo].[BOOKING_SEAT] ([bookingSeatId])
+GO
+ALTER TABLE [dbo].[TICKET] CHECK CONSTRAINT [FK_TICKET_BOOKING_SEAT]
+GO
+ALTER TABLE [dbo].[USER]  WITH CHECK ADD  CONSTRAINT [FK_USER_ROLE] FOREIGN KEY([roleId])
+REFERENCES [dbo].[ROLE] ([roleId])
+GO
+ALTER TABLE [dbo].[USER] CHECK CONSTRAINT [FK_USER_ROLE]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE]  WITH CHECK ADD  CONSTRAINT [FK_VOUCHER_USAGE_BOOKING] FOREIGN KEY([bookingId])
+REFERENCES [dbo].[BOOKING] ([bookingId])
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] CHECK CONSTRAINT [FK_VOUCHER_USAGE_BOOKING]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE]  WITH CHECK ADD  CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_PROFILE] FOREIGN KEY([customerProfileId])
+REFERENCES [dbo].[CUSTOMER_PROFILE] ([customerProfileId])
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] CHECK CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_PROFILE]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE]  WITH CHECK ADD  CONSTRAINT [FK_VOUCHER_USAGE_VOUCHER] FOREIGN KEY([voucherId])
+REFERENCES [dbo].[VOUCHER] ([voucherId])
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] CHECK CONSTRAINT [FK_VOUCHER_USAGE_VOUCHER]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_CHANNEL] CHECK  (([bookingChannel]='COUNTER' OR [bookingChannel]='ONLINE'))
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [CK_BOOKING_CHANNEL]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED] CHECK  (([bookingChannel]<>'ONLINE' OR [customerProfileId] IS NOT NULL))
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_STATUS] CHECK  (([bookingStatus]='PROCESSING_UNSTABLE' OR [bookingStatus]='COMPLETED' OR [bookingStatus]='REFUNDED' OR [bookingStatus]='REFUND_PENDING' OR [bookingStatus]='CANCELLED' OR [bookingStatus]='PAID' OR [bookingStatus]='PENDING_PAYMENT' OR [bookingStatus]='CREATED'))
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [CK_BOOKING_STATUS]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_FB_FULFILLMENT_STATUS] CHECK  (([fbFulfillmentStatus]='CANCELLED' OR [fbFulfillmentStatus]='FULFILLED' OR [fbFulfillmentStatus]='PREPARING' OR [fbFulfillmentStatus]='PENDING' OR [fbFulfillmentStatus]='NOT_APPLICABLE'))
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [CK_BOOKING_FB_FULFILLMENT_STATUS]
+GO
+ALTER TABLE [dbo].[BOOKING]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_TOTAL_AMOUNT] CHECK  (([totalAmount]>=(0)))
+GO
+ALTER TABLE [dbo].[BOOKING] CHECK CONSTRAINT [CK_BOOKING_TOTAL_AMOUNT]
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_FB_ITEM_QUANTITY] CHECK  (([quantity]>(0)))
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM] CHECK CONSTRAINT [CK_BOOKING_FB_ITEM_QUANTITY]
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_FB_ITEM_SUBTOTAL] CHECK  (([subtotal]>=(0)))
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM] CHECK CONSTRAINT [CK_BOOKING_FB_ITEM_SUBTOTAL]
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_FB_ITEM_UNIT_PRICE] CHECK  (([unitPrice]>=(0)))
+GO
+ALTER TABLE [dbo].[BOOKING_FB_ITEM] CHECK CONSTRAINT [CK_BOOKING_FB_ITEM_UNIT_PRICE]
+GO
+ALTER TABLE [dbo].[BOOKING_SEAT]  WITH CHECK ADD  CONSTRAINT [CK_BOOKING_SEAT_PRICE] CHECK  (([seatPrice]>=(0)))
+GO
+ALTER TABLE [dbo].[BOOKING_SEAT] CHECK CONSTRAINT [CK_BOOKING_SEAT_PRICE]
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG]  WITH CHECK ADD  CONSTRAINT [CK_CHECKIN_LOG_RESULT] CHECK  (([result]='FAILED' OR [result]='SUCCESS'))
+GO
+ALTER TABLE [dbo].[CHECKIN_LOG] CHECK CONSTRAINT [CK_CHECKIN_LOG_RESULT]
+GO
+ALTER TABLE [dbo].[CINEMA]  WITH CHECK ADD  CONSTRAINT [CK_CINEMA_STATUS] CHECK  (([cinemaStatus]='MAINTENANCE' OR [cinemaStatus]='INACTIVE' OR [cinemaStatus]='ACTIVE'))
+GO
+ALTER TABLE [dbo].[CINEMA] CHECK CONSTRAINT [CK_CINEMA_STATUS]
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY]  WITH CHECK ADD  CONSTRAINT [CK_CINEMA_FB_INVENTORY_QUANTITY] CHECK  (([quantity]>=(0)))
+GO
+ALTER TABLE [dbo].[CINEMA_FB_INVENTORY] CHECK CONSTRAINT [CK_CINEMA_FB_INVENTORY_QUANTITY]
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE]  WITH CHECK ADD  CONSTRAINT [CK_CUSTOMER_PROFILE_MEMBER_LEVEL] CHECK  (([memberLevel]='PLATINUM' OR [memberLevel]='GOLD' OR [memberLevel]='SILVER' OR [memberLevel]='STANDARD'))
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE] CHECK CONSTRAINT [CK_CUSTOMER_PROFILE_MEMBER_LEVEL]
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE]  WITH CHECK ADD  CONSTRAINT [CK_CUSTOMER_PROFILE_REWARD_POINTS] CHECK  (([rewardPoints]>=(0)))
+GO
+ALTER TABLE [dbo].[CUSTOMER_PROFILE] CHECK CONSTRAINT [CK_CUSTOMER_PROFILE_REWARD_POINTS]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN]  WITH CHECK ADD  CONSTRAINT [CK_EMAIL_VERIFICATION_EXPIRED_AT] CHECK  (([expiredAt]>[createdAt]))
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] CHECK CONSTRAINT [CK_EMAIL_VERIFICATION_EXPIRED_AT]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN]  WITH CHECK ADD  CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT] CHECK  (([attemptCount]>=(0)))
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] CHECK CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT]
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN]  WITH CHECK ADD  CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_PURPOSE] CHECK  (([purpose]='UPDATE_EMAIL' OR [purpose]='CHANGE_EMAIL' OR [purpose]='FORGOT_PASSWORD' OR [purpose]='REGISTER' OR [purpose]='PHONE_UPDATE' OR [purpose]='EMAIL_UPDATE' OR [purpose]='PASSWORD_RESET' OR [purpose]='EMAIL_VERIFICATION'))
+GO
+ALTER TABLE [dbo].[EMAIL_VERIFICATION_TOKEN] CHECK CONSTRAINT [CK_EMAIL_VERIFICATION_TOKEN_PURPOSE]
+GO
+ALTER TABLE [dbo].[FB_ITEM]  WITH CHECK ADD  CONSTRAINT [CK_FB_ITEM_PRICE] CHECK  (([price]>=(0)))
+GO
+ALTER TABLE [dbo].[FB_ITEM] CHECK CONSTRAINT [CK_FB_ITEM_PRICE]
+GO
+ALTER TABLE [dbo].[FB_ITEM]  WITH CHECK ADD  CONSTRAINT [CK_FB_ITEM_STATUS] CHECK  (([itemStatus]='INACTIVE' OR [itemStatus]='UNAVAILABLE' OR [itemStatus]='AVAILABLE'))
+GO
+ALTER TABLE [dbo].[FB_ITEM] CHECK CONSTRAINT [CK_FB_ITEM_STATUS]
+GO
+ALTER TABLE [dbo].[MOVIE]  WITH CHECK ADD  CONSTRAINT [CK_MOVIE_DURATION] CHECK  (([durationMinutes]>(0)))
+GO
+ALTER TABLE [dbo].[MOVIE] CHECK CONSTRAINT [CK_MOVIE_DURATION]
+GO
+ALTER TABLE [dbo].[MOVIE]  WITH CHECK ADD  CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK  (([highlight] IS NULL OR ([highlight]='TRENDING' OR [highlight]='NEW' OR [highlight]='HOT' OR [highlight]='POPULAR' OR [highlight]='COMING_SOON')))
+GO
+ALTER TABLE [dbo].[MOVIE] CHECK CONSTRAINT [CK_MOVIE_HIGHLIGHT]
+GO
+ALTER TABLE [dbo].[MOVIE]  WITH CHECK ADD  CONSTRAINT [CK_MOVIE_STATUS] CHECK  (([movieStatus]='ARCHIVED' OR [movieStatus]='INACTIVE' OR [movieStatus]='ENDED' OR [movieStatus]='NOW_SHOWING' OR [movieStatus]='COMING_SOON'))
+GO
+ALTER TABLE [dbo].[MOVIE] CHECK CONSTRAINT [CK_MOVIE_STATUS]
+GO
+ALTER TABLE [dbo].[PAYMENT]  WITH CHECK ADD  CONSTRAINT [CK_PAYMENT_AMOUNT] CHECK  (([amount]>=(0)))
+GO
+ALTER TABLE [dbo].[PAYMENT] CHECK CONSTRAINT [CK_PAYMENT_AMOUNT]
+GO
+ALTER TABLE [dbo].[PAYMENT]  WITH CHECK ADD  CONSTRAINT [CK_PAYMENT_STATUS] CHECK  (([paymentStatus]='EXPIRED' OR [paymentStatus]='CANCELLED' OR [paymentStatus]='FAILED' OR [paymentStatus]='SUCCESS' OR [paymentStatus]='PENDING'))
+GO
+ALTER TABLE [dbo].[PAYMENT] CHECK CONSTRAINT [CK_PAYMENT_STATUS]
+GO
+ALTER TABLE [dbo].[PAYMENT_PROVIDER]  WITH CHECK ADD  CONSTRAINT [CK_PAYMENT_PROVIDER_STATUS] CHECK  (([providerStatus]='MAINTENANCE' OR [providerStatus]='INACTIVE' OR [providerStatus]='ACTIVE'))
+GO
+ALTER TABLE [dbo].[PAYMENT_PROVIDER] CHECK CONSTRAINT [CK_PAYMENT_PROVIDER_STATUS]
+GO
+ALTER TABLE [dbo].[REFRESH_TOKEN]  WITH CHECK ADD  CONSTRAINT [CK_REFRESH_TOKEN_EXPIRES_AT] CHECK  (([expiresAt]>[issuedAt]))
+GO
+ALTER TABLE [dbo].[REFRESH_TOKEN] CHECK CONSTRAINT [CK_REFRESH_TOKEN_EXPIRES_AT]
+GO
+ALTER TABLE [dbo].[REFUND]  WITH CHECK ADD  CONSTRAINT [CK_REFUND_AMOUNT] CHECK  (([refundAmount]>(0)))
+GO
+ALTER TABLE [dbo].[REFUND] CHECK CONSTRAINT [CK_REFUND_AMOUNT]
+GO
+ALTER TABLE [dbo].[REFUND]  WITH CHECK ADD  CONSTRAINT [CK_REFUND_STATUS] CHECK  (([refundStatus]='REQUESTED' OR [refundStatus]='FAILED' OR [refundStatus]='SUCCESS' OR [refundStatus]='PROCESSING' OR [refundStatus]='PENDING'))
+GO
+ALTER TABLE [dbo].[REFUND] CHECK CONSTRAINT [CK_REFUND_STATUS]
+GO
+ALTER TABLE [dbo].[REVIEW]  WITH CHECK ADD  CONSTRAINT [CK_REVIEW_RATING] CHECK  (([rating]>=(0) AND [rating]<=(5)))
+GO
+ALTER TABLE [dbo].[REVIEW] CHECK CONSTRAINT [CK_REVIEW_RATING]
+GO
+ALTER TABLE [dbo].[REVIEW]  WITH CHECK ADD  CONSTRAINT [CK_REVIEW_STATUS] CHECK  (([status]='FLAGGED' OR [status]='REJECTED' OR [status]='APPROVED' OR [status]='PENDING'))
+GO
+ALTER TABLE [dbo].[REVIEW] CHECK CONSTRAINT [CK_REVIEW_STATUS]
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION]  WITH CHECK ADD  CONSTRAINT [CK_REWARD_POINT_TRANSACTION_POINTS] CHECK  (([points]<>(0)))
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION] CHECK CONSTRAINT [CK_REWARD_POINT_TRANSACTION_POINTS]
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION]  WITH CHECK ADD  CONSTRAINT [CK_REWARD_POINT_TRANSACTION_TYPE] CHECK  (([transactionType]='ADJUST' OR [transactionType]='REVERT' OR [transactionType]='REDEEM' OR [transactionType]='EARN'))
+GO
+ALTER TABLE [dbo].[REWARD_POINT_TRANSACTION] CHECK CONSTRAINT [CK_REWARD_POINT_TRANSACTION_TYPE]
+GO
+ALTER TABLE [dbo].[ROOM]  WITH CHECK ADD  CONSTRAINT [CK_ROOM_CAPACITY] CHECK  (([capacity]>(0)))
+GO
+ALTER TABLE [dbo].[ROOM] CHECK CONSTRAINT [CK_ROOM_CAPACITY]
+GO
+ALTER TABLE [dbo].[ROOM]  WITH CHECK ADD  CONSTRAINT [CK_ROOM_STATUS] CHECK  (([roomStatus]='MAINTENANCE' OR [roomStatus]='INACTIVE' OR [roomStatus]='ACTIVE'))
+GO
+ALTER TABLE [dbo].[ROOM] CHECK CONSTRAINT [CK_ROOM_STATUS]
+GO
+ALTER TABLE [dbo].[SEAT]  WITH CHECK ADD  CONSTRAINT [CK_SEAT_NUMBER] CHECK  (([seatNumber]>(0)))
+GO
+ALTER TABLE [dbo].[SEAT] CHECK CONSTRAINT [CK_SEAT_NUMBER]
+GO
+ALTER TABLE [dbo].[SEAT_TYPE]  WITH CHECK ADD  CONSTRAINT [CK_SEAT_TYPE_EXTRA_FEE] CHECK  (([extraFee]>=(0)))
+GO
+ALTER TABLE [dbo].[SEAT_TYPE] CHECK CONSTRAINT [CK_SEAT_TYPE_EXTRA_FEE]
+GO
+ALTER TABLE [dbo].[SHOWTIME]  WITH CHECK ADD  CONSTRAINT [CK_SHOWTIME_BASE_PRICE] CHECK  (([basePrice]>=(0)))
+GO
+ALTER TABLE [dbo].[SHOWTIME] CHECK CONSTRAINT [CK_SHOWTIME_BASE_PRICE]
+GO
+ALTER TABLE [dbo].[SHOWTIME]  WITH CHECK ADD  CONSTRAINT [CK_SHOWTIME_STATUS] CHECK  (([status]='PROCESSING_UNSTABLE' OR [status]='SUSPENDED' OR [status]='COMPLETED' OR [status]='CANCELLED' OR [status]='CLOSED' OR [status]='OPEN'))
+GO
+ALTER TABLE [dbo].[SHOWTIME] CHECK CONSTRAINT [CK_SHOWTIME_STATUS]
+GO
+ALTER TABLE [dbo].[SHOWTIME]  WITH CHECK ADD  CONSTRAINT [CK_SHOWTIME_TIME_RANGE] CHECK  (([endTime]>[startTime]))
+GO
+ALTER TABLE [dbo].[SHOWTIME] CHECK CONSTRAINT [CK_SHOWTIME_TIME_RANGE]
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT]  WITH CHECK ADD  CONSTRAINT [CK_SHOWTIME_SEAT_STATUS] CHECK  (([seatStatus]='UNAVAILABLE' OR [seatStatus]='RELEASED' OR [seatStatus]='BOOKED' OR [seatStatus]='LOCKED' OR [seatStatus]='AVAILABLE'))
+GO
+ALTER TABLE [dbo].[SHOWTIME_SEAT] CHECK CONSTRAINT [CK_SHOWTIME_SEAT_STATUS]
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE]  WITH CHECK ADD  CONSTRAINT [CK_STAFF_PROFILE_EMPLOYMENT_STATUS] CHECK  (([employmentStatus]='SUSPENDED' OR [employmentStatus]='INACTIVE' OR [employmentStatus]='ACTIVE'))
+GO
+ALTER TABLE [dbo].[STAFF_PROFILE] CHECK CONSTRAINT [CK_STAFF_PROFILE_EMPLOYMENT_STATUS]
+GO
+ALTER TABLE [dbo].[TICKET]  WITH CHECK ADD  CONSTRAINT [CK_TICKET_STATUS] CHECK  (([ticketStatus]='REFUNDED' OR [ticketStatus]='CANCELLED' OR [ticketStatus]='CHECKED_IN' OR [ticketStatus]='UNUSED' OR [ticketStatus]='GENERATED'))
+GO
+ALTER TABLE [dbo].[TICKET] CHECK CONSTRAINT [CK_TICKET_STATUS]
+GO
+ALTER TABLE [dbo].[USER]  WITH CHECK ADD  CONSTRAINT [CK_USER_STATUS] CHECK  (([status]='BANNED' OR [status]='INACTIVE' OR [status]='ACTIVE' OR [status]='PENDING_VERIFICATION'))
+GO
+ALTER TABLE [dbo].[USER] CHECK CONSTRAINT [CK_USER_STATUS]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_DATE_RANGE] CHECK  (([endDate]>[startDate]))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_DATE_RANGE]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_DISCOUNT_TYPE] CHECK  (([discountType]='PERCENT' OR [discountType]='AMOUNT'))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_DISCOUNT_TYPE]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_DISCOUNT_VALUE] CHECK  (([discountValue]>(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_DISCOUNT_VALUE]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_MAX_DISCOUNT_AMOUNT] CHECK  (([maxDiscountAmount] IS NULL OR [maxDiscountAmount]>(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_MAX_DISCOUNT_AMOUNT]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_MIN_ORDER_AMOUNT] CHECK  (([minOrderAmount] IS NULL OR [minOrderAmount]>=(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_MIN_ORDER_AMOUNT]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_PER_CUSTOMER_LIMIT] CHECK  (([perCustomerLimit] IS NULL OR [perCustomerLimit]>(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_PER_CUSTOMER_LIMIT]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_STATUS] CHECK  (([voucherStatus]='EXPIRED' OR [voucherStatus]='INACTIVE' OR [voucherStatus]='ACTIVE'))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_STATUS]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_USAGE_LIMIT] CHECK  (([usageLimit]>=(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_USAGE_LIMIT]
+GO
+ALTER TABLE [dbo].[VOUCHER]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_USED_COUNT] CHECK  (([usedCount]>=(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER] CHECK CONSTRAINT [CK_VOUCHER_USED_COUNT]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_USAGE_DISCOUNT_AMOUNT] CHECK  (([discountAmount]>=(0)))
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] CHECK CONSTRAINT [CK_VOUCHER_USAGE_DISCOUNT_AMOUNT]
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE]  WITH CHECK ADD  CONSTRAINT [CK_VOUCHER_USAGE_STATUS] CHECK  (([usageStatus]='CANCELLED' OR [usageStatus]='CONFIRMED' OR [usageStatus]='APPLIED'))
+GO
+ALTER TABLE [dbo].[VOUCHER_USAGE] CHECK CONSTRAINT [CK_VOUCHER_USAGE_STATUS]
+GO

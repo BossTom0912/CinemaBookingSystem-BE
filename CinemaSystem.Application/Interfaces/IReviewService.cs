@@ -13,6 +13,8 @@ public interface IReviewService
     Task<ServiceResult<List<ReviewResponse>>> GetApprovedMovieReviewsAsync(string movieId, CancellationToken cancellationToken = default);
     Task<ServiceResult<bool>> UpdateReviewStatusAsync(string reviewId, string status, CancellationToken cancellationToken = default);
     Task<ServiceResult<bool>> AdminApproveReviewAsync(string reviewId, string adminUserId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<bool>> AdminRejectReviewAsync(string reviewId, string adminUserId, string? reason = null, CancellationToken cancellationToken = default);
     Task<ServiceResult<List<ReviewResponse>>> GetCustomerReviewsAsync(string customerProfileId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<List<ReviewResponse>>> GetFlaggedReviewsAsync(CancellationToken cancellationToken = default);
     Task<string?> ProcessReviewModerationAsync(string reviewId, string userId, int rating, string comment);
 }
