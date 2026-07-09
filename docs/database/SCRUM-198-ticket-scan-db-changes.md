@@ -1,0 +1,69 @@
+# SCRUM-198 - Ticket Scan DB Changes
+
+## Purpose
+
+Support ticket check-in for Staff, Manager, and Admin without attributing an
+Admin scan to an unrelated Staff profile.
+
+## Schema changes
+
+Table: `CHECKIN_LOG`
+
+1. Add `scannedByUserId NVARCHAR(50) NOT NULL`.
+2. Add foreign key `FK_CHECKIN_LOG_SCANNED_BY_USER` to `USER(userId)`.
+3. Change `staffProfileId` from required to nullable.
+4. Add index
+   `IX_CHECKIN_LOG_SCANNED_BY_USER_TIME(scannedByUserId, scanTime)`.
+
+`scannedByUserId` is the canonical authenticated actor for every scan.
+`staffProfileId` remains populated for Staff/Manager when an active profile is
+available, but may be null for Admin.
+
+## Existing-data migration
+
+The patch backfills `scannedByUserId` from
+`CHECKIN_LOG.staffProfileId -> STAFF_PROFILE.userId`.
+
+The migration stops and rolls back if any existing row cannot be mapped to a
+user. It does not invent or assign a fallback administrator.
+
+## Deployment
+
+Run:
+
+```text
+docs/database/SCRUM-198-ticket-scan-patch.sql
+```
+
+The script is idempotent and safe to rerun. Apply it before deploying the API
+version that writes `scannedByUserId`.
+
+## Application configuration
+
+The deployment environment must provide:
+
+```json
+{
+  "TicketScanSettings": {
+    "OpenBeforeStartMinutes": "<PM/BA-approved value>",
+    "CloseAfterEndMinutes": "<PM/BA-approved value>"
+  }
+}
+```
+
+The application validates these values at startup. The code contains no
+fallback business window.
+
+## Role behavior
+
+- Staff: may scan only tickets for the cinema in the active Staff profile.
+- Manager: may scan only tickets for the managed cinema.
+- Admin: bypasses cinema scope but is still recorded through
+  `scannedByUserId`.
+- Customer: denied by the existing `CanScanTicket` policy.
+
+## Rollback note
+
+Do not remove `scannedByUserId` after the new API has started writing Admin
+scan logs. A rollback requires first ensuring every row has a valid
+`staffProfileId`.

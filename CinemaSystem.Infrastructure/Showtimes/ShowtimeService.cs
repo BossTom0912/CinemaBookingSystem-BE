@@ -15,16 +15,6 @@ using System.Security.Claims;
 
 namespace CinemaSystem.Infrastructure.Showtimes;
 
-/// <summary>
-/// Runtime showtime query/CRUD implementation reached from
-/// <c>ShowtimesController</c> and queried by <c>GeminiChatbotService</c>.
-/// </summary>
-/// <remarks>
-/// Uses MOVIE, CINEMA, ROOM, SEAT, SHOWTIME and SHOWTIME_SEAT through
-/// <c>CinemaDbContext</c>. Create/update validate availability and overlap;
-/// create generates per-showtime seats. Direct delete is allowed only before
-/// bookings/refunds exist and must not be confused with cancel/refund UC003.
-/// </remarks>
 public sealed class ShowtimeService : IShowtimeService
 {
     // Tập hợp các trạng thái suất chiếu hợp lệ (Không phân biệt hoa thường)
@@ -244,7 +234,7 @@ public sealed class ShowtimeService : IShowtimeService
 
         // create showtime immediately
         // Khởi tạo một ID duy nhất cho suất chiếu với tiền tố 'SHW'
-        var showtimeId = NewId("SHW");
+        var showtimeId = NewId(DomainConstants.EntityIdPrefix.Showtime);
         
         // Khởi tạo Entity suất chiếu mới
         var showtime = new Showtime
@@ -377,8 +367,8 @@ public sealed class ShowtimeService : IShowtimeService
                         // Tính chênh lệch thời gian giữa giờ chiếu cũ và mới (tính bằng phút)
                         var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
                         
-                        // Nếu giờ chiếu thay đổi từ 15 phút trở lên
-                        if (timeChanged && timeDiff >= 15)
+                        if (timeChanged
+                            && timeDiff >= _settings.ShowtimeMaterialChangeThresholdMinutes)
                         {
                             // Lấy secret key từ cấu hình bảo mật
                             var secret = _securitySettings.ConfirmationTokenSecret;
@@ -740,14 +730,16 @@ public sealed class ShowtimeService : IShowtimeService
             return ServiceResult<object>.Fail(409, "Showtime has refund history and cannot be permanently deleted.", "RESOURCE_HAS_REFUNDS");
         }
 
-        // Nếu thỏa mãn điều kiện an toàn, tiến hành xóa cứng các ShowtimeSeats của suất chiếu
-        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
-
-        // Nếu đã có bản ghi Hủy thì tiến hành xóa cả bản ghi Hủy
         if (existing.ShowtimeCancellation is not null)
         {
-            _dbContext.ShowtimeCancellations.Remove(existing.ShowtimeCancellation);
+            return ServiceResult<object>.Fail(
+                409,
+                "Showtime has cancellation history and cannot be permanently deleted.",
+                "RESOURCE_HAS_CANCELLATION_HISTORY");
         }
+
+        // Nếu thỏa mãn điều kiện an toàn, tiến hành xóa cứng các ShowtimeSeats của suất chiếu
+        _dbContext.ShowtimeSeats.RemoveRange(existing.ShowtimeSeats);
 
         // Tiến hành xóa cứng suất chiếu ra khỏi bảng Showtimes
         _dbContext.Showtimes.Remove(existing);
@@ -782,29 +774,15 @@ public sealed class ShowtimeService : IShowtimeService
             .ToList();
 
         // Định nghĩa lý do Hủy mặc định
-        var cancelReason = $"Showtime cancelled due to Admin update/delete.";
+        var cancelReason = DomainConstants.ShowtimeCancellationReason.AdministrativeUpdate;
         
-        // Cố gắng lấy UserId của người đang thao tác từ JWT Token
+        // Lấy UserId của người đang thao tác từ JWT Token.
         var userId = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         
-        // Nếu không lấy được hoặc chuỗi lỗi (string, user)
-        if (string.IsNullOrWhiteSpace(userId) || userId == "string" || userId == "user")
+        if (string.IsNullOrWhiteSpace(userId))
         {
-            // Chạy fallback lấy một tài khoản Admin đang hoạt động bất kỳ từ Database
-            var adminUser = await _dbContext.Users
-                .FirstOrDefaultAsync(u => u.Role.RoleName == AuthConstants.Roles.Admin && u.Status == DomainConstants.EntityStatus.Active, cancellationToken);
-                
-            // Nếu có admin
-            if (adminUser != null)
-            {
-                // Gán ID bằng Admin đó
-                userId = adminUser.UserId;
-            }
-            else
-            {
-                // Nếu không có admin nào, ném lỗi hệ thống không thể xử lý
-                throw new Exception("Invalid Bearer Token or no active Admin user found for cancelling showtime.");
-            }
+            throw new InvalidOperationException(
+                "An authenticated user is required to cancel a showtime.");
         }
 
         // Lấy thông tin bản ghi Hủy hiện tại (nếu có)
@@ -817,7 +795,7 @@ public sealed class ShowtimeService : IShowtimeService
             cancellation = new ShowtimeCancellation
             {
                 // Tạo ID cho bản ghi hủy (Tiền tố STC)
-                ShowtimeCancellationId = NewId("STC"),
+                ShowtimeCancellationId = NewId(DomainConstants.EntityIdPrefix.ShowtimeCancellation),
                 // Gán ID suất chiếu
                 ShowtimeId = showtime.ShowtimeId,
                 // Gán lý do
@@ -881,7 +859,7 @@ public sealed class ShowtimeService : IShowtimeService
             var refund = new Refund
             {
                 // Tạo ID mới tiền tố REF
-                RefundId = NewId("REF"),
+                RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
                 // Gán ID đơn hàng
                 BookingId = booking.BookingId,
                 // Gán ID giao dịch
@@ -910,7 +888,9 @@ public sealed class ShowtimeService : IShowtimeService
             {
                 // Lấy tiêu đề và nội dung email hủy từ cấu hình
                 string subject = _emailTemplates.ShowtimeCancellationSubject;
-                string message = _emailTemplates.ShowtimeCancellationBody;
+                string message = string.Format(
+                    _emailTemplates.ShowtimeCancellationBody,
+                    cancelReason);
                 
                 // Đẩy tiến trình gửi Email vào Hangfire
                 _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
@@ -1126,7 +1106,7 @@ public sealed class ShowtimeService : IShowtimeService
         var showtimeSeat = new ShowtimeSeat
         {
             // ID của ghế (prefix STS)
-            ShowtimeSeatId = NewId("STS"),
+            ShowtimeSeatId = NewId(DomainConstants.EntityIdPrefix.ShowtimeSeat),
             // ID suất chiếu
             ShowtimeId = showtimeId,
             // ID thực tế của ghế cứng

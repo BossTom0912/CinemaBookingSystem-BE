@@ -9,6 +9,6 @@ public partial class ChatHistory
     public string UserMessage { get; set; } = null!;
     public string AiReplyMessage { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
-    
+
     public virtual User? User { get; set; }
 }

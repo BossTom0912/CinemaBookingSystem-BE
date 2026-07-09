@@ -347,15 +347,33 @@ public sealed class ControllerMoqCoverageTests
     public async Task Movies_GetMoviesAndDetail_ReturnSuccessAndNotFound()
     {
         var service = new Mock<IMovieService>(MockBehavior.Strict);
-        service.Setup(x => x.GetMoviesAsync("NOW_SHOWING", It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ServiceResult<IReadOnlyList<MovieResponse>>.Ok(
-                [new MovieResponse { Id = "MOV_1", MovieNameVn = "Movie" }]));
+        service.Setup(x => x.GetMoviesAsync(
+                "NOW_SHOWING",
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ServiceResult<PagedList<MovieResponse>>.Ok(
+                new PagedList<MovieResponse>(
+                    [new MovieResponse { Id = "MOV_1", MovieNameVn = "Movie" }],
+                    1,
+                    1,
+                    10)));
         service.Setup(x => x.GetMovieByIdAsync("missing", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<MovieDetailResponse>.Fail(StatusCodes.Status404NotFound, "Movie not found.", "MOVIE_NOT_FOUND"));
         var controller = new MoviesController(service.Object);
 
-        var movies = AssertApiResponse<IReadOnlyList<MovieResponse>>(await controller.GetMovies("NOW_SHOWING", 1, 10, false, CancellationToken.None), StatusCodes.Status200OK, true);
-        Assert.Single(movies.Data!);
+        var movies = AssertApiResponse<PagedList<MovieResponse>>(
+            await controller.GetMovies(
+                "NOW_SHOWING",
+                null,
+                1,
+                10,
+                CancellationToken.None),
+            StatusCodes.Status200OK,
+            true);
+        Assert.Single(movies.Data!.Items);
         var missing = AssertApiResponse<MovieDetailResponse>(await controller.GetMovieById("missing", CancellationToken.None), StatusCodes.Status404NotFound, false);
         Assert.Equal("MOVIE_NOT_FOUND", missing.ErrorCode);
         service.VerifyAll();
@@ -365,7 +383,10 @@ public sealed class ControllerMoqCoverageTests
     public async Task Rooms_AllEndpoints_ForwardRequestsAndMapStatuses()
     {
         var service = new Mock<IRoomService>(MockBehavior.Strict);
-        service.Setup(x => x.GetRoomsAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        service.Setup(x => x.GetRoomsAsync(
+                It.IsAny<string?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<IReadOnlyList<RoomResponse>>.Ok([new RoomResponse { RoomId = "ROOM_1" }]));
         service.Setup(x => x.GetRoomByIdAsync("missing", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<RoomResponse>.Fail(StatusCodes.Status404NotFound, "Room not found.", "ROOM_NOT_FOUND"));
@@ -377,7 +398,9 @@ public sealed class ControllerMoqCoverageTests
             .ReturnsAsync(ServiceResult<object>.Fail(StatusCodes.Status409Conflict, "Room has future showtimes.", "ROOM_IN_USE"));
         service.Setup(x => x.GenerateSeatsAsync("ROOM_2", It.Is<GenerateSeatsRequest>(r => r.Rows == 2 && r.Columns == 3), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<object>.Ok(null, "Seats generated."));
-        var controller = new RoomsController(service.Object);
+        var controller = WithUser(
+            new RoomsController(service.Object, AllowAllCinemaScope().Object),
+            new Claim(ClaimTypes.NameIdentifier, "USR_MANAGER"));
 
         Assert.Single(AssertApiResponse<IReadOnlyList<RoomResponse>>(await controller.GetRooms(false, CancellationToken.None), StatusCodes.Status200OK, true).Data!);
         AssertApiResponse<RoomResponse>(await controller.GetRoomById("missing", false, CancellationToken.None), StatusCodes.Status404NotFound, false);
@@ -402,7 +425,7 @@ public sealed class ControllerMoqCoverageTests
             .ReturnsAsync(ServiceResult<ShowtimeResponse>.Ok(new ShowtimeResponse { ShowtimeId = "ST_2", Status = "CLOSED" }));
         service.Setup(x => x.DeleteShowtimeAsync("ST_2", It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<object>.Fail(StatusCodes.Status409Conflict, "Showtime has bookings.", "SHOWTIME_IN_USE"));
-        var controller = new ShowtimesController(service.Object);
+        var controller = new ShowtimesController(service.Object, AllowAllCinemaScope().Object);
 
         Assert.Single(AssertApiResponse<IReadOnlyList<ShowtimeResponse>>(await controller.GetShowtimes(CancellationToken.None), StatusCodes.Status200OK, true).Data!);
         AssertApiResponse<ShowtimeResponse>(await controller.GetShowtimeById("missing", CancellationToken.None), StatusCodes.Status404NotFound, false);
@@ -426,7 +449,9 @@ public sealed class ControllerMoqCoverageTests
             .ReturnsAsync(ServiceResult<IEnumerable<SeatResponse>>.Ok([new SeatResponse { SeatId = "SEAT_1", RoomId = "ROOM_1" }]));
         service.Setup(x => x.GetSeatMapAsync("ST_1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<SeatMapResponse>.Ok(new SeatMapResponse { ShowtimeId = "ST_1" }));
-        var controller = WithUser(new SeatsController(service.Object), new Claim("userId", "USR_MANAGER"));
+        var controller = WithUser(
+            new SeatsController(service.Object, AllowAllCinemaScope().Object),
+            new Claim("userId", "USR_MANAGER"));
 
         AssertApiResponse<bool>(await controller.CreateSeatRequest(new CreateSeatRequest { RoomId = "ROOM_1", RowLabel = "A", SeatNumber = 1, SeatTypeId = "STD" }, CancellationToken.None), StatusCodes.Status201Created, true);
         AssertApiResponse<bool>(await controller.UpdateSeat("SEAT_1", new UpdateSeatRequest { RowLabel = "A", SeatNumber = 2, SeatTypeId = "STD" }, CancellationToken.None), StatusCodes.Status200OK, true);
@@ -448,7 +473,9 @@ public sealed class ControllerMoqCoverageTests
                 StatusCodes.Status409Conflict,
                 "Seat is locked.",
                 "SEAT_LOCKED"));
-        var controller = WithUser(new SeatsController(service.Object), new Claim("sub", "USR_CUSTOMER"));
+        var controller = WithUser(
+            new SeatsController(service.Object, AllowAllCinemaScope().Object),
+            new Claim("sub", "USR_CUSTOMER"));
 
         var result = await controller.LockSeat(
             new LockSeatRequest { ShowtimeId = "ST_1", SeatId = "SEAT_1" },
@@ -518,6 +545,42 @@ public sealed class ControllerMoqCoverageTests
             HttpContext = new DefaultHttpContext()
         };
         return controller;
+    }
+
+    private static Mock<ICinemaScopeAuthorizationService> AllowAllCinemaScope()
+    {
+        var scope = new Mock<ICinemaScopeAuthorizationService>(MockBehavior.Strict);
+        scope
+            .Setup(x => x.GetUserCinemaScopeAsync(
+                It.IsAny<ClaimsPrincipal>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CinemaScopeAuthorizationResult.Allow());
+        scope
+            .Setup(x => x.AuthorizeCinemaAsync(
+                It.IsAny<ClaimsPrincipal>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CinemaScopeAuthorizationResult.Allow());
+        scope
+            .Setup(x => x.AuthorizeRoomAsync(
+                It.IsAny<ClaimsPrincipal>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CinemaScopeAuthorizationResult.Allow());
+        scope
+            .Setup(x => x.AuthorizeSeatAsync(
+                It.IsAny<ClaimsPrincipal>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CinemaScopeAuthorizationResult.Allow());
+        scope
+            .Setup(x => x.AuthorizeShowtimeAsync(
+                It.IsAny<ClaimsPrincipal>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CinemaScopeAuthorizationResult.Allow());
+
+        return scope;
     }
 
     private static ApiResponse<T> AssertApiResponse<T>(

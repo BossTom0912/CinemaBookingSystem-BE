@@ -33,6 +33,8 @@ public partial class User
 
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
+    public virtual ICollection<CheckinLog> CheckinLogs { get; set; } = new List<CheckinLog>();
+
     public virtual CustomerProfile? CustomerProfile { get; set; }
 
     public virtual ICollection<EmailVerificationToken> EmailVerificationTokens { get; set; } = new List<EmailVerificationToken>();
@@ -48,4 +50,8 @@ public partial class User
     public virtual ICollection<ShowtimeSeat> ShowtimeSeats { get; set; } = new List<ShowtimeSeat>();
 
     public virtual StaffProfile? StaffProfile { get; set; }
+
+    public virtual ICollection<ManualRefundProcess> AssignedManualRefundProcesses { get; set; } = new List<ManualRefundProcess>();
+
+    public virtual ICollection<CustomerRefundRequest> ProcessedCustomerRefundRequests { get; set; } = new List<CustomerRefundRequest>();
 }

@@ -63,7 +63,7 @@ public sealed class RoomShowtimeServiceTests
     }
 
     [Fact]
-    public async Task CreateShowtime_OverlappingSameRoom_ReturnsBadRequest()
+    public async Task CreateShowtime_OverlappingSameRoom_ReturnsConflict()
     {
         var fixture = Fixture.Create();
         await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
@@ -90,7 +90,7 @@ public sealed class RoomShowtimeServiceTests
 
         Assert.True(first.Success);
         Assert.False(overlapping.Success);
-        Assert.Equal(400, overlapping.StatusCode);
+        Assert.Equal(409, overlapping.StatusCode);
         Assert.Equal("SHOWTIME_OVERLAP", overlapping.ErrorCode);
         Assert.Single(await fixture.DbContext.Showtimes.ToListAsync());
         Assert.Equal(10, await fixture.DbContext.ShowtimeSeats.CountAsync());
@@ -173,11 +173,11 @@ public sealed class RoomShowtimeServiceTests
         });
         await fixture.DbContext.SaveChangesAsync();
 
-        var result = await fixture.RoomService.GetRoomsAsync(CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomsAsync(null, false, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Single(result.Data!);
-        Assert.Equal("ROOM_TEST", result.Data[0].RoomId);
+        Assert.Equal("ROOM_TEST", result.Data![0].RoomId);
     }
 
     [Fact]
@@ -187,7 +187,10 @@ public sealed class RoomShowtimeServiceTests
         var fixture = Fixture.Create();
         await fixture.SeedCinemaMovieAndRoomWithSeatsAsync();
 
-        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomByIdAsync(
+            "ROOM_TEST",
+            false,
+            CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal("Room Test", result.Data!.RoomName);
@@ -204,7 +207,10 @@ public sealed class RoomShowtimeServiceTests
         room.RoomStatus = "INACTIVE";
         await fixture.DbContext.SaveChangesAsync();
 
-        var result = await fixture.RoomService.GetRoomByIdAsync("ROOM_TEST", CancellationToken.None);
+        var result = await fixture.RoomService.GetRoomByIdAsync(
+            "ROOM_TEST",
+            false,
+            CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(404, result.StatusCode);
@@ -365,8 +371,28 @@ public sealed class RoomShowtimeServiceTests
             var dbContext = new CinemaDbContext(options);
             var mockClock = new Moq.Mock<IClock>();
             mockClock.Setup(c => c.UtcNow).Returns(new DateTime(2026, 6, 1, 1, 0, 0, DateTimeKind.Utc));
-            var roomService = new RoomService(dbContext, new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object);
-            var showtimeService = new ShowtimeService(dbContext, mockClock.Object, Microsoft.Extensions.Options.Options.Create(new CinemaSystem.Application.Settings.CinemaProcessingSettings()), new Moq.Mock<Hangfire.IBackgroundJobClient>().Object, new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object);
+            var processingOptions = Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.CinemaProcessingSettings());
+            var securityOptions = Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.SecuritySettings
+                {
+                    ConfirmationTokenSecret =
+                        "unit-test-confirmation-secret-with-at-least-32-characters"
+                });
+            var templateOptions = Microsoft.Extensions.Options.Options.Create(
+                new CinemaSystem.Application.Settings.EmailTemplatesSettings());
+            var roomService = new RoomService(
+                dbContext,
+                new Moq.Mock<CinemaSystem.Application.Interfaces.IAdminRefundService>().Object,
+                processingOptions);
+            var showtimeService = new ShowtimeService(
+                dbContext,
+                mockClock.Object,
+                processingOptions,
+                securityOptions,
+                templateOptions,
+                new Moq.Mock<Hangfire.IBackgroundJobClient>().Object,
+                new Moq.Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object);
             return new Fixture(dbContext, roomService, showtimeService);
         }
 

@@ -1,14 +1,20 @@
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
+using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Email;
 
 public sealed class SmtpEmailServiceAdapter : IEmailService
 {
     private readonly IEmailSender _emailSender;
+    private readonly EmailTemplatesSettings _templates;
 
-    public SmtpEmailServiceAdapter(IEmailSender emailSender)
+    public SmtpEmailServiceAdapter(
+        IEmailSender emailSender,
+        IOptions<EmailTemplatesSettings> templateOptions)
     {
         _emailSender = emailSender;
+        _templates = templateOptions.Value;
     }
 
     public Task SendEmailAsync(string toEmail, string subject, string body, CancellationToken cancellationToken)
@@ -18,19 +24,11 @@ public sealed class SmtpEmailServiceAdapter : IEmailService
 
     public Task SendInvitationAsync(string toEmail, string invitationToken, CancellationToken cancellationToken)
     {
-        var body = $"""
-            Hello,
-
-            You have been invited to join Cinema Booking as staff.
-
-            Use this invitation code to set your password: {invitationToken}
-
-            If you did not expect this invitation, please ignore this email.
-            """;
+        var body = string.Format(_templates.StaffInvitationBody, invitationToken);
 
         return _emailSender.SendEmailAsync(
             toEmail,
-            "Cinema Booking - Staff Invitation",
+            _templates.StaffInvitationSubject,
             body,
             cancellationToken);
     }

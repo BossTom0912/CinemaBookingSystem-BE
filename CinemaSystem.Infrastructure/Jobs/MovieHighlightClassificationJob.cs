@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,15 +28,17 @@ public class MovieHighlightClassificationJob : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation("MovieHighlightClassificationJob running at: {time}", DateTimeOffset.Now);
-
             try
             {
                 using var scope = _serviceProvider.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+                var clock = scope.ServiceProvider.GetRequiredService<IClock>();
+                _logger.LogInformation(
+                    "MovieHighlightClassificationJob running at: {Time}",
+                    clock.UtcNow);
 
                 var movies = await dbContext.Movies.ToListAsync(stoppingToken);
-                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                var today = DateOnly.FromDateTime(clock.UtcNow);
 
                 var maxViews = movies.Any() ? movies.Max(m => m.ViewCount) : 0;
 
@@ -51,7 +54,8 @@ public class MovieHighlightClassificationJob : BackgroundService
                     {
                         newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.ComingSoon;
                     }
-                    else if (movie.ReleaseDate <= today && movie.ReleaseDate > today.AddDays(-14))
+                    else if (movie.ReleaseDate <= today
+                        && movie.ReleaseDate > today.AddDays(-_settings.MovieNewReleaseWindowDays))
                     {
                         newHighlight = CinemaSystem.Domain.Constants.DomainConstants.MovieHighlight.New;
                     }
@@ -74,8 +78,9 @@ public class MovieHighlightClassificationJob : BackgroundService
                 _logger.LogError(ex, "Error occurred executing Movie Highlight Classification");
             }
 
-            // Runs every 1 hour
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            await Task.Delay(
+                TimeSpan.FromMinutes(_settings.MovieClassificationIntervalMinutes),
+                stoppingToken);
         }
     }
 }

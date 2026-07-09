@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Contracts.Showtimes;
 
@@ -19,5 +20,5 @@ public sealed class CreateShowtimeRequest
     public decimal BasePrice { get; init; }
 
     [MaxLength(30)]
-    public string Status { get; init; } = "OPEN";
+    public string Status { get; init; } = DomainConstants.ShowtimeStatus.Open;
 }

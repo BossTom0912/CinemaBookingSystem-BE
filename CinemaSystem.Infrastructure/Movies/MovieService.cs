@@ -1,5 +1,6 @@
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Movies;
 using CinemaSystem.Domain.Constants;
@@ -15,28 +16,26 @@ using System.Threading.Tasks;
 
 namespace CinemaSystem.Infrastructure.Movies;
 
-/// <summary>
-/// Runtime movie-query implementation reached from <c>MoviesController</c> and
-/// reused by <c>GeminiChatbotService</c>.
-/// </summary>
-/// <remarks>
-/// Queries MOVIE with no tracking, applies public visibility rules, projects to
-/// Contracts DTOs, and returns the result to callers through
-/// <c>ServiceResult</c>. Movie administration is not implemented here.
-/// </remarks>
 public sealed class MovieService : IMovieService
 {
     private readonly CinemaDbContext _dbContext;
     private readonly IAdminRefundService _refundService;
     private readonly IFileStorageService _fileStorageService;
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
+    private readonly FileStorageSettings _fileStorageSettings;
 
-    public MovieService(CinemaDbContext dbContext, IAdminRefundService refundService, IFileStorageService? fileStorageService = null, Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings>? options = null)
+    public MovieService(
+        CinemaDbContext dbContext,
+        IAdminRefundService refundService,
+        IFileStorageService fileStorageService,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options,
+        Microsoft.Extensions.Options.IOptions<FileStorageSettings> fileStorageOptions)
     {
         _dbContext = dbContext;
         _refundService = refundService;
-        _fileStorageService = fileStorageService!;
-        _settings = options?.Value ?? new CinemaSystem.Application.Settings.CinemaProcessingSettings();
+        _fileStorageService = fileStorageService;
+        _settings = options.Value;
+        _fileStorageSettings = fileStorageOptions.Value;
     }
 
     public async Task<ServiceResult<PagedList<MovieResponse>>> GetMoviesAsync(
@@ -371,7 +370,7 @@ public sealed class MovieService : IMovieService
         }
 
         // Tạo ID mới cho bộ phim với tiền tố MOV_
-        var movieId = "MOV_" + Guid.NewGuid().ToString("N");
+        var movieId = $"{DomainConstants.EntityIdPrefix.Movie}_{Guid.NewGuid():N}";
 
         // Khởi tạo biến lưu đường dẫn poster
         string? posterUrl = null;
@@ -379,7 +378,11 @@ public sealed class MovieService : IMovieService
         if (posterStream != null && !string.IsNullOrWhiteSpace(posterFileName))
         {
             // Lưu file ảnh poster qua dịch vụ lưu trữ (S3/Local) và nhận về URL
-            posterUrl = await _fileStorageService.SaveFileAsync(posterStream, posterFileName, "posters", cancellationToken);
+            posterUrl = await _fileStorageService.SaveFileAsync(
+                posterStream,
+                posterFileName,
+                _fileStorageSettings.PosterFolder,
+                cancellationToken);
         }
 
         // Tạo mới đối tượng Movie Entity với các thông tin đã chuẩn bị
@@ -426,8 +429,16 @@ public sealed class MovieService : IMovieService
             throw; // Ném lỗi lên trên để Middleware quản lý lỗi xử lý
         }
 
+        var createdMovie = await _dbContext.Movies
+            .AsNoTracking()
+            .Include(item => item.MovieGenres)
+                .ThenInclude(item => item.Genre)
+            .SingleAsync(item => item.MovieId == movieId, cancellationToken);
+
         // Trả về kết quả thành công cùng thông tin chi tiết phim vừa tạo
-        return ServiceResult<MovieDetailResponse>.Ok(ToDetailResponse(movie), "Movie created successfully.");
+        return ServiceResult<MovieDetailResponse>.Ok(
+            ToDetailResponse(createdMovie),
+            "Movie created successfully.");
     }
 
     public async Task<ServiceResult<MovieDetailResponse>> UpdateMovieAsync(
@@ -501,13 +512,16 @@ public sealed class MovieService : IMovieService
         // Kiểm tra xem thời lượng phim (Duration) có bị thay đổi không
         if (movie.DurationMinutes != request.DurationMinutes)
         {
-            // O phan update chi duoc chinh sua thoi luong phim khi khong co showtime
+            // Chỉ được chỉnh sửa thời lượng phim khi không có showtime
             var hasShowtimes = await _dbContext.Showtimes
                 .AnyAsync(s => s.MovieId == movieId, cancellationToken);
 
             if (hasShowtimes)
             {
-                return ServiceResult<MovieDetailResponse>.Fail(400, "Không thể thay đổi thời lượng phim vì phim đã có lịch chiếu.", "DURATION_CANNOT_BE_CHANGED_HAS_SHOWTIMES");
+                return ServiceResult<MovieDetailResponse>.Fail(
+                    400,
+                    DomainConstants.MovieErrorMessage.DurationCannotChangeHasShowtimes,
+                    DomainConstants.MovieErrorCode.DurationCannotChangeHasShowtimes);
             }
         }
 
@@ -521,7 +535,11 @@ public sealed class MovieService : IMovieService
                 await _fileStorageService.DeleteFileAsync(movie.PosterUrl, cancellationToken);
             }
             // Lưu ảnh poster mới và lấy URL
-            movie.PosterUrl = await _fileStorageService.SaveFileAsync(posterStream, posterFileName, "posters", cancellationToken);
+            movie.PosterUrl = await _fileStorageService.SaveFileAsync(
+                posterStream,
+                posterFileName,
+                _fileStorageSettings.PosterFolder,
+                cancellationToken);
         }
         else if (request.PosterUrl != null) 
         {

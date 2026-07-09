@@ -29,6 +29,10 @@ public partial class CustomerProfile
 
     public virtual ICollection<RewardPointTransaction> RewardPointTransactions { get; set; } = new List<RewardPointTransaction>();
 
+    public virtual ICollection<RefundClaim> RefundClaims { get; set; } = new List<RefundClaim>();
+
+    public virtual ICollection<CustomerRefundRequest> CustomerRefundRequests { get; set; } = new List<CustomerRefundRequest>();
+
     public virtual User User { get; set; } = null!;
 
     public virtual ICollection<VoucherUsage> VoucherUsages { get; set; } = new List<VoucherUsage>();

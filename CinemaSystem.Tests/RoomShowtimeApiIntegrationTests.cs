@@ -184,6 +184,7 @@ public sealed class RoomShowtimeApiIntegrationTests
     });
     db.SeatTypes.Add(new SeatType { SeatTypeId = "SEAT_TYPE_STANDARD", TypeName = "STANDARD", ExtraFee = 0 });
     await db.SaveChangesAsync();
+    await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_E2E");
   }
 
   private static async Task SeedBaseDataWithSeatsAsync(CinemaWebApplicationFactory factory)

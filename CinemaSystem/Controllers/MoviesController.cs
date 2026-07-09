@@ -35,8 +35,8 @@ public sealed class MoviesController : ControllerBase
     public async Task<IActionResult> GetMovies(
         [FromQuery] string? status,
         [FromQuery] string? genre,
-        [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 10,
+        [FromQuery] int pageIndex = PaginationDefaults.FirstPageIndex,
+        [FromQuery] int pageSize = PaginationDefaults.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
         bool includeDeleted = User?.IsInRole(AuthConstants.Roles.Admin) == true || User?.IsInRole(AuthConstants.Roles.Manager) == true;
@@ -130,7 +130,7 @@ public sealed class MoviesController : ControllerBase
     private string GetUserId()
     {
         return User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("userId")?.Value
+            ?? User.FindFirst(AuthConstants.Claims.UserId)?.Value
             ?? string.Empty;
     }
 }

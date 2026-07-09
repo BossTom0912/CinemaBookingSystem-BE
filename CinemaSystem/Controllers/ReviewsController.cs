@@ -41,7 +41,7 @@ public sealed class ReviewsController : ControllerBase
         [FromBody] CreateReviewRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        var userIdClaim = User.FindFirst(AuthConstants.Claims.UserId) ?? User.FindFirst(ClaimTypes.NameIdentifier);
         if (userIdClaim == null)
             return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
 
@@ -65,7 +65,7 @@ public sealed class ReviewsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<ReviewResponse>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCustomerReviews(CancellationToken cancellationToken)
     {
-        var userIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        var userIdClaim = User.FindFirst(AuthConstants.Claims.UserId) ?? User.FindFirst(ClaimTypes.NameIdentifier);
         if (userIdClaim == null)
             return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
 
@@ -81,7 +81,7 @@ public sealed class ReviewsController : ControllerBase
         [FromBody] UpdateReviewRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        var userIdClaim = User.FindFirst(AuthConstants.Claims.UserId) ?? User.FindFirst(ClaimTypes.NameIdentifier);
         if (userIdClaim == null)
             return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
 
@@ -96,7 +96,7 @@ public sealed class ReviewsController : ControllerBase
         [FromRoute] string reviewId,
         CancellationToken cancellationToken)
     {
-        var adminIdClaim = User.FindFirst("userId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+        var adminIdClaim = User.FindFirst(AuthConstants.Claims.UserId) ?? User.FindFirst(ClaimTypes.NameIdentifier);
         if (adminIdClaim == null)
             return Unauthorized(ApiResponse<object>.Fail("Unauthorized", "UNAUTHORIZED"));
 

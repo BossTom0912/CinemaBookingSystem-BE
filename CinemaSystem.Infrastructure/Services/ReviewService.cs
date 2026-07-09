@@ -105,7 +105,7 @@ public class ReviewService : IReviewService
         var review = new Review
         {
             // Sinh ID ngẫu nhiên cho bài đánh giá
-            ReviewId = Guid.NewGuid().ToString(),
+            ReviewId = $"{DomainConstants.EntityIdPrefix.Review}_{Guid.NewGuid():N}",
             // Liên kết với Hồ sơ khách hàng
             CustomerProfileId = customerProfile.CustomerProfileId,
             // Liên kết với Phim được đánh giá
@@ -176,10 +176,12 @@ public class ReviewService : IReviewService
         if (review == null)
             return ServiceResult<ReviewResponse>.Fail(404, "Review not found.", "REVIEW_NOT_FOUND");
 
-        // Kiểm tra xem người dùng đã hết số lần sửa cho phép chưa (tối đa 1 lần)
-        if (review.EditCount >= 1)
+        if (review.EditCount >= _settings.ReviewMaxEditCount)
         {
-            return ServiceResult<ReviewResponse>.Fail(400, "Bạn chỉ được phép chỉnh sửa bình luận 1 lần duy nhất!", "EDIT_LIMIT_EXCEEDED");
+            return ServiceResult<ReviewResponse>.Fail(
+                400,
+                $"Bạn chỉ được phép chỉnh sửa bình luận tối đa {_settings.ReviewMaxEditCount} lần.",
+                "EDIT_LIMIT_EXCEEDED");
         }
 
         // Tăng bộ đếm số lần sửa lên 1
@@ -312,7 +314,7 @@ public class ReviewService : IReviewService
                         { 
                             IsBlockedOrFailed = true, 
                             StatusCode = 400, 
-                            Message = $"{aiResponse.ModeratorMessage} Đây là lời cảnh báo. Nếu vi phạm lần nữa, tài khoản của bạn sẽ bị khóa {_settings.ReviewSpamLockoutWarningDays} ngày!",
+                            Message = $"{aiResponse.ModeratorMessage} Đây là lời cảnh báo. Nếu vi phạm lần nữa, tài khoản của bạn sẽ bị khóa {_settings.ReviewSpamLockoutMinutes} phút!",
                             AiResult = aiResponse
                         };
                     }

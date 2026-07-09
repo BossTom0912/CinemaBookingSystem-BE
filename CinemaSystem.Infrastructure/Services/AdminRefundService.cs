@@ -86,7 +86,7 @@ public class AdminRefundService : IAdminRefundService
             {
                 // Tính toán số phút còn lại cho đến khi suất chiếu bắt đầu
                 var timeUntilShowtime = (showtime.StartTime - now).TotalMinutes;
-                
+
                 // Nếu không ép buộc hủy và thời gian còn lại nhỏ hơn thời gian khóa quy định (30 phút)
                 if (!forceCancel && timeUntilShowtime < _settings.PreShowtimeBlockingMinutes)
                 {
@@ -94,7 +94,7 @@ public class AdminRefundService : IAdminRefundService
                     showtime.Status = DomainConstants.EntityStatus.ProcessingUnstable;
                     // Lấy danh sách các đặt vé đã thanh toán hoặc đã hoàn tất
                     var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Completed || b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
-                    
+
                     // Duyệt qua từng vé đã thanh toán để xử lý gửi thông báo
                     foreach (var booking in paidBookings)
                     {
@@ -110,15 +110,15 @@ public class AdminRefundService : IAdminRefundService
                         }
                     }
                     // Bỏ qua các bước hủy tiếp theo cho suất chiếu này
-                    continue; 
+                    continue;
                 }
 
                 // Lấy danh sách các đặt vé ĐÃ THANH TOÁN thành công (loại bỏ dữ liệu rác không có Payment)
                 var bookings = showtime.Bookings.Where(b => (b.BookingStatus == DomainConstants.EntityStatus.Completed || b.BookingStatus == DomainConstants.EntityStatus.Paid) && b.Payments.Any()).ToList();
-                
+
                 // Kiểm tra xem lịch chiếu này đã có bản ghi Hủy trong database chưa
                 var cancellation = await _dbContext.ShowtimeCancellations.FirstOrDefaultAsync(c => c.ShowtimeId == showtime.ShowtimeId, cancellationToken);
-                
+
                 // Nếu chưa có bản ghi Hủy
                 if (cancellation == null)
                 {
@@ -126,7 +126,8 @@ public class AdminRefundService : IAdminRefundService
                     cancellation = new ShowtimeCancellation
                     {
                         // Tạo ID ngẫu nhiên
-                        ShowtimeCancellationId = "STC_" + Guid.NewGuid().ToString("N"),
+                        ShowtimeCancellationId =
+                            $"{DomainConstants.EntityIdPrefix.ShowtimeCancellation}_{Guid.NewGuid():N}",
                         // Gán ID suất chiếu bị hủy
                         ShowtimeId = showtime.ShowtimeId,
                         // Lưu lại lý do hủy
@@ -134,7 +135,7 @@ public class AdminRefundService : IAdminRefundService
                         // Ghi nhận thời điểm hủy
                         CancelledAt = now,
                         // Ghi nhận ID của nhân viên/quản trị viên thực hiện hành động hủy
-                        CancelledByUserId = actionUserId, 
+                        CancelledByUserId = actionUserId,
                     };
                     // Đưa đối tượng Hủy vào tracking của EF Core DbContext
                     _dbContext.ShowtimeCancellations.Add(cancellation);
@@ -145,16 +146,16 @@ public class AdminRefundService : IAdminRefundService
                 {
                     // Đổi trạng thái vé thành "Chờ hoàn tiền" (REFUND_PENDING)
                     booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
-                    
+
                     // Kiểm tra xem vé này đã có yêu cầu hoàn tiền nào trước đó chưa
                     var existingRefund = await _dbContext.Refunds.FirstOrDefaultAsync(r => r.BookingId == booking.BookingId, cancellationToken);
-                    
+
                     // Nếu chưa từng có yêu cầu hoàn tiền
                     if (existingRefund == null)
                     {
                         // Tìm bản ghi thanh toán hợp lệ nhất (ưu tiên trạng thái Success)
                         var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.PaymentStatus.Success) ?? booking.Payments.FirstOrDefault();
-                        
+
                         if (payment == null)
                         {
                             payment = await _dbContext.Payments
@@ -179,7 +180,8 @@ public class AdminRefundService : IAdminRefundService
                         var refund = new Refund
                         {
                             // Tạo ID hoàn tiền tự động
-                            RefundId = "REF_" + Guid.NewGuid().ToString("N"),
+                            RefundId =
+                                $"{DomainConstants.EntityIdPrefix.Refund}_{Guid.NewGuid():N}",
                             // Map với ID của Booking
                             BookingId = booking.BookingId,
                             // Map chính xác ID giao dịch thanh toán (Khắc phục lỗi FK_REFUND_PAYMENT)
@@ -249,7 +251,7 @@ public class AdminRefundService : IAdminRefundService
             // Lưu toàn bộ thay đổi ở cấp Database (Transaction Commit)
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            
+
             // Trả về thành công
             return ServiceResult<bool>.Ok(true, "Showtimes cancelled and refunds prepared successfully.");
         }
@@ -358,7 +360,7 @@ public class AdminRefundService : IAdminRefundService
 
         // Kiểm tra nếu không tìm thấy Booking
         if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
-        
+
         // Kiểm tra nếu trạng thái của Booking không phải là Đang chờ hoàn tiền
         if (booking.BookingStatus != DomainConstants.EntityStatus.PendingRefund) return ServiceResult<bool>.Fail(400, "Booking is not pending refund.", "INVALID_STATUS");
 
@@ -367,7 +369,7 @@ public class AdminRefundService : IAdminRefundService
 
         // Tìm kiếm bản ghi hoàn tiền cụ thể đang ở trạng thái PENDING
         var refund = booking.Refunds.FirstOrDefault(r => r.RefundStatus == DomainConstants.RefundStatus.Pending);
-        
+
         // Nếu tìm thấy bản ghi hoàn tiền đó
         if (refund != null)
         {
@@ -379,7 +381,7 @@ public class AdminRefundService : IAdminRefundService
 
         // Lưu thay đổi vào Cơ sở dữ liệu (Commit Transaction)
         await _dbContext.SaveChangesAsync(cancellationToken);
-        
+
         // Trả về kết quả hoàn tất tác vụ cho Controller
         return ServiceResult<bool>.Ok(true, "Refund confirmed successfully.");
     }

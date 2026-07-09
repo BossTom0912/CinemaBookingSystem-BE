@@ -82,13 +82,21 @@ public class GeminiModerationService : IAiModerationService
         };
 
         // Gắn API Key vào chuỗi định tuyến để gọi tới mô hình Gemini-3.1-flash-lite
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={_settings.ApiKey}";
+        var url =
+            $"{_settings.ApiBaseUrl.TrimEnd('/')}/{Uri.EscapeDataString(_settings.Model)}:generateContent";
 
         // Bắt đầu một khối lệnh thực thi an toàn để theo dõi và xử lý lỗi
         try
         {
             // Thực thi yêu cầu POST qua mạng tới hệ thống Google AI
-            var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = JsonContent.Create(payload)
+            };
+            httpRequest.Headers.TryAddWithoutValidation(
+                GeminiSettings.ApiKeyHeaderName,
+                _settings.ApiKey);
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
 
             // Kiểm tra HTTP Status xem quá trình xử lý có thất bại hay không
             if (!response.IsSuccessStatusCode)

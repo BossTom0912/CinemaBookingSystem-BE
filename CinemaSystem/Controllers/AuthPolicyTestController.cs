@@ -41,7 +41,7 @@ public sealed class AuthPolicyTestController : ControllerBase
     {
         return new UserProfileResponse
         {
-            UserId = User.FindFirst("userId")?.Value ?? string.Empty,
+            UserId = User.FindFirst(AuthConstants.Claims.UserId)?.Value ?? string.Empty,
             Email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? string.Empty,
             FullName = User.Identity?.Name ?? string.Empty,
             Role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? string.Empty
