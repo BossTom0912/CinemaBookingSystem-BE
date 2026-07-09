@@ -91,9 +91,9 @@ public sealed class AuthApiIntegrationTests
   }
 
   [Fact]
-  public async Task Register_PasswordTooShort_ReturnsValidationError()
+  public async Task Register_PasswordTooShort_ReturnsWeakPassword()
   {
-    // Luồng: password duoi 8 ky tu → model validation controller → HTTP 400 VALIDATION_ERROR.
+    // Độ dài mật khẩu được kiểm tra bằng AuthSettings tại runtime.
     await using var factory = new CinemaWebApplicationFactory();
     using var client = factory.CreateClient();
 
@@ -106,7 +106,7 @@ public sealed class AuthApiIntegrationTests
 
     Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     var body = await DeserializeAsync<ApiResponse<object>>(response);
-    Assert.Equal("VALIDATION_ERROR", body!.ErrorCode);
+    Assert.Equal("WEAK_PASSWORD", body!.ErrorCode);
   }
 
   [Fact]

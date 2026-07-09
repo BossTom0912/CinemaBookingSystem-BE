@@ -1,4 +1,5 @@
 using CinemaSystem.Contracts.Payments;
+using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
@@ -6,6 +7,8 @@ using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace CinemaSystem.Tests;
 
@@ -32,7 +35,7 @@ public sealed class PaymentServiceTests
 
         var payment = await fixture.DbContext.Payments.SingleAsync();
         Assert.Equal("PENDING", payment.PaymentStatus);
-        Assert.Equal("SEPAY", payment.PaymentMethod);
+        Assert.Equal("SEPAY_TEST", payment.PaymentMethod);
     }
 
     [Fact]
@@ -155,7 +158,17 @@ public sealed class PaymentServiceTests
                     BankName = "Test Bank",
                     BankAccount = "123456789",
                     DevelopmentPaymentAmountOverride = paymentAmountOverride
-                }));
+                }),
+                Options.Create(new BookingSettings()),
+                Mock.Of<IRefundClaimIssuer>(),
+                Mock.Of<IEmailSender>(),
+                Options.Create(new RefundSettings
+                {
+                    FrontendBaseUrl = "https://frontend.test",
+                    ClaimTokenMinutes = 5
+                }),
+                new CinemaSystem.Infrastructure.Time.SystemClock(),
+                NullLogger<PaymentService>.Instance);
 
             return new Fixture(dbContext, service);
         }
@@ -192,6 +205,17 @@ public sealed class PaymentServiceTests
                 UserId = "USER_TEST",
                 MemberLevel = "BRONZE",
                 RewardPoints = 0
+            });
+            DbContext.Showtimes.Add(new Showtime
+            {
+                ShowtimeId = "SHOWTIME_TEST",
+                MovieId = "MOV_TEST",
+                RoomId = "ROOM_TEST",
+                StartTime = DateTime.UtcNow.AddDays(1),
+                EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
+                BasePrice = 120000m,
+                Status = "OPEN",
+                CreatedAt = DateTime.UtcNow
             });
             DbContext.Bookings.Add(new Booking
             {

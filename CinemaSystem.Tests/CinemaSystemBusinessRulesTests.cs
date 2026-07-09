@@ -18,6 +18,7 @@ using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Services;
 using CinemaSystem.Infrastructure.Showtimes;
+using CinemaSystem.Infrastructure.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -231,7 +232,8 @@ public sealed class CinemaSystemBusinessRulesTests
             ShowtimeSeatId = "STS_01",
             ShowtimeId = "SHW_FUTURE",
             SeatId = "SEAT_1", // Mã ghế A1
-            SeatStatus = "AVAILABLE"
+            SeatStatus = "AVAILABLE",
+            RowVersion = new byte[8]
         };
         fixture.DbContext.ShowtimeSeats.Add(showtimeSeat);
 
@@ -240,7 +242,8 @@ public sealed class CinemaSystemBusinessRulesTests
         {
             BookingId = "BKG_01",
             BookingStatus = DomainConstants.EntityStatus.Paid,
-            ShowtimeId = "SHW_FUTURE"
+            ShowtimeId = "SHW_FUTURE",
+            BookingChannel = "ONLINE"
         };
         fixture.DbContext.Bookings.Add(booking);
 
@@ -402,7 +405,8 @@ public sealed class CinemaSystemBusinessRulesTests
         {
             BookingId = "BKG_1",
             ShowtimeId = "SHW_1",
-            BookingStatus = DomainConstants.EntityStatus.Paid
+            BookingStatus = DomainConstants.EntityStatus.Paid,
+            BookingChannel = "ONLINE"
         };
         fixture.DbContext.Bookings.Add(booking);
         await fixture.DbContext.SaveChangesAsync();
@@ -508,29 +512,31 @@ public sealed class CinemaSystemBusinessRulesTests
             
             var seatService = new SeatService(
                 dbContext, 
-                new Mock<ISeatLockStore>().Object,
-                mockClock.Object,
-                settings,
                 mockJobClient.Object,
-                new Mock<IEmailService>().Object,
-                Options.Create(new SecuritySettings { ConfirmationTokenSecret = "test-secret" })
+                mockRefundService.Object,
+                Options.Create(new SecuritySettings { ConfirmationTokenSecret = "test-secret" }),
+                Options.Create(new EmailTemplatesSettings()),
+                Options.Create(new BookingSettings()),
+                new Mock<ISeatLockStore>().Object
             );
 
             var showtimeService = new ShowtimeService(
                 dbContext,
                 mockClock.Object,
                 settings,
+                Options.Create(new SecuritySettings { ConfirmationTokenSecret = "test-secret" }),
+                Options.Create(new EmailTemplatesSettings()),
                 mockJobClient.Object,
                 mockHttpContextAccessor.Object,
-                new Mock<IAiEmailService>().Object,
-                Options.Create(new SecuritySettings { ConfirmationTokenSecret = "test-secret" })
+                new Mock<IAiEmailService>().Object
             );
 
             var movieService = new MovieService(
                 dbContext,
                 mockRefundService.Object,
                 mockFileStorage.Object,
-                settings
+                settings,
+                Options.Create(new FileStorageSettings())
             );
 
             return new TestFixture(dbContext, roomService, seatService, showtimeService, movieService);

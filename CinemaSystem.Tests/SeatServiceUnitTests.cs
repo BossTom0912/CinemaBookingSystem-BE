@@ -22,6 +22,27 @@ public sealed class SeatServiceUnitTests
   private const string SeatId = "SEAT_A1";
   private const string ShowtimeSeatId = "STS_TEST_001";
 
+  private static SeatService CreateSeatService(
+    CinemaDbContext dbContext,
+    ISeatLockStore seatLockStore)
+  {
+    return new SeatService(
+      dbContext,
+      new Mock<Hangfire.IBackgroundJobClient>().Object,
+      new Mock<IAdminRefundService>().Object,
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Application.Settings.SecuritySettings
+        {
+          ConfirmationTokenSecret =
+            "unit-test-confirmation-secret-with-at-least-32-characters"
+        }),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Infrastructure.Configuration.BookingSettings()),
+      seatLockStore);
+  }
+
   [Fact]
   public async Task LockSeatAsync_HappyPath_LocksSeatSuccessfully()
   {
@@ -394,7 +415,7 @@ public sealed class SeatServiceUnitTests
       .Returns(Task.CompletedTask);
 
     dbContext.ThrowOnNextSave = true;
-    var service = new SeatService(dbContext, lockStoreMock.Object);
+    var service = CreateSeatService(dbContext, lockStoreMock.Object);
 
     await Assert.ThrowsAsync<DbUpdateException>(() =>
       service.LockSeatAsync(
@@ -446,7 +467,7 @@ public sealed class SeatServiceUnitTests
     await UnitTestFixture.SeedShowtimeSeatAsync(dbContext);
 
     var lockStore = new InMemorySeatLockStore();
-    var service = new SeatService(dbContext, lockStore);
+    var service = CreateSeatService(dbContext, lockStore);
     var request = new LockSeatRequest { ShowtimeId = ShowtimeId, SeatId = SeatId };
 
     var tasks = Enumerable.Range(0, 8)
@@ -548,7 +569,7 @@ public sealed class SeatServiceUnitTests
       await SeedShowtimeSeatAsync(dbContext);
 
       var lockStoreMock = new Mock<ISeatLockStore>(MockBehavior.Strict);
-      var service = new SeatService(dbContext, lockStoreMock.Object);
+      var service = CreateSeatService(dbContext, lockStoreMock.Object);
 
       return new UnitTestFixture(dbContext, lockStoreMock, service);
     }

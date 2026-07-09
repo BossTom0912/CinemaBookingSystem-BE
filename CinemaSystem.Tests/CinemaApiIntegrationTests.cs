@@ -32,7 +32,7 @@ public sealed class CinemaApiIntegrationTests
       JsonOptions);
     Assert.True(body!.Success);
     Assert.Single(body.Data!);
-    Assert.Equal("E2E Cinema", body.Data[0].CinemaName);
+    Assert.Equal("E2E Cinema", body.Data![0].CinemaName);
   }
 
   private static async Task SeedCinemaAsync(CinemaWebApplicationFactory factory)

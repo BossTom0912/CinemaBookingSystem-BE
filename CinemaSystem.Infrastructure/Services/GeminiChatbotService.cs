@@ -5,6 +5,8 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Chatbot;
 using CinemaSystem.Infrastructure.Configuration;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Contracts.Common;
 using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Services;
@@ -58,7 +60,13 @@ public class GeminiChatbotService : IChatbotService
         }
 
         // Truy vấn danh sách các bộ phim từ cơ sở dữ liệu (tối đa 100 phim)
-        var moviesResult = await _movieService.GetMoviesAsync(null, 1, 100, null, false, cancellationToken);
+        var moviesResult = await _movieService.GetMoviesAsync(
+            null,
+            PaginationDefaults.FirstPageIndex,
+            _settings.ContextMovieLimit,
+            null,
+            false,
+            cancellationToken);
         // Truy vấn danh sách lịch chiếu hiện tại từ cơ sở dữ liệu
         var showtimesResult = await _showtimeService.GetShowtimesAsync(cancellationToken);
 
@@ -115,10 +123,18 @@ public class GeminiChatbotService : IChatbotService
         };
 
         // Tạo đường dẫn gọi API của Gemini kèm theo Key
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={_settings.ApiKey}";
+        var url =
+            $"{_settings.ApiBaseUrl.TrimEnd('/')}/{Uri.EscapeDataString(_settings.Model)}:generateContent";
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload)
+        };
+        httpRequest.Headers.TryAddWithoutValidation(
+            GeminiSettings.ApiKeyHeaderName,
+            _settings.ApiKey);
 
         // Thực hiện gửi yêu cầu POST bất đồng bộ tới Gemini API
-        var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
 
         // Kiểm tra nếu API phản hồi lỗi (không thành công)
         if (!response.IsSuccessStatusCode)
@@ -149,7 +165,8 @@ public class GeminiChatbotService : IChatbotService
         var history = new CinemaSystem.Domain.Entities.ChatHistory
         {
             // Khởi tạo chuỗi định danh duy nhất (ID)
-            ChatHistoryId = Guid.NewGuid().ToString(),
+            ChatHistoryId =
+                $"{DomainConstants.EntityIdPrefix.ChatHistory}_{Guid.NewGuid():N}",
             // Để trống định danh người dùng (hiện tại chưa dùng trong request)
             UserId = null, // Since ChatbotRequest doesn't currently supply UserId in this contract
             // Lưu giữ lại câu hỏi của người dùng

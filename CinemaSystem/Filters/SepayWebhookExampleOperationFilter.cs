@@ -8,7 +8,10 @@ public sealed class SepayWebhookExampleOperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
-        if (!string.Equals(context.ApiDescription.RelativePath, "api/Payment/sepay-webhook", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(
+                context.ApiDescription.RelativePath,
+                ApiConstants.SepayWebhookRelativePath,
+                StringComparison.OrdinalIgnoreCase))
             return;
 
         var schema = new OpenApiSchema

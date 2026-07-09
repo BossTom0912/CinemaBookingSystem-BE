@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Contracts.Rooms;
 
@@ -13,5 +14,5 @@ public sealed class UpdateRoomRequest
     }
 
         [MaxLength(30)]
-    public string RoomStatus { get; init; } = "ACTIVE";
+    public string RoomStatus { get; init; } = DomainConstants.RoomStatus.Active;
 }

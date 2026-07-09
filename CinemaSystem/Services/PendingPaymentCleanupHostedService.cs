@@ -1,6 +1,7 @@
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Domain.Entities;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using Hangfire;
@@ -49,7 +50,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var intervalSeconds = Math.Max(10, _settings.Value.PendingPaymentCleanupIntervalSeconds);
+            var intervalSeconds = _settings.Value.PendingPaymentCleanupIntervalSeconds;
 
             try
             {
@@ -151,8 +152,9 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        var now = DateTime.UtcNow;
-        var expiryMinutes = Math.Max(1, _settings.Value.PendingPaymentExpiryMinutes);
+        var clock = scope.ServiceProvider.GetRequiredService<IClock>();
+        var now = clock.UtcNow;
+        var expiryMinutes = _settings.Value.PendingPaymentExpiryMinutes;
         var createdBefore = now.AddMinutes(-expiryMinutes);
 
         var expiredBookings = await dbContext.Bookings
@@ -165,9 +167,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                 item.BookingStatus == BookingConstants.BookingStatus.PendingPayment &&
                 ((item.ExpiredAt.HasValue && item.ExpiredAt <= now) ||
                  (!item.ExpiredAt.HasValue && item.CreatedAt <= createdBefore)))
-            .OrderBy(item => item.CreatedAt)
-            .Take(100)
-            .AsSplitQuery()
+            .Take(_settings.Value.PendingPaymentCleanupBatchSize)
             .ToListAsync(cancellationToken);
 
         if (expiredBookings.Count == 0)
@@ -186,18 +186,18 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
             if (booking.VoucherUsage is not null)
             {
-                booking.VoucherUsage.UsageStatus = "CANCELLED";
+                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
             }
 
             foreach (var payment in booking.Payments)
             {
-                if (payment.PaymentStatus == "PENDING")
+                if (payment.PaymentStatus == DomainConstants.PaymentStatus.Pending)
                 {
-                    payment.PaymentStatus = "EXPIRED";
+                    payment.PaymentStatus = DomainConstants.PaymentStatus.Expired;
                 }
             }
 
-            booking.BookingStatus = "CANCELLED";
+            booking.BookingStatus = DomainConstants.BookingStatus.Cancelled;
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

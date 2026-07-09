@@ -222,6 +222,14 @@ Trong mỗi suất chiếu (`Showtime`), một vị trí ghế (`ShowtimeSeat`) 
     *   Khi Admin cập nhật khung ghế mới (`UpdateRoomSeatsWithHistoryAsync`), hệ thống sẽ tự động serialize danh sách ghế cũ (chỉ lấy các trường định vị: `RowLabel`, `SeatNumber`, `SeatTypeId`) thành một chuỗi JSON lưu vào bảng lịch sử.
     *   Sử dụng **Database Transaction** để đảm bảo dữ liệu đồng bộ; nếu có lỗi trong quá trình lưu hoặc mapping, toàn bộ thay đổi sẽ bị Rollback.
 
+### 3. Nghiệp vụ Đổi Giờ Chiếu & Token Xác Nhận (Time Change Approval)
+*   **Lệch giờ $\ge$ 15 phút:** Khi Admin cập nhật giờ chiếu lệch quá 15 phút so với giờ cũ, vé của khách sẽ bị đưa vào trạng thái chờ `ProcessingUnstable`.
+*   **Mã hóa Token không cần DB:** Backend tạo bảo mật `HMACSHA256` dựa trên `BookingId` để sinh ra link xác nhận mà không cần tạo thêm bảng trong Database.
+*   **Quyền quyết định của User:** Hệ thống tự gửi mail song ngữ (Anh-Việt) kèm 2 lựa chọn (Links):
+    1.  *Chấp nhận:* Gọi API `GET /api/bookings/{id}/confirm-time-change?accept=true` $\rightarrow$ Vé về lại `PAID`.
+    2.  *Không chấp nhận & Hủy vé:* Truyền `accept=false` $\rightarrow$ Vé chuyển thành `PendingRefund` và sinh ra bản ghi `Refund`.
+*   **Lệch giờ < 15 phút:** Chỉ gửi Email thông báo song ngữ cho khách hàng mà không làm gián đoạn trạng thái vé.
+
 #### 7.4 Nghiệp vụ Xử lý khi Đổi phòng chiếu & Xung đột loại ghế (Room Change Rules)
 *   Khi Admin thay đổi phòng chiếu của một suất chiếu đang mở bán:
     *   Hệ thống chạy thuật toán **tự động ánh xạ ghế (Auto-Mapping)** dựa trên mã ghế (`SeatCode`, ví dụ `A1` phòng cũ sang `A1` phòng mới).

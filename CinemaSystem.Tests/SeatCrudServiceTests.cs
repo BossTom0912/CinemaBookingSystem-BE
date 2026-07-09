@@ -1,8 +1,10 @@
 using CinemaSystem.Contracts.Seats;
+using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Persistence;
 
 using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 
 namespace CinemaSystem.Tests;
 
@@ -15,6 +17,25 @@ public sealed class SeatCrudServiceTests
   private const string UserId = "USR_MANAGER_01";
   private const string RoomId = "ROOM_TEST";
   private const string SeatTypeId = "SEAT_TYPE_STANDARD";
+
+  private static SeatService CreateSeatService(CinemaDbContext dbContext)
+  {
+    return new SeatService(
+      dbContext,
+      new Mock<Hangfire.IBackgroundJobClient>().Object,
+      new Mock<IAdminRefundService>().Object,
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Application.Settings.SecuritySettings
+        {
+          ConfirmationTokenSecret =
+            "unit-test-confirmation-secret-with-at-least-32-characters"
+        }),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Application.Settings.EmailTemplatesSettings()),
+      Microsoft.Extensions.Options.Options.Create(
+        new CinemaSystem.Infrastructure.Configuration.BookingSettings()),
+      new InMemorySeatLockStore());
+  }
 
   [Fact]
   public async Task CreateSeatAsync_HappyPath_CreatesSeat()
@@ -123,9 +144,9 @@ public sealed class SeatCrudServiceTests
   }
 
   [Fact]
-  public async Task DeleteSeatAsync_FutureShowtime_ReturnsConflict()
+  public async Task DeleteSeatAsync_FutureShowtime_DeactivatesSeatAndSuspendsShowtime()
   {
-    // Luồng: ghế đang trong suất chiếu OPEN tương lai → 409 SEAT_IN_ACTIVE_SHOWTIME.
+    // Luồng hiện hành: xóa mềm ghế và chuyển các tài nguyên liên quan sang bảo trì/tạm ngưng.
     var fixture = await Fixture.CreateAsync();
     fixture.DbContext.Showtimes.Add(new Showtime
     {
@@ -150,9 +171,11 @@ public sealed class SeatCrudServiceTests
 
     var result = await fixture.Service.DeleteSeatAsync("SEAT_1", UserId, CancellationToken.None);
 
-    Assert.False(result.Success);
-    Assert.Equal(409, result.StatusCode);
-    Assert.Equal("SEAT_IN_ACTIVE_SHOWTIME", result.ErrorCode);
+    Assert.True(result.Success);
+    Assert.False((await fixture.DbContext.Seats.SingleAsync(s => s.SeatId == "SEAT_1")).IsActive);
+    Assert.Equal("MAINTENANCE", (await fixture.DbContext.Rooms.SingleAsync()).RoomStatus);
+    Assert.Equal("SUSPENDED", (await fixture.DbContext.Showtimes.SingleAsync()).Status);
+    Assert.Equal("MAINTENANCE", (await fixture.DbContext.ShowtimeSeats.SingleAsync()).SeatStatus);
   }
 
   [Fact]
@@ -246,7 +269,7 @@ public sealed class SeatCrudServiceTests
         });
       await dbContext.SaveChangesAsync();
 
-      return new Fixture(dbContext, new SeatService(dbContext));
+      return new Fixture(dbContext, CreateSeatService(dbContext));
     }
   }
 }

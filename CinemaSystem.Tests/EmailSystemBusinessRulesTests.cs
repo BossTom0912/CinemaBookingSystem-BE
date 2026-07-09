@@ -11,6 +11,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
+using Microsoft.EntityFrameworkCore;
+using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Domain.Entities;
+using CinemaSystem.Application.Settings;
+using CinemaSystem.Contracts.Showtimes;
+using CinemaSystem.Infrastructure.Showtimes;
 
 namespace CinemaSystem.Tests;
 
@@ -115,7 +122,7 @@ public sealed class EmailSystemBusinessRulesTests
         });
 
         var sender = new SmtpEmailSender(emailOpts);
-        var adapter = new SmtpEmailServiceAdapter(sender);
+        var adapter = new SmtpEmailServiceAdapter(sender, Options.Create(new EmailTemplatesSettings()));
         var aiEmailService = new GeminiAiEmailService(geminiOpts, adapter);
 
         string subject = "Thử nghiệm tích hợp AI Email / Integration Test AI Email Result";
@@ -199,7 +206,15 @@ public sealed class EmailSystemBusinessRulesTests
         };
         dbContext.Showtimes.Add(showtime);
 
-        var showtimeSeat = new ShowtimeSeat { ShowtimeSeatId = "STS_01", ShowtimeId = "SHW_01", SeatId = "SEAT_R1_A1", SeatStatus = "AVAILABLE" };
+        var showtimeSeat = new ShowtimeSeat 
+        { 
+            ShowtimeSeatId = "STS_01", 
+            ShowtimeId = "SHW_01", 
+            SeatId = "SEAT_R1_A1", 
+            SeatStatus = "AVAILABLE", 
+            RowVersion = new byte[8],
+            Seat = seat1
+        };
         dbContext.ShowtimeSeats.Add(showtimeSeat);
 
         var booking = new Booking
@@ -207,11 +222,18 @@ public sealed class EmailSystemBusinessRulesTests
             BookingId = "BKG_01",
             ShowtimeId = "SHW_01",
             BookingStatus = DomainConstants.EntityStatus.Paid,
-            GuestEmail = TargetEmail
+            GuestEmail = TargetEmail,
+            BookingChannel = "ONLINE"
         };
         dbContext.Bookings.Add(booking);
 
-        var bookingSeat = new BookingSeat { BookingSeatId = "BS_01", BookingId = "BKG_01", ShowtimeSeatId = "STS_01" };
+        var bookingSeat = new BookingSeat 
+        { 
+            BookingSeatId = "BS_01", 
+            BookingId = "BKG_01", 
+            ShowtimeSeatId = "STS_01",
+            ShowtimeSeat = showtimeSeat
+        };
         dbContext.BookingSeats.Add(bookingSeat);
 
         await dbContext.SaveChangesAsync();
@@ -230,7 +252,7 @@ public sealed class EmailSystemBusinessRulesTests
         var geminiOpts = Options.Create(new GeminiSettings { ApiKey = geminiApiKey });
 
         var realSender = new SmtpEmailSender(emailOpts);
-        var realAdapter = new SmtpEmailServiceAdapter(realSender);
+        var realAdapter = new SmtpEmailServiceAdapter(realSender, Options.Create(new EmailTemplatesSettings()));
         var realAiEmailService = new GeminiAiEmailService(geminiOpts, realAdapter);
 
         // Khởi tạo ShowtimeService
@@ -248,10 +270,11 @@ public sealed class EmailSystemBusinessRulesTests
             dbContext,
             mockClock.Object,
             settings,
+            Options.Create(new SecuritySettings { ConfirmationTokenSecret = "test-secret" }),
+            Options.Create(new EmailTemplatesSettings()),
             mockJobClient.Object,
             new Mock<Microsoft.AspNetCore.Http.IHttpContextAccessor>().Object,
-            realAiEmailService,
-            Options.Create(new SecuritySettings { ConfirmationTokenSecret = "test-secret" })
+            realAiEmailService
         );
 
         // Thực hiện đổi phòng từ ROOM_1 -> ROOM_2 gây mismatch
@@ -260,10 +283,10 @@ public sealed class EmailSystemBusinessRulesTests
 
         // Assert
         Assert.True(result.Success);
-        Assert.Equal("ProcessingUnstable", result.Data!.Status);
+        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, result.Data!.Status);
 
         var updatedBooking = await dbContext.Bookings.FindAsync("BKG_01");
-        Assert.Equal("ProcessingUnstable", updatedBooking!.BookingStatus);
+        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, updatedBooking!.BookingStatus);
 
         // Thực hiện gửi email thật sử dụng cấu hình thực tế
         string subject = "Thông báo đổi phòng chiếu và loại ghế / Showtime Room and Seat Type Change Notice";

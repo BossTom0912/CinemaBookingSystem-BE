@@ -193,7 +193,8 @@ public sealed class DashboardService : IDashboardService
                 TicketRevenue = g.Sum(x => x.SeatPrice),
                 TicketsSold = g.Count()
             })
-            .OrderByDescending(m => m.TicketRevenue)
+            .OrderByDescending(m => m.TicketsSold)
+            .ThenByDescending(m => m.TicketRevenue)
             .Take(3)
             .ToListAsync(cancellationToken);
 
@@ -238,6 +239,24 @@ public sealed class DashboardService : IDashboardService
             .SelectMany(b => b.BookingFbItems)
             .SumAsync(item => (decimal?)item.Subtotal, cancellationToken) ?? 0m;
 
+        var fbItems = await bookingQuery
+            .SelectMany(b => b.BookingFbItems)
+            .GroupBy(item => new
+            {
+                item.FbItemId,
+                item.FbItem.ItemName
+            })
+            .Select(g => new FbItemSalesResponse
+            {
+                FbItemId = g.Key.FbItemId,
+                ItemName = g.Key.ItemName,
+                QuantitySold = g.Sum(item => item.Quantity),
+                Revenue = g.Sum(item => item.Subtotal)
+            })
+            .OrderByDescending(item => item.QuantitySold)
+            .ThenByDescending(item => item.Revenue)
+            .ToListAsync(cancellationToken);
+
         var totalRev = ticketRevenue + fbRevenue;
 
         // TC-09: Xử lý khi totalAvailableSeatsCapacity = 0
@@ -257,7 +276,8 @@ public sealed class DashboardService : IDashboardService
             TotalAvailableSeatsCapacity = totalAvailableSeatsCapacity,
             TicketRevenue = ticketRevenue,
             FbRevenue = fbRevenue,
-            FbRevenuePercentage = fbPercentage
+            FbRevenuePercentage = fbPercentage,
+            FbItems = fbItems
         };
     }
 
@@ -323,7 +343,7 @@ public sealed class DashboardService : IDashboardService
     private static (DateTime FromDate, DateTime ToDate) ResolveDateRange(DateTime? fromDate, DateTime? toDate)
     {
         // TC-13: Fallback khi fromDate hoặc toDate null -> Lấy tháng hiện tại UTC
-        var start = fromDate ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var start = fromDate ?? new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var end = toDate ?? DateTime.UtcNow;
 
         // TC-12: Xử lý khi fromDate > toDate -> Đảo ngược vị trí để từ ngày <= đến ngày

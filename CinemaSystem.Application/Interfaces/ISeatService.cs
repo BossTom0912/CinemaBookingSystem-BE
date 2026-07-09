@@ -11,6 +11,7 @@ public interface ISeatService
         CancellationToken cancellationToken);
 
     Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
+        string? cinemaScopeId,
         string? roomId,
         string? seatStatus,
         int pageIndex,

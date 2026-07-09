@@ -70,6 +70,18 @@ public record OccupancyAndFbBreakdownResponse
     public decimal TicketRevenue { get; init; }
     public decimal FbRevenue { get; init; }
     public double FbRevenuePercentage { get; init; }
+    public List<FbItemSalesResponse> FbItems { get; init; } = new();
+}
+
+/// <summary>
+/// Doanh số từng món F&B đã bán trong khoảng lọc dashboard.
+/// </summary>
+public record FbItemSalesResponse
+{
+    public string FbItemId { get; init; } = string.Empty;
+    public string ItemName { get; init; } = string.Empty;
+    public int QuantitySold { get; init; }
+    public decimal Revenue { get; init; }
 }
 
 /// <summary>

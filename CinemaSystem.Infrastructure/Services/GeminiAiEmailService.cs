@@ -121,7 +121,7 @@ public class GeminiAiEmailService : IAiEmailService
                     <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=false&token={token}' style='display: inline-block; padding: 10px 20px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #f43f5e; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Hủy vé hoàn tiền</a>
                 </div>
                 <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p>[EN] Your movie <strong>{movieTitle}</strong> has been rescheduled to: <strong>{newTime}</strong>.</p>
+                <p>[EN] Your movie <strong>{movieTitle}</strong> has been rescheduled to: <strong>{newTime}</strong>. Start time changed to {newTime}. Please wait for the cinema to handle it.</p>
                 <p>Please click a button below to accept or reject (refund):</p>
                 <div style='margin: 20px 0;'>
                     <a href='http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=true&token={token}' style='display: inline-block; padding: 10px 20px; margin-right: 10px; background-color: #0f172a; color: #f8fafc; text-decoration: none; border-radius: 8px; font-weight: bold; border: 2px solid #34d399; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>Accept</a>

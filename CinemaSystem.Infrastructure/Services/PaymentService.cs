@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Domain.Constants;
+using Microsoft.Extensions.Logging;
 
 namespace CinemaSystem.Infrastructure.Services;
 
@@ -26,18 +27,38 @@ public class PaymentService : IPaymentService
     private readonly CinemaDbContext _db;
     // Khai báo biến lưu trữ cấu hình SePay
     private readonly SepaySettings _sepaySettings;
-    // Hằng số quy định thời gian hết hạn của thanh toán (10 phút)
-    private const int PaymentExpiryMinutes = 10;
+    private readonly BookingSettings _bookingSettings;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
+    private readonly RefundSettings _refundSettings;
+    private readonly IClock _clock;
+    private readonly ILogger<PaymentService> _logger;
     // Biểu thức chính quy (Regex) để trích xuất mã giao dịch (Bắt đầu bằng chữ T và theo sau là 10 ký tự chữ/số)
-    private static readonly Regex TransactionCodeRegex = new(@"T[A-Z0-9]{10}", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TransactionCodeRegex = new(
+        DomainConstants.PaymentTransactionCode.Pattern,
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Phương thức khởi tạo (Constructor) tiêm các dependency cần thiết
-    public PaymentService(CinemaDbContext db, IOptions<SepaySettings> sepayOptions)
+    public PaymentService(
+        CinemaDbContext db,
+        IOptions<SepaySettings> sepayOptions,
+        IOptions<BookingSettings> bookingOptions,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
+        IOptions<RefundSettings> refundOptions,
+        IClock clock,
+        ILogger<PaymentService> logger)
     {
         // Gán DbContext được tiêm vào biến private
         _db = db;
         // Lấy giá trị cấu hình SePay từ IOptions và gán vào biến private
         _sepaySettings = sepayOptions.Value;
+        _bookingSettings = bookingOptions.Value;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
+        _refundSettings = refundOptions.Value;
+        _clock = clock;
+        _logger = logger;
     }
 
     // Phương thức tạo bản ghi thanh toán cho một đặt vé và trả về thông tin ngân hàng kèm mã giao dịch
@@ -127,13 +148,13 @@ public class PaymentService : IPaymentService
         }
 
         // Lấy thời gian hiện tại chuẩn UTC
-        var now = DateTime.UtcNow;
+        var now = _clock.UtcNow;
 
         // Khởi tạo một đối tượng Thanh toán (Payment) mới
         var payment = new Payment
         {
             // Tạo ID tự động với tiền tố "PAY"
-            PaymentId = GenerateId("PAY"),
+            PaymentId = GenerateId(DomainConstants.EntityIdPrefix.Payment),
             // Gán ID đặt vé
             BookingId = booking.BookingId,
             // Gán ID nhà cung cấp thanh toán
@@ -146,12 +167,11 @@ public class PaymentService : IPaymentService
             PaymentStatus = DomainConstants.PaymentStatus.Pending,
             // Ghi nhận thời điểm tạo thanh toán
             CreatedAt = now,
-            // Đặt phương thức thanh toán là "SEPAY"
-            PaymentMethod = "SEPAY"
+            PaymentMethod = provider.ProviderName
         };
 
         // Gia hạn thêm thời gian hết hạn cho đặt vé (thêm 10 phút)
-        booking.ExpiredAt = now.AddMinutes(PaymentExpiryMinutes);
+        booking.ExpiredAt = now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes);
         // Thêm đối tượng Payment mới vào Entity Framework
         _db.Payments.Add(payment);
         // Lưu các thay đổi vào cơ sở dữ liệu
@@ -217,10 +237,14 @@ public class PaymentService : IPaymentService
 
         // Tìm kiếm giao dịch trong cơ sở dữ liệu dựa trên mã giao dịch vừa trích xuất
         var payment = await _db.Payments
+            .Include(p => p.Refunds)
             // Bao gồm thông tin Đặt vé (Booking)
             .Include(p => p.Booking)
                 // Bao gồm thông tin Suất chiếu (Showtime) của Booking đó
                 .ThenInclude(b => b.Showtime)
+            .Include(p => p.Booking)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(c => c!.User)
             // Bao gồm nhánh BookingSeats (các ghế đã đặt)
             .Include(p => p.Booking)
                 // Bao gồm danh sách BookingSeats
@@ -234,7 +258,10 @@ public class PaymentService : IPaymentService
                     // Bao gồm thông tin vé (Ticket) được sinh ra cho ghế đó
                     .ThenInclude(bs => bs.Ticket)
             // Lấy ra bản ghi duy nhất khớp mã giao dịch
-            .SingleOrDefaultAsync(p => p.TransactionCode == transactionCode, cancellationToken);
+            .SingleOrDefaultAsync(
+                p => p.TransactionCode != null
+                    && p.TransactionCode.ToUpper() == transactionCode,
+                cancellationToken);
 
         // Nếu không tìm thấy giao dịch tương ứng
         if (payment == null)
@@ -252,12 +279,13 @@ public class PaymentService : IPaymentService
         await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            var now = _clock.UtcNow;
             // Cập nhật trạng thái thanh toán thành "Thành công" (Success)
             payment.PaymentStatus = DomainConstants.PaymentStatus.Success;
             // Cập nhật thời điểm thanh toán thành công
-            payment.PaidAt = DateTime.UtcNow;
+            payment.PaidAt = now;
             // Cập nhật thời gian chỉnh sửa mới nhất
-            payment.UpdatedAt = DateTime.UtcNow;
+            payment.UpdatedAt = now;
             // Ghi nhận mã giao dịch từ phía nhà cung cấp (nếu có)
             payment.ProviderTransactionCode = string.IsNullOrWhiteSpace(providerTransactionCode)
                 ? payment.ProviderTransactionCode
@@ -282,14 +310,21 @@ public class PaymentService : IPaymentService
             // Kiểm tra trường hợp suất chiếu đã bị hủy trong lúc người dùng đang chuyển khoản
             if (booking.Showtime != null && booking.Showtime.Status == DomainConstants.EntityStatus.Cancelled)
             {
+                await _db.Entry(booking.Showtime)
+                    .Reference(showtime => showtime.Movie)
+                    .LoadAsync(cancellationToken);
+                await _db.Entry(booking.Showtime)
+                    .Reference(showtime => showtime.ShowtimeCancellation)
+                    .LoadAsync(cancellationToken);
+
                 // Chuyển trạng thái Booking sang "Chờ hoàn tiền" (PendingRefund) thay vì hoàn tất vé
                 booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
                 
                 // Khởi tạo một đối tượng Hoàn tiền (Refund) mới
-                _db.Refunds.Add(new Refund
+                var refund = new Refund
                 {
                     // Tạo ID tự động cho giao dịch hoàn tiền
-                    RefundId = GenerateId("REF"),
+                    RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
                     // Gán ID đặt vé
                     BookingId = booking.BookingId,
                     // Gán ID thanh toán gốc
@@ -301,15 +336,23 @@ public class PaymentService : IPaymentService
                     // Đặt trạng thái hoàn tiền là "Đang chờ" (Pending)
                     RefundStatus = DomainConstants.RefundStatus.Pending,
                     // Ghi nhận thời điểm yêu cầu hoàn tiền
-                    RequestedAt = DateTime.UtcNow,
+                    RequestedAt = now,
                     // Ghi nhận lý do hoàn tiền (Thanh toán chậm cho một suất chiếu đã bị hủy)
-                    RefundReason = "Late payment received for a cancelled showtime."
-                });
+                    RefundReason = "Late payment received for a cancelled showtime.",
+                    ShowtimeCancellationId =
+                        booking.Showtime.ShowtimeCancellation?.ShowtimeCancellationId
+                };
+                _db.Refunds.Add(refund);
+                var claimIssue = CreateRefundClaim(refund, booking, now);
 
                 // Lưu các thay đổi vào cơ sở dữ liệu
                 await _db.SaveChangesAsync(cancellationToken);
                 // Xác nhận lưu transaction
                 await tx.CommitAsync(cancellationToken);
+                await TrySendLatePaymentClaimEmailAsync(
+                    booking,
+                    claimIssue,
+                    cancellationToken);
                 // Thoát sớm để không sinh ra vé
                 return;
             }
@@ -321,10 +364,10 @@ public class PaymentService : IPaymentService
                 booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
                 
                 // Khởi tạo một yêu cầu hoàn tiền mới
-                _db.Refunds.Add(new Refund
+                var refund = new Refund
                 {
                     // Tạo ID hoàn tiền
-                    RefundId = GenerateId("REF"),
+                    RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
                     // Map với ID đặt vé
                     BookingId = booking.BookingId,
                     // Map với ID thanh toán
@@ -336,15 +379,21 @@ public class PaymentService : IPaymentService
                     // Trạng thái chờ hoàn tiền
                     RefundStatus = DomainConstants.RefundStatus.Pending,
                     // Thời điểm tạo yêu cầu hoàn tiền
-                    RequestedAt = DateTime.UtcNow,
+                    RequestedAt = now,
                     // Lý do: Thanh toán trễ cho một đơn vé đã hết hạn/bị hủy
                     RefundReason = "Late payment received for an expired booking."
-                });
+                };
+                _db.Refunds.Add(refund);
+                var claimIssue = CreateRefundClaim(refund, booking, now);
 
                 // Lưu các thay đổi
                 await _db.SaveChangesAsync(cancellationToken);
                 // Xác nhận transaction
                 await tx.CommitAsync(cancellationToken);
+                await TrySendLatePaymentClaimEmailAsync(
+                    booking,
+                    claimIssue,
+                    cancellationToken);
                 // Thoát sớm
                 return;
             }
@@ -366,7 +415,7 @@ public class PaymentService : IPaymentService
                     _db.Tickets.Add(new Ticket
                     {
                         // Sinh ID vé tự động
-                        TicketId = GenerateId("TCK"),
+                        TicketId = GenerateId(DomainConstants.EntityIdPrefix.Ticket),
                         // Liên kết với bản ghi BookingSeat
                         BookingSeatId = bookingSeat.BookingSeatId,
                         // Sinh mã QR Code dùng để quét vé
@@ -374,7 +423,7 @@ public class PaymentService : IPaymentService
                         // Đặt trạng thái ban đầu của vé là "Chưa sử dụng" (Unused)
                         TicketStatus = DomainConstants.TicketStatus.Unused,
                         // Ghi nhận thời điểm phát hành vé
-                        GeneratedAt = DateTime.UtcNow
+                        GeneratedAt = now
                     });
                 }
             }
@@ -394,23 +443,79 @@ public class PaymentService : IPaymentService
     }
 
     // Phương thức tiện ích để sinh ID duy nhất có tiền tố
+    private RefundClaimIssue? CreateRefundClaim(
+        Refund refund,
+        Booking booking,
+        DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return null;
+        }
+
+        var issue = _refundClaimIssuer.Create(
+            refund.RefundId,
+            booking.CustomerProfileId,
+            now);
+        _db.RefundClaims.Add(issue.Claim);
+        return issue;
+    }
+
+    private async Task TrySendLatePaymentClaimEmailAsync(
+        Booking booking,
+        RefundClaimIssue? issue,
+        CancellationToken cancellationToken)
+    {
+        if (issue is null || booking.CustomerProfile?.User is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}"
+                + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(issue.RawToken)}";
+            var movieTitle = booking.Showtime?.Movie.Title ?? "cancelled showtime";
+            await _emailSender.SendEmailAsync(
+                booking.CustomerProfile.User.Email,
+                "Refund information required",
+                $"A late payment was received for the cancelled showtime {movieTitle}. "
+                + $"Submit bank information before {issue.Token.ExpiresAt:O}: {link}",
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Late-payment refund claim email could not be sent.");
+        }
+    }
+
     private static string GenerateId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
 
     // Phương thức sinh nội dung mã QR dùng để quét vé
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
-        $"G2C|{bookingId}|{bookingSeatId}|{Guid.NewGuid():N}";
+        string.Join(
+            DomainConstants.TicketQrCode.Separator,
+            DomainConstants.TicketQrCode.Prefix,
+            bookingId,
+            bookingSeatId,
+            Guid.NewGuid().ToString("N"));
 
     // Phương thức tạo mã giao dịch ngẫu nhiên (Dạng T + 10 ký tự Alphanumeric)
     private static string GenerateTransactionCode()
     {
         // Khai báo bộ ký tự được phép sử dụng
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         // Khởi tạo StringBuilder để ghép chuỗi hiệu quả
         var sb = new System.Text.StringBuilder();
         // Bắt đầu bằng ký tự 'T'
-        sb.Append('T');
+        sb.Append(DomainConstants.PaymentTransactionCode.Prefix);
         // Vòng lặp 10 lần để chọn ngẫu nhiên 10 ký tự
-        for (int i = 0; i < 10; i++) sb.Append(chars[RandomNumberGenerator.GetInt32(chars.Length)]);
+        for (var i = 0; i < DomainConstants.PaymentTransactionCode.RandomPartLength; i++)
+        {
+            var characters = DomainConstants.PaymentTransactionCode.AllowedCharacters;
+            sb.Append(characters[RandomNumberGenerator.GetInt32(characters.Length)]);
+        }
         // Trả về chuỗi kết quả
         return sb.ToString();
     }

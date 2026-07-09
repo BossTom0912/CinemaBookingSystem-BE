@@ -9,29 +9,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CinemaSystem.Infrastructure.Rooms;
 
-/// <summary>
-/// Runtime room CRUD and bulk seat-generation implementation reached from
-/// <c>RoomsController</c> through <see cref="IRoomService"/>.
-/// </summary>
-/// <remarks>
-/// Validates CINEMA/ROOM state, reads and writes ROOM/SEAT with
-/// <c>CinemaDbContext</c>, and returns contract DTOs through
-/// <c>ServiceResult</c>. Delete is a room soft delete; it does not trigger
-/// showtime cancellation or refund orchestration.
-/// </remarks>
 public sealed class RoomService : IRoomService
 {
     // ID loại ghế mặc định
-    private const string DefaultSeatTypeId = "SEAT_TYPE_STANDARD";
+    private const string DefaultSeatTypeId = DomainConstants.SeatType.StandardId;
     // Tên loại ghế mặc định
-    private const string DefaultSeatTypeName = "STANDARD";
+    private const string DefaultSeatTypeName = DomainConstants.SeatType.StandardName;
 
     // Danh sách các trạng thái hợp lệ của phòng chiếu
     private static readonly HashSet<string> ValidRoomStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
-        DomainConstants.EntityStatus.Active,
-        DomainConstants.EntityStatus.Inactive,
-        DomainConstants.EntityStatus.Maintenance
+        DomainConstants.RoomStatus.Active,
+        DomainConstants.RoomStatus.Inactive,
+        DomainConstants.RoomStatus.Maintenance
     };
 
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
@@ -87,7 +77,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Tạo ID mới cho phòng chiếu
-        var roomId = NewId("ROOM");
+        var roomId = NewId(DomainConstants.EntityIdPrefix.Room);
         // Khởi tạo đối tượng phòng chiếu mới
         var room = new Room
         {
@@ -113,7 +103,10 @@ public sealed class RoomService : IRoomService
         // Trả về kết quả thành công kèm dữ liệu phòng chiếu vừa tạo
         return ServiceResult<RoomResponse>.Ok(response, "Room created successfully.", 201);
     }
-    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(bool includeInactive, CancellationToken cancellationToken)
+    public async Task<ServiceResult<IReadOnlyList<RoomResponse>>> GetRoomsAsync(
+        string? cinemaScopeId,
+        bool includeInactive,
+        CancellationToken cancellationToken)
     {
         // Khởi tạo truy vấn danh sách phòng chiếu và không theo dõi sự thay đổi (AsNoTracking) để tối ưu hiệu suất
         var query = _dbContext.Rooms.AsNoTracking();
@@ -122,7 +115,12 @@ public sealed class RoomService : IRoomService
         if (!includeInactive)
         {
             // Lọc bỏ các phòng chiếu có trạng thái INACTIVE
-            query = query.Where(room => room.RoomStatus != DomainConstants.EntityStatus.Inactive);
+            query = query.Where(room => room.RoomStatus != DomainConstants.RoomStatus.Inactive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(cinemaScopeId))
+        {
+            query = query.Where(room => room.CinemaId == cinemaScopeId);
         }
 
         // Thực thi truy vấn lấy danh sách phòng chiếu
@@ -170,7 +168,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu cấu hình không cho phép lấy phòng INACTIVE và phòng hiện tại đang INACTIVE
-        if (!includeInactive && string.Equals(room.RoomStatus, DomainConstants.EntityStatus.Inactive, StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive && string.Equals(room.RoomStatus, DomainConstants.RoomStatus.Inactive, StringComparison.OrdinalIgnoreCase))
         {
             // Trả về lỗi không tìm thấy (che giấu phòng INACTIVE)
             return ServiceResult<RoomResponse>.Fail(
@@ -263,7 +261,7 @@ public sealed class RoomService : IRoomService
                 seats.Add(new Seat
                 {
                     // Sinh ID tự động cho ghế
-                    SeatId = NewId("SEAT"),
+                    SeatId = NewId(DomainConstants.EntityIdPrefix.Seat),
                     // Gán ID phòng chiếu
                     RoomId = roomId,
                     // Gán ID loại ghế
@@ -406,7 +404,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu có sự thay đổi trạng thái và trạng thái mới là bảo trì hoặc ngưng hoạt động
-        if (room.RoomStatus != roomStatus && (roomStatus == DomainConstants.EntityStatus.Maintenance || roomStatus == DomainConstants.EntityStatus.Inactive))
+        if (room.RoomStatus != roomStatus && (roomStatus == DomainConstants.RoomStatus.Maintenance || roomStatus == DomainConstants.RoomStatus.Inactive))
         {
             // Tìm tất cả các suất chiếu đang mở (Open) tại phòng này
             var openShowtimes = await _dbContext.Showtimes
@@ -417,7 +415,7 @@ public sealed class RoomService : IRoomService
             foreach (var st in openShowtimes)
             {
                 // Cập nhật trạng thái suất chiếu thành bị đình chỉ (SUSPENDED)
-                st.Status = DomainConstants.EntityStatus.Suspended;
+                st.Status = DomainConstants.ShowtimeStatus.Suspended;
             }
         }
 
@@ -466,11 +464,11 @@ public sealed class RoomService : IRoomService
         foreach (var st in openShowtimes)
         {
             // Cập nhật trạng thái thành SUSPENDED do phòng bị xóa
-            st.Status = DomainConstants.EntityStatus.Suspended;
+            st.Status = DomainConstants.ShowtimeStatus.Suspended;
         }
 
         // Tiến hành xóa mềm bằng cách đổi trạng thái thành INACTIVE
-        room.RoomStatus = DomainConstants.EntityStatus.Inactive;
+        room.RoomStatus = DomainConstants.RoomStatus.Inactive;
         // Lưu thay đổi vào DB
         await _dbContext.SaveChangesAsync(cancellationToken);
 

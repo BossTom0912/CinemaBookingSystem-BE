@@ -2,6 +2,11 @@ namespace CinemaSystem.Application.Common;
 
 public static class AuthConstants
 {
+    public static class Claims
+    {
+        public const string UserId = "userId";
+    }
+
     public static class Roles
     {
         public const string Customer = "CUSTOMER";

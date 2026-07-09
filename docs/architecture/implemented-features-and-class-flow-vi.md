@@ -17,7 +17,7 @@ HTTP route
   -> client
 ```
 
-Baseline được rà soát: `origin/main` commit `63576e7`, đã merge vào local
+Baseline được rà soát: `origin/main` commit `7dec708`, đã fast-forward vào local
 `main`. Comment điều hướng trong code dùng cùng quy ước:
 
 - **Điểm vào**: request bắt đầu ở controller nào.
@@ -53,10 +53,12 @@ File ánh xạ:
 | `ICustomerService` | `CustomerService` | `CinemaSystem.Infrastructure/Services` |
 | `ICinemaService` | `CinemaService` | `CinemaSystem.Infrastructure/Cinemas` |
 | `IMovieService` | `MovieService` | `CinemaSystem.Infrastructure/Movies` |
+| `IGenreService` | `GenreService` | `CinemaSystem.Infrastructure/Services` |
 | `IRoomService` | `RoomService` | `CinemaSystem.Infrastructure/Rooms` |
 | `ISeatService` | `SeatService` | `CinemaSystem.Infrastructure/Services` |
 | `IShowtimeService` | `ShowtimeService` | `CinemaSystem.Infrastructure/Showtimes` |
 | `IBookingService` | `BookingService` | `CinemaSystem.Infrastructure/Services` |
+| `ITicketScanService` | `TicketScanService` | `CinemaSystem.Infrastructure/Tickets` |
 | `IPaymentService` | `PaymentService` | `CinemaSystem.Infrastructure/Services` |
 | `IPaymentWebhookService` | `PaymentWebhookService` | `CinemaSystem.Infrastructure/Services` |
 | `IReviewService` | `ReviewService` | `CinemaSystem.Infrastructure/Services` |
@@ -132,6 +134,17 @@ Main chưa có API công khai để tạo Manager.
 - Upload/lưu poster qua `IFileStorageService`.
 - Quan hệ MOVIE_GENRE, GENRE, LANGUAGE.
 - `MovieHighlightClassificationJob` cập nhật HOT/TRENDING theo lịch nền.
+
+Danh mục thể loại:
+
+```text
+GET /api/genres
+  -> GenresController
+  -> IGenreService
+  -> Infrastructure/Services/GenreService
+  -> CinemaDbContext.Genres
+  -> GENRE
+```
 
 ### 4.5 Cinema và room
 
@@ -255,7 +268,9 @@ POST /api/chatbot
 Các policy sau tồn tại trong `Program.cs`, nhưng không nên kết luận chức năng đã
 hoàn chỉnh nếu chưa tìm thấy controller/service:
 
-- `CanScanTicket`: chưa có Ticket/Checkin controller hoàn chỉnh.
+- `CanScanTicket`: `TicketsController` gọi `ITicketScanService` để kiểm tra scope
+  rạp, phòng, trạng thái vé và cửa sổ check-in; mọi lần quét được ghi vào
+  `CHECKIN_LOG`.
 - `CanManageFoodAndBeverage`: chưa có F&B management controller.
 - `CanManageVoucher`: chưa có Voucher management controller.
 - `CanViewBranchDashboard`: chưa có ManagerDashboard controller/service.

@@ -17,6 +17,8 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<Booking> Bookings { get; set; }
 
+    public virtual DbSet<BankDirectory> BankDirectories { get; set; }
+
     public virtual DbSet<BookingFbItem> BookingFbItems { get; set; }
 
     public virtual DbSet<BookingSeat> BookingSeats { get; set; }
@@ -28,6 +30,8 @@ public partial class CinemaDbContext : DbContext
     public virtual DbSet<CinemaFbInventory> CinemaFbInventories { get; set; }
 
     public virtual DbSet<CustomerProfile> CustomerProfiles { get; set; }
+
+    public virtual DbSet<CustomerRefundRequest> CustomerRefundRequests { get; set; }
 
     public virtual DbSet<EmailVerificationToken> EmailVerificationTokens { get; set; }
 
@@ -53,6 +57,8 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<Notification> Notifications { get; set; }
 
+    public virtual DbSet<ManualRefundProcess> ManualRefundProcesses { get; set; }
+
     public virtual DbSet<Payment> Payments { get; set; }
 
     public virtual DbSet<PaymentProvider> PaymentProviders { get; set; }
@@ -60,6 +66,10 @@ public partial class CinemaDbContext : DbContext
     public virtual DbSet<RefreshToken> RefreshTokens { get; set; }
 
     public virtual DbSet<Refund> Refunds { get; set; }
+
+    public virtual DbSet<RefundClaim> RefundClaims { get; set; }
+
+    public virtual DbSet<RefundClaimToken> RefundClaimTokens { get; set; }
 
     public virtual DbSet<Review> Reviews { get; set; }
 
@@ -92,6 +102,22 @@ public partial class CinemaDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // ChangeRequest workflow removed - direct CRUD used instead
+        modelBuilder.Entity<BankDirectory>(entity =>
+        {
+            entity.HasKey(e => e.BankCode);
+            entity.ToTable("BANK_DIRECTORY");
+            entity.HasIndex(e => e.BankBin, "UQ_BANK_DIRECTORY_BIN").IsUnique();
+            entity.Property(e => e.BankCode).HasMaxLength(20).HasColumnName("bankCode");
+            entity.Property(e => e.BankBin).HasMaxLength(20).HasColumnName("bankBin");
+            entity.Property(e => e.ShortName).HasMaxLength(100).HasColumnName("shortName");
+            entity.Property(e => e.FullName).HasMaxLength(255).HasColumnName("fullName");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("isActive");
+            entity.Property(e => e.SupportsAccountInquiry).HasColumnName("supportsAccountInquiry");
+            entity.Property(e => e.SupportsPayout).HasColumnName("supportsPayout");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("createdAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
+        });
+
         modelBuilder.Entity<AuditLog>(entity =>
         {
             entity.HasKey(e => e.AuditLogId).HasName("PK__AUDIT_LO__56A1B857E9725B26");
@@ -282,6 +308,10 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.RawQrCode, "IX_CHECKIN_LOG_RAW_QR_CODE").HasFilter("([rawQrCode] IS NOT NULL)");
 
+            entity.HasIndex(
+                e => new { e.ScannedByUserId, e.ScanTime },
+                "IX_CHECKIN_LOG_SCANNED_BY_USER_TIME");
+
             entity.HasIndex(e => e.TicketId, "IX_CHECKIN_LOG_TICKET_ID");
 
             entity.Property(e => e.CheckInLogId)
@@ -290,10 +320,15 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.FailureReason)
                 .HasMaxLength(500)
                 .HasColumnName("failureReason");
-            entity.Property(e => e.RawQrCode).HasColumnName("rawQrCode");
+            entity.Property(e => e.RawQrCode)
+                .HasMaxLength(450)
+                .HasColumnName("rawQrCode");
             entity.Property(e => e.Result)
                 .HasMaxLength(30)
                 .HasColumnName("result");
+            entity.Property(e => e.ScannedByUserId)
+                .HasMaxLength(50)
+                .HasColumnName("scannedByUserId");
             entity.Property(e => e.ScanTime)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("scanTime");
@@ -306,8 +341,12 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasOne(d => d.StaffProfile).WithMany(p => p.CheckinLogs)
                 .HasForeignKey(d => d.StaffProfileId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_CHECKIN_LOG_STAFF_PROFILE");
+
+            entity.HasOne(d => d.ScannedByUser).WithMany(p => p.CheckinLogs)
+                .HasForeignKey(d => d.ScannedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CHECKIN_LOG_SCANNED_BY_USER");
 
             entity.HasOne(d => d.Ticket).WithMany(p => p.CheckinLogs)
                 .HasForeignKey(d => d.TicketId)
@@ -558,7 +597,7 @@ public partial class CinemaDbContext : DbContext
             entity.HasKey(e => new { e.MovieId, e.ViewDate });
             entity.ToTable("MOVIE_DAILY_VIEW");
             entity.HasIndex(e => e.ViewDate, "IX_MOVIE_DAILY_VIEW_DATE");
-            
+
             entity.Property(e => e.MovieId).HasMaxLength(50).HasColumnName("movieId");
             entity.Property(e => e.ViewDate).HasColumnName("viewDate");
             entity.Property(e => e.ViewCount).HasDefaultValue(0).HasColumnName("viewCount");
@@ -880,6 +919,129 @@ public partial class CinemaDbContext : DbContext
             entity.HasOne(d => d.ShowtimeCancellation).WithMany(p => p.Refunds)
                 .HasForeignKey(d => d.ShowtimeCancellationId)
                 .HasConstraintName("FK_REFUND_SHOWTIME_CANCELLATION");
+        });
+
+        modelBuilder.Entity<RefundClaim>(entity =>
+        {
+            entity.HasKey(e => e.RefundClaimId);
+            entity.ToTable("REFUND_CLAIM");
+            entity.HasIndex(e => e.RefundId, "UQ_REFUND_CLAIM_REFUND").IsUnique();
+            entity.HasIndex(e => e.CustomerProfileId, "IX_REFUND_CLAIM_CUSTOMER_PROFILE_ID");
+            entity.HasIndex(e => new { e.ClaimStatus, e.ExpiresAt }, "IX_REFUND_CLAIM_STATUS");
+            entity.Property(e => e.RefundClaimId).HasMaxLength(50).HasColumnName("refundClaimId");
+            entity.Property(e => e.RefundId).HasMaxLength(50).HasColumnName("refundId");
+            entity.Property(e => e.CustomerProfileId).HasMaxLength(50).HasColumnName("customerProfileId");
+            entity.Property(e => e.BankCode).HasMaxLength(20).HasColumnName("bankCode");
+            entity.Property(e => e.ClaimStatus).HasMaxLength(30).HasColumnName("claimStatus");
+            entity.Property(e => e.AccountValidationStatus).HasMaxLength(30).HasColumnName("accountValidationStatus");
+            entity.Property(e => e.BankAccountEncrypted).HasColumnName("bankAccountEncrypted");
+            entity.Property(e => e.BankAccountLast4).HasMaxLength(4).HasColumnName("bankAccountLast4");
+            entity.Property(e => e.AccountHolderNameEncrypted).HasColumnName("accountHolderNameEncrypted");
+            entity.Property(e => e.VerifiedAccountHolderNameEncrypted).HasColumnName("verifiedAccountHolderNameEncrypted");
+            entity.Property(e => e.VerificationProvider).HasMaxLength(100).HasColumnName("verificationProvider");
+            entity.Property(e => e.VerificationReferenceCode).HasMaxLength(255).HasColumnName("verificationReferenceCode");
+            entity.Property(e => e.VerificationFailureReason).HasMaxLength(1000).HasColumnName("verificationFailureReason");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expiresAt");
+            entity.Property(e => e.SubmittedAt).HasColumnName("submittedAt");
+            entity.Property(e => e.ProcessingAt).HasColumnName("processingAt");
+            entity.Property(e => e.CompletedAt).HasColumnName("completedAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
+            entity.Property(e => e.RowVersion).IsRowVersion().IsConcurrencyToken().HasColumnName("rowVersion");
+            entity.HasOne(e => e.Refund).WithOne(e => e.RefundClaim)
+                .HasForeignKey<RefundClaim>(e => e.RefundId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_REFUND_CLAIM_REFUND");
+            entity.HasOne(e => e.CustomerProfile).WithMany(e => e.RefundClaims)
+                .HasForeignKey(e => e.CustomerProfileId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_REFUND_CLAIM_CUSTOMER_PROFILE");
+            entity.HasOne(e => e.Bank).WithMany(e => e.RefundClaims)
+                .HasForeignKey(e => e.BankCode)
+                .HasConstraintName("FK_REFUND_CLAIM_BANK_DIRECTORY");
+        });
+
+        modelBuilder.Entity<RefundClaimToken>(entity =>
+        {
+            entity.HasKey(e => e.RefundClaimTokenId);
+            entity.ToTable("REFUND_CLAIM_TOKEN");
+            entity.HasIndex(e => e.TokenHash, "UQ_REFUND_CLAIM_TOKEN_HASH").IsUnique();
+            entity.HasIndex(e => new { e.RefundClaimId, e.ExpiresAt }, "IX_REFUND_CLAIM_TOKEN_CLAIM");
+            entity.Property(e => e.RefundClaimTokenId).HasMaxLength(50).HasColumnName("refundClaimTokenId");
+            entity.Property(e => e.RefundClaimId).HasMaxLength(50).HasColumnName("refundClaimId");
+            entity.Property(e => e.TokenHash).HasMaxLength(64).IsFixedLength().HasColumnName("tokenHash");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expiresAt");
+            entity.Property(e => e.UsedAt).HasColumnName("usedAt");
+            entity.Property(e => e.RevokedAt).HasColumnName("revokedAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
+            entity.HasOne(e => e.RefundClaim).WithMany(e => e.Tokens)
+                .HasForeignKey(e => e.RefundClaimId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_REFUND_CLAIM_TOKEN_CLAIM");
+        });
+
+        modelBuilder.Entity<CustomerRefundRequest>(entity =>
+        {
+            entity.HasKey(e => e.CustomerRefundRequestId);
+            entity.ToTable("CUSTOMER_REFUND_REQUEST");
+            entity.HasIndex(e => new { e.CustomerProfileId, e.RequestStatus, e.CreatedAt },
+                "IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS");
+            entity.Property(e => e.CustomerRefundRequestId).HasMaxLength(50).HasColumnName("customerRefundRequestId");
+            entity.Property(e => e.RefundId).HasMaxLength(50).HasColumnName("refundId");
+            entity.Property(e => e.CustomerProfileId).HasMaxLength(50).HasColumnName("customerProfileId");
+            entity.Property(e => e.TicketId).HasMaxLength(50).HasColumnName("ticketId");
+            entity.Property(e => e.RequestReason).HasMaxLength(1000).HasColumnName("requestReason");
+            entity.Property(e => e.RequestStatus).HasMaxLength(30).HasColumnName("requestStatus");
+            entity.Property(e => e.ProcessedByUserId).HasMaxLength(50).HasColumnName("processedByUserId");
+            entity.Property(e => e.ProcessedAt).HasColumnName("processedAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
+            entity.HasOne(e => e.Refund).WithMany(e => e.CustomerRefundRequests)
+                .HasForeignKey(e => e.RefundId).OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CUSTOMER_REFUND_REQUEST_REFUND");
+            entity.HasOne(e => e.CustomerProfile).WithMany(e => e.CustomerRefundRequests)
+                .HasForeignKey(e => e.CustomerProfileId).OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CUSTOMER_REFUND_REQUEST_CUSTOMER_PROFILE");
+            entity.HasOne(e => e.Ticket).WithMany()
+                .HasForeignKey(e => e.TicketId)
+                .HasConstraintName("FK_CUSTOMER_REFUND_REQUEST_TICKET");
+            entity.HasOne(e => e.ProcessedByUser).WithMany(e => e.ProcessedCustomerRefundRequests)
+                .HasForeignKey(e => e.ProcessedByUserId)
+                .HasConstraintName("FK_CUSTOMER_REFUND_REQUEST_PROCESSED_BY_USER");
+        });
+
+        modelBuilder.Entity<ManualRefundProcess>(entity =>
+        {
+            entity.HasKey(e => e.ManualRefundProcessId);
+            entity.ToTable("MANUAL_REFUND_PROCESS");
+            entity.HasIndex(e => e.RefundId, "UQ_MANUAL_REFUND_PROCESS_REFUND").IsUnique();
+            entity.HasIndex(e => e.RefundClaimId, "UQ_MANUAL_REFUND_PROCESS_CLAIM").IsUnique();
+            entity.HasIndex(e => new { e.ProcessStatus, e.CreatedAt }, "IX_MANUAL_REFUND_PROCESS_STATUS_CREATED");
+            entity.HasIndex(e => e.BankTransactionCode, "UX_MANUAL_REFUND_BANK_TRANSACTION_CODE")
+                .IsUnique().HasFilter("([bankTransactionCode] IS NOT NULL)");
+            entity.Property(e => e.ManualRefundProcessId).HasMaxLength(50).HasColumnName("manualRefundProcessId");
+            entity.Property(e => e.RefundId).HasMaxLength(50).HasColumnName("refundId");
+            entity.Property(e => e.RefundClaimId).HasMaxLength(50).HasColumnName("refundClaimId");
+            entity.Property(e => e.AssignedToUserId).HasMaxLength(50).HasColumnName("assignedToUserId");
+            entity.Property(e => e.ProcessStatus).HasMaxLength(30).HasColumnName("processStatus");
+            entity.Property(e => e.BankTransactionCode).HasMaxLength(255).HasColumnName("bankTransactionCode");
+            entity.Property(e => e.TransferredAmount).HasColumnType("decimal(18, 2)").HasColumnName("transferredAmount");
+            entity.Property(e => e.ProofUrl).HasMaxLength(1000).HasColumnName("proofUrl");
+            entity.Property(e => e.AdminNote).HasMaxLength(1000).HasColumnName("adminNote");
+            entity.Property(e => e.AssignedAt).HasColumnName("assignedAt");
+            entity.Property(e => e.ConfirmedAt).HasColumnName("confirmedAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
+            entity.Property(e => e.RowVersion).IsRowVersion().IsConcurrencyToken().HasColumnName("rowVersion");
+            entity.HasOne(e => e.Refund).WithOne(e => e.ManualRefundProcess)
+                .HasForeignKey<ManualRefundProcess>(e => e.RefundId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MANUAL_REFUND_PROCESS_REFUND");
+            entity.HasOne(e => e.RefundClaim).WithOne(e => e.ManualRefundProcess)
+                .HasForeignKey<ManualRefundProcess>(e => e.RefundClaimId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MANUAL_REFUND_PROCESS_CLAIM");
+            entity.HasOne(e => e.AssignedToUser).WithMany(e => e.AssignedManualRefundProcesses)
+                .HasForeignKey(e => e.AssignedToUserId)
+                .HasConstraintName("FK_MANUAL_REFUND_PROCESS_ASSIGNED_USER");
         });
 
         modelBuilder.Entity<Review>(entity =>
@@ -1301,7 +1463,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.GeneratedAt)
                 .HasDefaultValueSql("(sysutcdatetime())")
                 .HasColumnName("generatedAt");
-            entity.Property(e => e.QrCode).HasColumnName("qrCode");
+            entity.Property(e => e.QrCode)
+                .HasMaxLength(450)
+                .HasColumnName("qrCode");
             entity.Property(e => e.TicketStatus)
                 .HasMaxLength(30)
                 .HasDefaultValue("UNUSED")
@@ -1456,11 +1620,11 @@ public partial class CinemaDbContext : DbContext
         });
 
         var dateTimeConverter = new ValueConverter<DateTime, DateTime>(
-            v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(), 
+            v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(),
             v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
 
         var nullableDateTimeConverter = new ValueConverter<DateTime?, DateTime?>(
-            v => v.HasValue ? (v.Value.Kind == DateTimeKind.Utc ? v : v.Value.ToUniversalTime()) : v, 
+            v => v.HasValue ? (v.Value.Kind == DateTimeKind.Utc ? v : v.Value.ToUniversalTime()) : v,
             v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())

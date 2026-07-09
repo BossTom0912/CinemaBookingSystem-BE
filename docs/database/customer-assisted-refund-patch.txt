@@ -1,0 +1,236 @@
+/*
+Customer-assisted refund schema patch for an existing CinemaBookingDB.
+
+Security notes:
+- Never store a raw claim token. Store only SHA-256 tokenHash.
+- Encrypt bank account number, entered holder name, verified holder name, and
+  email outbox payload in the application before persistence.
+- Do not log decrypted bank details or email payloads.
+- A payout is SUCCESS only after a terminal provider/bank confirmation, not
+  merely after an HTTP request is accepted.
+*/
+
+USE [CinemaBookingDB];
+GO
+
+IF OBJECT_ID(N'dbo.BANK_DIRECTORY', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[BANK_DIRECTORY] (
+        [bankCode] NVARCHAR(20) PRIMARY KEY,
+        [bankBin] NVARCHAR(20) NOT NULL,
+        [shortName] NVARCHAR(100) NOT NULL,
+        [fullName] NVARCHAR(255) NOT NULL,
+        [isActive] BIT NOT NULL CONSTRAINT [DF_BANK_DIRECTORY_IS_ACTIVE] DEFAULT 1,
+        [supportsAccountInquiry] BIT NOT NULL CONSTRAINT [DF_BANK_DIRECTORY_ACCOUNT_INQUIRY] DEFAULT 0,
+        [supportsPayout] BIT NOT NULL CONSTRAINT [DF_BANK_DIRECTORY_PAYOUT] DEFAULT 0,
+        [createdAt] DATETIME2 NOT NULL CONSTRAINT [DF_BANK_DIRECTORY_CREATED_AT] DEFAULT SYSUTCDATETIME(),
+        [updatedAt] DATETIME2 NULL,
+        CONSTRAINT [UQ_BANK_DIRECTORY_BIN] UNIQUE ([bankBin])
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'VCB')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('VCB', '970436', N'Vietcombank', N'Joint Stock Commercial Bank for Foreign Trade of Vietnam');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'MB')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('MB', '970422', N'MB Bank', N'Military Commercial Joint Stock Bank');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'TCB')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('TCB', '970407', N'Techcombank', N'Vietnam Technological and Commercial Joint Stock Bank');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'BIDV')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('BIDV', '970418', N'BIDV', N'Joint Stock Commercial Bank for Investment and Development of Vietnam');
+IF NOT EXISTS (SELECT 1 FROM dbo.[BANK_DIRECTORY] WHERE [bankCode] = 'CTG')
+    INSERT dbo.[BANK_DIRECTORY] ([bankCode], [bankBin], [shortName], [fullName])
+    VALUES ('CTG', '970415', N'VietinBank', N'Vietnam Joint Stock Commercial Bank for Industry and Trade');
+GO
+
+IF OBJECT_ID(N'dbo.REFUND_CLAIM', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[REFUND_CLAIM] (
+        [refundClaimId] NVARCHAR(50) PRIMARY KEY,
+        [refundId] NVARCHAR(50) NOT NULL,
+        [customerProfileId] NVARCHAR(50) NOT NULL,
+        [bankCode] NVARCHAR(20) NULL,
+        [claimStatus] NVARCHAR(30) NOT NULL CONSTRAINT [DF_REFUND_CLAIM_STATUS] DEFAULT 'PENDING_INFO',
+        [accountValidationStatus] NVARCHAR(30) NOT NULL CONSTRAINT [DF_REFUND_CLAIM_VALIDATION] DEFAULT 'NOT_STARTED',
+        [bankAccountEncrypted] VARBINARY(MAX) NULL,
+        [bankAccountLast4] NVARCHAR(4) NULL,
+        [accountHolderNameEncrypted] VARBINARY(MAX) NULL,
+        [verifiedAccountHolderNameEncrypted] VARBINARY(MAX) NULL,
+        [verificationProvider] NVARCHAR(100) NULL,
+        [verificationReferenceCode] NVARCHAR(255) NULL,
+        [verificationFailureReason] NVARCHAR(1000) NULL,
+        [expiresAt] DATETIME2 NOT NULL,
+        [submittedAt] DATETIME2 NULL,
+        [processingAt] DATETIME2 NULL,
+        [completedAt] DATETIME2 NULL,
+        [createdAt] DATETIME2 NOT NULL CONSTRAINT [DF_REFUND_CLAIM_CREATED_AT] DEFAULT SYSUTCDATETIME(),
+        [updatedAt] DATETIME2 NULL,
+        [rowVersion] ROWVERSION,
+        CONSTRAINT [UQ_REFUND_CLAIM_REFUND] UNIQUE ([refundId]),
+        CONSTRAINT [CK_REFUND_CLAIM_STATUS] CHECK ([claimStatus] IN
+            ('PENDING_INFO','VERIFIED','SUBMITTED','PROCESSING','COMPLETED','EXPIRED','MANUAL_REQUIRED','REVOKED')),
+        CONSTRAINT [CK_REFUND_CLAIM_ACCOUNT_VALIDATION_STATUS] CHECK ([accountValidationStatus] IN
+            ('NOT_STARTED','VERIFIED','FAILED','UNAVAILABLE')),
+        CONSTRAINT [FK_REFUND_CLAIM_REFUND] FOREIGN KEY ([refundId]) REFERENCES dbo.[REFUND]([refundId]),
+        CONSTRAINT [FK_REFUND_CLAIM_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES dbo.[CUSTOMER_PROFILE]([customerProfileId]),
+        CONSTRAINT [FK_REFUND_CLAIM_BANK_DIRECTORY] FOREIGN KEY ([bankCode]) REFERENCES dbo.[BANK_DIRECTORY]([bankCode])
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.REFUND_CLAIM_TOKEN', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[REFUND_CLAIM_TOKEN] (
+        [refundClaimTokenId] NVARCHAR(50) PRIMARY KEY,
+        [refundClaimId] NVARCHAR(50) NOT NULL,
+        [tokenHash] CHAR(64) NOT NULL,
+        [expiresAt] DATETIME2 NOT NULL,
+        [usedAt] DATETIME2 NULL,
+        [revokedAt] DATETIME2 NULL,
+        [createdAt] DATETIME2 NOT NULL CONSTRAINT [DF_REFUND_CLAIM_TOKEN_CREATED_AT] DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [UQ_REFUND_CLAIM_TOKEN_HASH] UNIQUE ([tokenHash]),
+        CONSTRAINT [FK_REFUND_CLAIM_TOKEN_CLAIM] FOREIGN KEY ([refundClaimId]) REFERENCES dbo.[REFUND_CLAIM]([refundClaimId])
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.CUSTOMER_REFUND_REQUEST', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[CUSTOMER_REFUND_REQUEST] (
+        [customerRefundRequestId] NVARCHAR(50) PRIMARY KEY,
+        [refundId] NVARCHAR(50) NOT NULL,
+        [customerProfileId] NVARCHAR(50) NOT NULL,
+        [ticketId] NVARCHAR(50) NULL,
+        [requestReason] NVARCHAR(1000) NOT NULL,
+        [requestStatus] NVARCHAR(30) NOT NULL CONSTRAINT [DF_CUSTOMER_REFUND_REQUEST_STATUS] DEFAULT 'PENDING',
+        [processedByUserId] NVARCHAR(50) NULL,
+        [processedAt] DATETIME2 NULL,
+        [createdAt] DATETIME2 NOT NULL CONSTRAINT [DF_CUSTOMER_REFUND_REQUEST_CREATED_AT] DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [CK_CUSTOMER_REFUND_REQUEST_STATUS] CHECK ([requestStatus] IN ('PENDING','FULFILLED','REJECTED')),
+        CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_REFUND] FOREIGN KEY ([refundId]) REFERENCES dbo.[REFUND]([refundId]),
+        CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES dbo.[CUSTOMER_PROFILE]([customerProfileId]),
+        CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_TICKET] FOREIGN KEY ([ticketId]) REFERENCES dbo.[TICKET]([ticketId]),
+        CONSTRAINT [FK_CUSTOMER_REFUND_REQUEST_PROCESSED_BY_USER] FOREIGN KEY ([processedByUserId]) REFERENCES dbo.[USER]([userId])
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.REFUND_PAYOUT_ATTEMPT', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[REFUND_PAYOUT_ATTEMPT] (
+        [refundPayoutAttemptId] NVARCHAR(50) PRIMARY KEY,
+        [refundId] NVARCHAR(50) NOT NULL,
+        [refundClaimId] NVARCHAR(50) NOT NULL,
+        [paymentProviderId] NVARCHAR(50) NOT NULL,
+        [idempotencyKey] NVARCHAR(100) NOT NULL,
+        [attemptNumber] INT NOT NULL,
+        [attemptStatus] NVARCHAR(30) NOT NULL CONSTRAINT [DF_REFUND_PAYOUT_ATTEMPT_STATUS] DEFAULT 'CREATED',
+        [providerRequestId] NVARCHAR(255) NULL,
+        [providerTransactionCode] NVARCHAR(255) NULL,
+        [failureReason] NVARCHAR(1000) NULL,
+        [requestedAt] DATETIME2 NOT NULL CONSTRAINT [DF_REFUND_PAYOUT_ATTEMPT_REQUESTED_AT] DEFAULT SYSUTCDATETIME(),
+        [respondedAt] DATETIME2 NULL,
+        [confirmedAt] DATETIME2 NULL,
+        CONSTRAINT [UQ_REFUND_PAYOUT_ATTEMPT_IDEMPOTENCY_KEY] UNIQUE ([idempotencyKey]),
+        CONSTRAINT [UQ_REFUND_PAYOUT_ATTEMPT_NUMBER] UNIQUE ([refundId], [attemptNumber]),
+        CONSTRAINT [CK_REFUND_PAYOUT_ATTEMPT_NUMBER] CHECK ([attemptNumber] > 0),
+        CONSTRAINT [CK_REFUND_PAYOUT_ATTEMPT_STATUS] CHECK ([attemptStatus] IN
+            ('CREATED','SUBMITTED','ACCEPTED','CONFIRMED','FAILED','UNKNOWN')),
+        CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_REFUND] FOREIGN KEY ([refundId]) REFERENCES dbo.[REFUND]([refundId]),
+        CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_CLAIM] FOREIGN KEY ([refundClaimId]) REFERENCES dbo.[REFUND_CLAIM]([refundClaimId]),
+        CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_PAYMENT_PROVIDER] FOREIGN KEY ([paymentProviderId]) REFERENCES dbo.[PAYMENT_PROVIDER]([paymentProviderId])
+    );
+END
+GO
+
+IF OBJECT_ID(N'dbo.MANUAL_REFUND_PROCESS', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[MANUAL_REFUND_PROCESS] (
+        [manualRefundProcessId] NVARCHAR(50) PRIMARY KEY,
+        [refundId] NVARCHAR(50) NOT NULL,
+        [refundClaimId] NVARCHAR(50) NOT NULL,
+        [assignedToUserId] NVARCHAR(50) NULL,
+        [processStatus] NVARCHAR(30) NOT NULL CONSTRAINT [DF_MANUAL_REFUND_PROCESS_STATUS] DEFAULT 'OPEN',
+        [bankTransactionCode] NVARCHAR(255) NULL,
+        [transferredAmount] DECIMAL(18,2) NULL,
+        [proofUrl] NVARCHAR(1000) NULL,
+        [adminNote] NVARCHAR(1000) NULL,
+        [assignedAt] DATETIME2 NULL,
+        [confirmedAt] DATETIME2 NULL,
+        [createdAt] DATETIME2 NOT NULL CONSTRAINT [DF_MANUAL_REFUND_PROCESS_CREATED_AT] DEFAULT SYSUTCDATETIME(),
+        [rowVersion] ROWVERSION,
+        CONSTRAINT [UQ_MANUAL_REFUND_PROCESS_REFUND] UNIQUE ([refundId]),
+        CONSTRAINT [UQ_MANUAL_REFUND_PROCESS_CLAIM] UNIQUE ([refundClaimId]),
+        CONSTRAINT [CK_MANUAL_REFUND_PROCESS_STATUS] CHECK ([processStatus] IN ('OPEN','IN_PROGRESS','CONFIRMED','REJECTED')),
+        CONSTRAINT [CK_MANUAL_REFUND_TRANSFERRED_AMOUNT] CHECK ([transferredAmount] IS NULL OR [transferredAmount] > 0),
+        CONSTRAINT [FK_MANUAL_REFUND_PROCESS_REFUND] FOREIGN KEY ([refundId]) REFERENCES dbo.[REFUND]([refundId]),
+        CONSTRAINT [FK_MANUAL_REFUND_PROCESS_CLAIM] FOREIGN KEY ([refundClaimId]) REFERENCES dbo.[REFUND_CLAIM]([refundClaimId]),
+        CONSTRAINT [FK_MANUAL_REFUND_PROCESS_ASSIGNED_USER] FOREIGN KEY ([assignedToUserId]) REFERENCES dbo.[USER]([userId])
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_MANUAL_REFUND_BANK_TRANSACTION_CODE')
+    CREATE UNIQUE INDEX [UX_MANUAL_REFUND_BANK_TRANSACTION_CODE]
+        ON dbo.[MANUAL_REFUND_PROCESS]([bankTransactionCode])
+        WHERE [bankTransactionCode] IS NOT NULL;
+GO
+
+IF OBJECT_ID(N'dbo.EMAIL_OUTBOX', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[EMAIL_OUTBOX] (
+        [emailOutboxId] NVARCHAR(50) PRIMARY KEY,
+        [messageType] NVARCHAR(100) NOT NULL,
+        [recipientEmail] NVARCHAR(255) NOT NULL,
+        [relatedEntityId] NVARCHAR(50) NULL,
+        [payloadEncrypted] VARBINARY(MAX) NOT NULL,
+        [outboxStatus] NVARCHAR(30) NOT NULL CONSTRAINT [DF_EMAIL_OUTBOX_STATUS] DEFAULT 'PENDING',
+        [attemptCount] INT NOT NULL CONSTRAINT [DF_EMAIL_OUTBOX_ATTEMPT_COUNT] DEFAULT 0,
+        [nextAttemptAt] DATETIME2 NULL,
+        [lastError] NVARCHAR(1000) NULL,
+        [createdAt] DATETIME2 NOT NULL CONSTRAINT [DF_EMAIL_OUTBOX_CREATED_AT] DEFAULT SYSUTCDATETIME(),
+        [sentAt] DATETIME2 NULL,
+        CONSTRAINT [CK_EMAIL_OUTBOX_STATUS] CHECK ([outboxStatus] IN ('PENDING','PROCESSING','SENT','FAILED')),
+        CONSTRAINT [CK_EMAIL_OUTBOX_ATTEMPT_COUNT] CHECK ([attemptCount] >= 0)
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_REFUND_CLAIM_CUSTOMER_PROFILE_ID')
+    CREATE INDEX [IX_REFUND_CLAIM_CUSTOMER_PROFILE_ID] ON dbo.[REFUND_CLAIM]([customerProfileId]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_REFUND_CLAIM_STATUS')
+    CREATE INDEX [IX_REFUND_CLAIM_STATUS] ON dbo.[REFUND_CLAIM]([claimStatus], [expiresAt]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_REFUND_CLAIM_TOKEN_CLAIM')
+    CREATE INDEX [IX_REFUND_CLAIM_TOKEN_CLAIM] ON dbo.[REFUND_CLAIM_TOKEN]([refundClaimId], [expiresAt]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS')
+    CREATE INDEX [IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS]
+        ON dbo.[CUSTOMER_REFUND_REQUEST]([customerProfileId], [requestStatus], [createdAt]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS')
+    CREATE INDEX [IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS]
+        ON dbo.[REFUND_PAYOUT_ATTEMPT]([refundId], [attemptStatus], [requestedAt]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_MANUAL_REFUND_PROCESS_STATUS_CREATED')
+    CREATE INDEX [IX_MANUAL_REFUND_PROCESS_STATUS_CREATED]
+        ON dbo.[MANUAL_REFUND_PROCESS]([processStatus], [createdAt]);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT')
+    CREATE INDEX [IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT]
+        ON dbo.[EMAIL_OUTBOX]([outboxStatus], [nextAttemptAt], [createdAt]);
+GO
+
+SELECT [name]
+FROM sys.tables
+WHERE [name] IN
+(
+    'BANK_DIRECTORY',
+    'REFUND_CLAIM',
+    'REFUND_CLAIM_TOKEN',
+    'CUSTOMER_REFUND_REQUEST',
+    'REFUND_PAYOUT_ATTEMPT',
+    'MANUAL_REFUND_PROCESS',
+    'EMAIL_OUTBOX'
+)
+ORDER BY [name];
+GO

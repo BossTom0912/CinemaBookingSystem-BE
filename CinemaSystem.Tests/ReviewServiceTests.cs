@@ -5,11 +5,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Reviews;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -25,12 +27,57 @@ public sealed class ReviewServiceTests
         return new CinemaDbContext(options);
     }
 
+    private static ReviewService CreateService(
+        CinemaDbContext dbContext,
+        IAiModerationService? moderationService = null,
+        IMovieService? movieService = null)
+    {
+        return new ReviewService(
+            dbContext,
+            moderationService ?? new Mock<IAiModerationService>().Object,
+            movieService ?? new Mock<IMovieService>().Object,
+            new Mock<Hangfire.IBackgroundJobClient>().Object,
+            Options.Create(new CinemaProcessingSettings()));
+    }
+
+    private static async Task SeedReviewableBookingAsync(CinemaDbContext dbContext)
+    {
+        dbContext.CustomerProfiles.Add(new CustomerProfile
+        {
+            CustomerProfileId = "CP1",
+            UserId = "user123",
+            MemberLevel = "STANDARD"
+        });
+        dbContext.Showtimes.Add(new Showtime
+        {
+            ShowtimeId = "SHOWTIME1",
+            MovieId = "MOV1",
+            RoomId = "ROOM1",
+            StartTime = DateTime.UtcNow.AddHours(-3),
+            EndTime = DateTime.UtcNow.AddHours(-1),
+            BasePrice = 100000m,
+            Status = "CLOSED",
+            CreatedAt = DateTime.UtcNow.AddDays(-1)
+        });
+        dbContext.Bookings.Add(new Booking
+        {
+            BookingId = "BOOKING1",
+            CustomerProfileId = "CP1",
+            ShowtimeId = "SHOWTIME1",
+            BookingStatus = "PAID",
+            TotalAmount = 100000m,
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+            BookingChannel = "ONLINE"
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task CreateReviewAsync_WhenCustomerProfileNotFound_ReturnsFail()
     {
         var dbContext = CreateDbContext();
         var aiModerationServiceMock = new Mock<IAiModerationService>();
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
         var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5 };
 
@@ -44,13 +91,18 @@ public sealed class ReviewServiceTests
     public async Task CreateReviewAsync_WithNoComment_IsApproved()
     {
         var dbContext = CreateDbContext();
-        dbContext.Set<CustomerProfile>().Add(new CustomerProfile { CustomerProfileId = "CP1", UserId = "user123", MemberLevel = "STANDARD" });
-        await dbContext.SaveChangesAsync();
+        await SeedReviewableBookingAsync(dbContext);
 
         var aiModerationServiceMock = new Mock<IAiModerationService>();
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
-        var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5, Comment = "" };
+        var request = new CreateReviewRequest
+        {
+            MovieId = "MOV1",
+            BookingId = "BOOKING1",
+            Rating = 5,
+            Comment = ""
+        };
 
         var result = await service.CreateReviewAsync("user123", request);
 
@@ -66,16 +118,21 @@ public sealed class ReviewServiceTests
     public async Task CreateReviewAsync_WithComment_ApprovedByAi()
     {
         var dbContext = CreateDbContext();
-        dbContext.Set<CustomerProfile>().Add(new CustomerProfile { CustomerProfileId = "CP1", UserId = "user123", MemberLevel = "STANDARD" });
-        await dbContext.SaveChangesAsync();
+        await SeedReviewableBookingAsync(dbContext);
 
         var aiModerationServiceMock = new Mock<IAiModerationService>();
         aiModerationServiceMock.Setup(x => x.ModerateReviewAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiModerationResult { Status = "APPROVED" });
         
-        var service = new ReviewService(dbContext, aiModerationServiceMock.Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext, aiModerationServiceMock.Object);
 
-        var request = new CreateReviewRequest { MovieId = "MOV1", Rating = 5, Comment = "Great movie!" };
+        var request = new CreateReviewRequest
+        {
+            MovieId = "MOV1",
+            BookingId = "BOOKING1",
+            Rating = 5,
+            Comment = "Great movie!"
+        };
 
         var result = await service.CreateReviewAsync("user123", request);
 
@@ -99,13 +156,13 @@ public sealed class ReviewServiceTests
         );
         await dbContext.SaveChangesAsync();
 
-        var service = new ReviewService(dbContext, new Mock<IAiModerationService>().Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext);
 
         var result = await service.GetApprovedMovieReviewsAsync("M1");
 
         Assert.True(result.Success);
         Assert.Single(result.Data!);
-        Assert.Equal("R1", result.Data[0].ReviewId);
+        Assert.Equal("R1", result.Data![0].ReviewId);
     }
 
     [Fact]
@@ -116,7 +173,7 @@ public sealed class ReviewServiceTests
         dbContext.Set<Review>().Add(review);
         await dbContext.SaveChangesAsync();
 
-        var service = new ReviewService(dbContext, new Mock<IAiModerationService>().Object, new Mock<IMovieService>().Object);
+        var service = CreateService(dbContext);
 
         var result = await service.UpdateReviewStatusAsync("R1", ReviewConstants.Approved);
 

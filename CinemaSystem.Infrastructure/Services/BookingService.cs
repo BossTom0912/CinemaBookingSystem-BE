@@ -8,23 +8,14 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Infrastructure.Configuration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using CinemaSystem.Domain.Constants;
 using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Services;
 
-/// <summary>
-/// Runtime implementation for the original booking create/detail/history
-/// routes reached from <c>BookingsController</c>.
-/// </summary>
-/// <remarks>
-/// Reads customer/showtime/seat/F&amp;B data, creates a PENDING_PAYMENT booking
-/// and records temporary seat state through <c>CinemaDbContext</c>. The richer
-/// transactional checkout path is implemented separately by
-/// <c>CinemaSystem.Infrastructure.Bookings.CheckoutService</c>; payment is the
-/// next use case handled by <c>PaymentService</c>.
-/// </remarks>
 public sealed class BookingService : IBookingService
 {
     private readonly CinemaDbContext _dbContext;
@@ -33,11 +24,13 @@ public sealed class BookingService : IBookingService
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly IAiEmailService _aiEmailService;
+    private readonly BookingSettings _bookingSettings;
 
     public BookingService(
         CinemaDbContext dbContext,
         IClock clock,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
+        IOptions<BookingSettings> bookingOptions,
         ISeatLockStore seatLockStore,
         IAiEmailService aiEmailService,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
@@ -46,6 +39,7 @@ public sealed class BookingService : IBookingService
         _clock = clock;
         _seatLockStore = seatLockStore;
         _securitySettings = securityOptions.Value;
+        _bookingSettings = bookingOptions.Value;
         _aiEmailService = aiEmailService;
         _backgroundJobClient = backgroundJobClient!;
     }
@@ -74,9 +68,17 @@ public sealed class BookingService : IBookingService
             return ServiceResult<BookingResponse>.Fail(404, "Showtime not found.", "SHOWTIME_NOT_FOUND");
         }
 
-        if (showtime.Status == DomainConstants.EntityStatus.Cancelled || showtime.Status == DomainConstants.EntityStatus.Closed)
+        if (!string.Equals(showtime.Status, DomainConstants.ShowtimeStatus.Open, StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<BookingResponse>.Fail(400, "This showtime is no longer accepting bookings.", "SHOWTIME_UNAVAILABLE");
+        }
+
+        if (request.ShowtimeSeatIds.Count > _bookingSettings.MaxSeatsPerCheckout)
+        {
+            return ServiceResult<BookingResponse>.Fail(
+                400,
+                $"A booking can contain at most {_bookingSettings.MaxSeatsPerCheckout} seats.",
+                "MAX_SEATS_EXCEEDED");
         }
 
         await ReleaseStaleBookingSeatsForShowtimeAsync(
@@ -87,7 +89,7 @@ public sealed class BookingService : IBookingService
 
         var showtimeSeats = await _dbContext.ShowtimeSeats
             .Include(ss => ss.BookingSeat)
-                .ThenInclude(bs => bs.Booking)
+                .ThenInclude(bs => bs!.Booking)
             .Include(ss => ss.Seat)
             .ThenInclude(s => s.SeatType)
             .Where(ss => request.ShowtimeSeatIds.Contains(ss.ShowtimeSeatId) && ss.ShowtimeId == request.ShowtimeId)
@@ -100,9 +102,13 @@ public sealed class BookingService : IBookingService
 
         var now = _clock.UtcNow;
 
-        if (now >= showtime.StartTime)
+        var onlineSaleClosesAt = showtime.StartTime.AddMinutes(-_bookingSettings.OnlineSaleCutoffMinutes);
+        if (now >= onlineSaleClosesAt)
         {
-            return ServiceResult<BookingResponse>.Fail(400, "Cannot book tickets for a showtime that has already started.", "SHOWTIME_STARTED");
+            return ServiceResult<BookingResponse>.Fail(
+                400,
+                "Online ticket sales have closed for this showtime.",
+                BookingConstants.ErrorCodes.OnlineSaleClosed);
         }
 
         foreach (var ss in showtimeSeats)
@@ -132,7 +138,7 @@ public sealed class BookingService : IBookingService
             totalAmount += seatPrice;
             bookingSeats.Add(new BookingSeat
             {
-                BookingSeatId = NewId("BKS"),
+                BookingSeatId = NewId(DomainConstants.EntityIdPrefix.BookingSeat),
                 ShowtimeSeatId = ss.ShowtimeSeatId,
                 SeatPrice = seatPrice
             });
@@ -156,7 +162,7 @@ public sealed class BookingService : IBookingService
                 totalAmount += subtotal;
                 bookingFbItems.Add(new BookingFbItem
                 {
-                    BookingFbitemId = NewId("BFI"),
+                    BookingFbitemId = NewId(DomainConstants.EntityIdPrefix.BookingFoodItem),
                     FbItemId = fbItem.FbItemId,
                     Quantity = itemRequest.Quantity,
                     UnitPrice = fbItem.Price,
@@ -165,7 +171,7 @@ public sealed class BookingService : IBookingService
             }
         }
 
-        var bookingId = NewId("BOK");
+        var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
         var booking = new Booking
         {
             BookingId = bookingId,
@@ -174,8 +180,8 @@ public sealed class BookingService : IBookingService
             BookingStatus = DomainConstants.EntityStatus.PendingPayment,
             TotalAmount = totalAmount,
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(10),
-            BookingChannel = "ONLINE",
+            ExpiredAt = now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
+            BookingChannel = DomainConstants.BookingChannel.Online,
             BookingSeats = bookingSeats,
             BookingFbItems = bookingFbItems
         };
@@ -426,7 +432,7 @@ public sealed class BookingService : IBookingService
 
             var refund = new Refund
             {
-                RefundId = NewId("REF"),
+                RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
                 BookingId = booking.BookingId,
                 PaymentId = payment.PaymentId,
                 PaymentProviderId = payment.PaymentProviderId,
@@ -583,7 +589,7 @@ public sealed class BookingService : IBookingService
         }
 
         // Không cho phép chuyển ghế đối với các vé đã hủy
-        if (booking.BookingStatus == "CANCELLED")
+        if (booking.BookingStatus == DomainConstants.BookingStatus.Cancelled)
         {
             return ServiceResult<bool>.Fail(400, "Cannot reassign seats for a cancelled booking.", "BOOKING_CANCELLED");
         }
@@ -606,7 +612,7 @@ public sealed class BookingService : IBookingService
         }
 
         // Kiểm tra xem ghế mới có trống hay không
-        if (newShowtimeSeat.SeatStatus != "AVAILABLE")
+        if (newShowtimeSeat.SeatStatus != DomainConstants.ShowtimeSeatStatus.Available)
         {
             return ServiceResult<bool>.Fail(400, "The target new seat is not available.", "NEW_SEAT_NOT_AVAILABLE");
         }
@@ -619,12 +625,12 @@ public sealed class BookingService : IBookingService
         try
         {
             // Giải phóng ghế cũ
-            oldShowtimeSeat.SeatStatus = "AVAILABLE";
+            oldShowtimeSeat.SeatStatus = DomainConstants.ShowtimeSeatStatus.Available;
             oldShowtimeSeat.LockedUntil = null;
             oldShowtimeSeat.LockedByUserId = null;
 
             // Khóa ghế mới cho đơn hàng này
-            newShowtimeSeat.SeatStatus = "BOOKED";
+            newShowtimeSeat.SeatStatus = DomainConstants.ShowtimeSeatStatus.Booked;
 
             // Cập nhật lại liên kết ghế cho BookingSeat
             bookingSeat.ShowtimeSeatId = newShowtimeSeat.ShowtimeSeatId;

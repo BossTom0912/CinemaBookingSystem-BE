@@ -5,6 +5,9 @@ using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
+using Hangfire;
+using Hangfire.Common;
+using Hangfire.States;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
@@ -43,10 +46,12 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _databaseName = Guid.NewGuid().ToString("N");
 
     // ── JWT constants — phải khớp với appsettings.json và TestAuthTokens ──────
-    internal const string TestJwtSecret   = "CHANGE_ME_LOCAL_DEVELOPMENT_SECRET_32_CHARS_MINIMUM";
+    internal const string TestJwtSecret = "integration-test-jwt-secret-with-at-least-32-characters";
     internal const string TestJwtIssuer   = "CinemaSystem";
     internal const string TestJwtAudience = "CinemaSystem.Api";
     internal const string TestSepayWebhookSecret = "test-sepay-webhook-secret";
+    internal const string TestConfirmationTokenSecret =
+        "integration-test-confirmation-secret-with-at-least-32-characters";
 
     public FakeEmailCapture EmailCapture { get; } = new();
     public string FixedOtp => "123456";
@@ -74,12 +79,20 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IEmailService>();
             services.AddSingleton<IEmailSender>(EmailCapture);
             services.AddSingleton<IEmailService>(EmailCapture);
+            services.AddSingleton<IAiEmailService, FakeAiEmailService>();
+            services.RemoveAll<Hangfire.IBackgroundJobClient>();
+            services.AddSingleton<Hangfire.IBackgroundJobClient>(
+                new InlineEmailBackgroundJobClient(EmailCapture));
 
             // ── 3. Thay OTP generator bằng giá trị cố định ───────────────────
             services.RemoveAll<IOtpGenerator>();
             services.AddSingleton<IOtpGenerator>(new FixedOtpGenerator(FixedOtp));
 
-            // ── 4. Override JWT TokenValidationParameters ─────────────────────
+            // ── 4. Execute Hangfire jobs immediately for deterministic tests ─
+            services.RemoveAll<IBackgroundJobClient>();
+            services.AddSingleton<IBackgroundJobClient, ImmediateBackgroundJobClient>();
+
+            // ── 5. Override JWT TokenValidationParameters ─────────────────────
             //
             // appsettings.json đã cấu hình cùng Secret/Issuer/Audience với TestAuthTokens
             // nên token sẽ validate đúng ngay cả không có override.
@@ -134,9 +147,16 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("JwtSettings:Issuer", TestJwtIssuer);
         builder.UseSetting("JwtSettings:Audience", TestJwtAudience);
         builder.UseSetting("JwtSettings:Secret", TestJwtSecret);
+        builder.UseSetting(
+            "SecuritySettings:ConfirmationTokenSecret",
+            TestConfirmationTokenSecret);
         builder.UseSetting("SepaySettings:WebhookSecret", TestSepayWebhookSecret);
         builder.UseSetting("SepaySettings:BankName", "Test Bank");
         builder.UseSetting("SepaySettings:BankAccount", "0000000000");
+        builder.UseSetting("RefundSettings:FrontendBaseUrl", "https://frontend.test");
+        builder.UseSetting("RefundSettings:ClaimTokenMinutes", "5");
+        builder.UseSetting("TicketScanSettings:OpenBeforeStartMinutes", "30");
+        builder.UseSetting("TicketScanSettings:CloseAfterEndMinutes", "0");
         builder.UseSetting("Redis:ConnectionString", string.Empty);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
@@ -147,12 +167,39 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["JwtSettings:Issuer"] = TestJwtIssuer,
                 ["JwtSettings:Audience"] = TestJwtAudience,
                 ["JwtSettings:Secret"] = TestJwtSecret,
+                ["SecuritySettings:ConfirmationTokenSecret"] =
+                    TestConfirmationTokenSecret,
                 ["JwtSettings:AccessTokenMinutes"] = "120",
                 ["JwtSettings:RefreshTokenDays"] = "7",
                 ["SepaySettings:WebhookSecret"] = TestSepayWebhookSecret,
                 ["SepaySettings:BankName"] = "Test Bank",
                 ["SepaySettings:BankAccount"] = "0000000000",
-                ["Redis:ConnectionString"] = string.Empty
+                ["RefundSettings:FrontendBaseUrl"] = "https://frontend.test",
+                ["RefundSettings:ClaimTokenMinutes"] = "5",
+                ["TicketScanSettings:OpenBeforeStartMinutes"] = "30",
+                ["TicketScanSettings:CloseAfterEndMinutes"] = "0",
+                ["Redis:ConnectionString"] = string.Empty,
+                ["SecuritySettings:ConfirmationTokenSecret"] =
+                    "test-confirmation-token-secret-32-characters",
+                ["EmailTemplates:SeatMaintenanceSubject"] = "Seat Maintenance Notification",
+                ["EmailTemplates:SeatMaintenanceBody"] =
+                    "Seat {0} is unavailable for {1}. Booking {2}. Token {3}.",
+                ["EmailTemplates:ShowtimeTimeChangeSubject"] =
+                    "Unexpected Update Notification",
+                ["EmailTemplates:ShowtimeTimeChangeBody"] =
+                    "Movie {0}. Start time changed to {1}. Booking {2}. Token {3}. Please wait for the cinema to handle it.",
+                ["EmailTemplates:ShowtimeTimeChangeNoticeSubject"] =
+                    "Showtime Update Notification",
+                ["EmailTemplates:ShowtimeTimeChangeNoticeBody"] =
+                    "Movie {0}. Start time changed to {1}. {2}.",
+                ["EmailTemplates:ShowtimeRoomChangeSubject"] =
+                    "Showtime Room Change",
+                ["EmailTemplates:ShowtimeRoomChangeBody"] =
+                    "The showtime moved to room {0}.",
+                ["EmailTemplates:ShowtimeCancellationSubject"] =
+                    "Showtime Cancellation",
+                ["EmailTemplates:ShowtimeCancellationBody"] =
+                    "The showtime was cancelled: {0}."
             });
         });
     }
@@ -161,6 +208,45 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
     {
         await DisposeAsync();
         GC.SuppressFinalize(this);
+    }
+}
+
+public sealed class ImmediateBackgroundJobClient : IBackgroundJobClient
+{
+    private readonly IServiceProvider _services;
+
+    public ImmediateBackgroundJobClient(IServiceProvider services)
+    {
+        _services = services;
+    }
+
+    public string Create(Job job, IState state)
+    {
+        using var scope = _services.CreateScope();
+        var target = scope.ServiceProvider.GetRequiredService(job.Type);
+
+        try
+        {
+            var result = job.Method.Invoke(target, job.Args.ToArray());
+            if (result is Task task)
+            {
+                task.GetAwaiter().GetResult();
+            }
+        }
+        catch (System.Reflection.TargetInvocationException exception)
+            when (exception.InnerException is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(exception.InnerException)
+                .Throw();
+        }
+
+        return Guid.NewGuid().ToString("N");
+    }
+
+    public bool ChangeState(string jobId, IState state, string expectedState)
+    {
+        return true;
     }
 }
 
@@ -196,6 +282,35 @@ public sealed class FakeEmailCapture : IEmailSender, IEmailService
 }
 
 public sealed record CapturedEmail(string ToEmail, string Subject, string Body);
+
+internal sealed class InlineEmailBackgroundJobClient : Hangfire.IBackgroundJobClient
+{
+    private readonly FakeEmailCapture _emailCapture;
+
+    public InlineEmailBackgroundJobClient(FakeEmailCapture emailCapture)
+    {
+        _emailCapture = emailCapture;
+    }
+
+    public string Create(Hangfire.Common.Job job, Hangfire.States.IState state)
+    {
+        if (job.Type == typeof(IEmailSender) || job.Type == typeof(IEmailService))
+        {
+            var task = job.Method.Invoke(_emailCapture, job.Args.ToArray()) as Task;
+            task?.GetAwaiter().GetResult();
+        }
+
+        return Guid.NewGuid().ToString("N");
+    }
+
+    public bool ChangeState(
+        string jobId,
+        Hangfire.States.IState state,
+        string? expectedState)
+    {
+        return true;
+    }
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // OTP
@@ -253,5 +368,39 @@ public static class TestAuthTokens
     private sealed class WallClock : IClock
     {
         public DateTime UtcNow => DateTime.UtcNow;
+    }
+}
+
+public sealed class FakeAiEmailService : IAiEmailService
+{
+    private readonly IEmailService _emailService;
+
+    public FakeAiEmailService(IEmailService emailService)
+    {
+        _emailService = emailService;
+    }
+
+    public Task SendAiApologyEmailAsync(
+        string toEmail, 
+        string subject, 
+        string reason, 
+        string details, 
+        CancellationToken cancellationToken)
+    {
+        var body = $"Apology Email. Reason: {reason}. Details: {details}.";
+        return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
+    }
+
+    public Task SendAiTimeChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string newTime,
+        string bookingId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var body = $"Movie {movieTitle}. Start time changed to {newTime}. Booking {bookingId}. Token {token}. Please wait for the cinema to handle it.";
+        return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 }
