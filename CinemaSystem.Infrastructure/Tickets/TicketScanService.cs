@@ -15,6 +15,21 @@ namespace CinemaSystem.Infrastructure.Tickets;
 
 public sealed class TicketScanService : ITicketScanService
 {
+    private static class FailureReasons
+    {
+        public const string TicketNotFound = "Ticket Not Found";
+        public const string WrongCinema = "Wrong Cinema";
+        public const string WrongRoom = "Wrong Room";
+        public const string TicketAlreadyUsed = "Ticket Already Used";
+        public const string TicketCancelled = "Ticket Cancelled";
+        public const string TicketRefunded = "Ticket Refunded";
+        public const string TicketNotUsable = "Ticket Not Usable";
+        public const string BookingNotEligible = "Booking Not Eligible";
+        public const string ShowtimeCancelled = "Showtime Cancelled";
+        public const string InvalidTime = "Invalid Time";
+        public const string ConcurrentScanConflict = "Concurrent Scan Conflict";
+    }
+
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
     private readonly TicketScanSettings _settings;
@@ -34,10 +49,21 @@ public sealed class TicketScanService : ITicketScanService
 
     public async Task<ServiceResult<ScanTicketResponse>> ScanAsync(
         string userId,
-        string? cinemaScopeId,
+        string claimActorRole,
         ScanTicketRequest request,
         CancellationToken cancellationToken)
     {
+        var normalizedClaimRole = AuthConstants.Roles.Normalize(claimActorRole);
+        if (normalizedClaimRole is not AuthConstants.Roles.Admin
+            and not AuthConstants.Roles.Manager
+            and not AuthConstants.Roles.Staff)
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "The authenticated role is not allowed to scan tickets.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
         var normalizedUserId = userId?.Trim();
         var actor = string.IsNullOrWhiteSpace(normalizedUserId)
             ? null
@@ -59,14 +85,21 @@ public sealed class TicketScanService : ITicketScanService
         }
 
         var actorRole = AuthConstants.Roles.Normalize(actor.RoleName);
-        var roleMatchesScope = cinemaScopeId is null
-            ? actorRole == AuthConstants.Roles.Admin
-            : actorRole is AuthConstants.Roles.Staff or AuthConstants.Roles.Manager;
-        if (!roleMatchesScope)
+        if (!string.Equals(actorRole, normalizedClaimRole, StringComparison.Ordinal))
         {
             return ServiceResult<ScanTicketResponse>.Fail(
                 (int)HttpStatusCode.Forbidden,
-                "The authenticated role is not allowed to use this cinema scope.",
+                "The authenticated role does not match the current account role.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
+        if (actorRole is not AuthConstants.Roles.Admin
+            and not AuthConstants.Roles.Manager
+            and not AuthConstants.Roles.Staff)
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "The authenticated account role is not allowed to scan tickets.",
                 BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
         }
 
@@ -90,13 +123,28 @@ public sealed class TicketScanService : ITicketScanService
                 BookingConstants.TicketScanErrorCodes.TicketWrongRoom);
         }
 
-        var staffProfileId = await _dbContext.StaffProfiles
+        var staffProfile = await _dbContext.StaffProfiles
             .AsNoTracking()
             .Where(profile =>
                 profile.UserId == actorUserId
                 && profile.EmploymentStatus == BookingConstants.ResourceStatus.Active)
-            .Select(profile => profile.StaffProfileId)
+            .Select(profile => new ScanStaffProfile(
+                profile.StaffProfileId,
+                profile.CinemaId))
             .FirstOrDefaultAsync(cancellationToken);
+        if (actorRole is AuthConstants.Roles.Manager or AuthConstants.Roles.Staff
+            && staffProfile is null)
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "Active staff profile cinema scope was not found.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
+        var staffProfileId = staffProfile?.StaffProfileId;
+        var staffCinemaId = actorRole == AuthConstants.Roles.Admin
+            ? null
+            : staffProfile!.CinemaId;
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
@@ -114,6 +162,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.NotFound,
                 "Ticket was not found.",
                 BookingConstants.TicketScanErrorCodes.TicketNotFound,
+                FailureReasons.TicketNotFound,
                 cancellationToken);
         }
 
@@ -121,9 +170,9 @@ public sealed class TicketScanService : ITicketScanService
         var showtime = booking.Showtime;
         var room = showtime.Room;
 
-        if (cinemaScopeId is not null
+        if (staffCinemaId is not null
             && !string.Equals(
-                cinemaScopeId,
+                staffCinemaId,
                 room.CinemaId,
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -136,6 +185,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Forbidden,
                 "Ticket belongs to another cinema.",
                 BookingConstants.TicketScanErrorCodes.TicketWrongCinema,
+                FailureReasons.WrongCinema,
                 cancellationToken);
         }
 
@@ -153,6 +203,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 "Ticket belongs to another screening room.",
                 BookingConstants.TicketScanErrorCodes.TicketWrongRoom,
+                FailureReasons.WrongRoom,
                 cancellationToken);
         }
 
@@ -168,6 +219,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 ticketStateFailure.Value.Message,
                 ticketStateFailure.Value.ErrorCode,
+                ticketStateFailure.Value.FailureReason,
                 cancellationToken);
         }
 
@@ -183,6 +235,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 "Booking is not eligible for check-in.",
                 BookingConstants.TicketScanErrorCodes.BookingNotEligibleForCheckIn,
+                FailureReasons.BookingNotEligible,
                 cancellationToken);
         }
 
@@ -197,6 +250,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 "The showtime was cancelled.",
                 BookingConstants.TicketScanErrorCodes.ShowtimeCancelled,
+                FailureReasons.ShowtimeCancelled,
                 cancellationToken);
         }
 
@@ -214,6 +268,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 "The check-in window has not opened yet.",
                 BookingConstants.TicketScanErrorCodes.CheckInTooEarly,
+                FailureReasons.InvalidTime,
                 cancellationToken);
         }
 
@@ -230,6 +285,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 "The check-in window has closed.",
                 BookingConstants.TicketScanErrorCodes.CheckInWindowClosed,
+                FailureReasons.InvalidTime,
                 cancellationToken);
         }
 
@@ -247,6 +303,7 @@ public sealed class TicketScanService : ITicketScanService
                 HttpStatusCode.Conflict,
                 "Ticket was scanned concurrently or is no longer unused.",
                 BookingConstants.TicketScanErrorCodes.TicketScanConflict,
+                FailureReasons.ConcurrentScanConflict,
                 cancellationToken);
         }
 
@@ -336,6 +393,7 @@ public sealed class TicketScanService : ITicketScanService
         HttpStatusCode statusCode,
         string message,
         string errorCode,
+        string failureReason,
         CancellationToken cancellationToken)
     {
         _dbContext.CheckinLogs.Add(CreateCheckInLog(
@@ -344,7 +402,7 @@ public sealed class TicketScanService : ITicketScanService
             ticketId,
             rawQrCode,
             BookingConstants.CheckInResult.Failed,
-            errorCode,
+            failureReason,
             _clock.UtcNow));
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -377,24 +435,28 @@ public sealed class TicketScanService : ITicketScanService
         };
     }
 
-    private static (string Message, string ErrorCode)? GetTicketStateFailure(
+    private static (string Message, string ErrorCode, string FailureReason)? GetTicketStateFailure(
         string ticketStatus)
     {
         return ticketStatus switch
         {
             BookingConstants.TicketStatus.CheckedIn => (
-                "Ticket has already been checked in.",
-                BookingConstants.TicketScanErrorCodes.TicketAlreadyCheckedIn),
+                "Ticket has already been used.",
+                BookingConstants.TicketScanErrorCodes.TicketAlreadyCheckedIn,
+                FailureReasons.TicketAlreadyUsed),
             BookingConstants.TicketStatus.Cancelled => (
                 "Ticket was cancelled.",
-                BookingConstants.TicketScanErrorCodes.TicketCancelled),
+                BookingConstants.TicketScanErrorCodes.TicketCancelled,
+                FailureReasons.TicketCancelled),
             BookingConstants.TicketStatus.Refunded => (
                 "Ticket was refunded.",
-                BookingConstants.TicketScanErrorCodes.TicketRefunded),
+                BookingConstants.TicketScanErrorCodes.TicketRefunded,
+                FailureReasons.TicketRefunded),
             BookingConstants.TicketStatus.Unused => null,
             _ => (
                 "Ticket is not in a usable state.",
-                BookingConstants.TicketScanErrorCodes.TicketNotUsable)
+                BookingConstants.TicketScanErrorCodes.TicketNotUsable,
+                FailureReasons.TicketNotUsable)
         };
     }
 
@@ -442,4 +504,8 @@ public sealed class TicketScanService : ITicketScanService
         string UserId,
         string Status,
         string RoleName);
+
+    private sealed record ScanStaffProfile(
+        string StaffProfileId,
+        string CinemaId);
 }

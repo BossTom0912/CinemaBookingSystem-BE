@@ -7,7 +7,7 @@ public interface ITicketScanService
 {
     Task<ServiceResult<ScanTicketResponse>> ScanAsync(
         string userId,
-        string? cinemaScopeId,
+        string actorRole,
         ScanTicketRequest request,
         CancellationToken cancellationToken);
 }
