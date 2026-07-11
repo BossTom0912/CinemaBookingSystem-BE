@@ -35,7 +35,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await CleanupExpiredBookingsAsync(stoppingToken);
+        await TryCleanupExpiredBookingsAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -44,16 +44,28 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);
-                await CleanupExpiredBookingsAsync(stoppingToken);
+                await TryCleanupExpiredBookingsAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
             }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(exception, "Pending payment cleanup failed.");
-            }
+        }
+    }
+
+    private async Task TryCleanupExpiredBookingsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await CleanupExpiredBookingsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Pending payment cleanup failed.");
         }
     }
 
@@ -76,6 +88,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                 item.BookingStatus == BookingConstants.BookingStatus.PendingPayment &&
                 ((item.ExpiredAt.HasValue && item.ExpiredAt <= now) ||
                  (!item.ExpiredAt.HasValue && item.CreatedAt <= createdBefore)))
+            .OrderBy(item => item.ExpiredAt ?? item.CreatedAt)
             .Take(_settings.Value.PendingPaymentCleanupBatchSize)
             .ToListAsync(cancellationToken);
 

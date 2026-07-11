@@ -97,194 +97,198 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                 BookingConstants.RefundErrorCodes.UserNotFound);
         }
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.ReadCommitted,
-            cancellationToken);
-
-        try
+        var executionStrategy = _dbContext.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
         {
-            var showtime = await LoadShowtimeForCancellationAsync(showtimeId.Trim(), cancellationToken);
-            if (showtime is null)
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+
+            try
             {
-                return await RollbackAndFailAsync(
-                    transaction,
-                    (int)HttpStatusCode.NotFound,
-                    "Showtime was not found.",
-                    BookingConstants.RefundErrorCodes.ShowtimeNotFound,
-                    cancellationToken);
-            }
-
-            if (IsStatus(showtime.Status, BookingConstants.ShowtimeStatus.Cancelled)
-                || showtime.ShowtimeCancellation is not null)
-            {
-                return await RollbackAndFailAsync(
-                    transaction,
-                    (int)HttpStatusCode.Conflict,
-                    "Showtime has already been cancelled.",
-                    BookingConstants.RefundErrorCodes.ShowtimeAlreadyCancelled,
-                    cancellationToken);
-            }
-
-            var now = _clock.UtcNow;
-            if (showtime.StartTime <= now)
-            {
-                return await RollbackAndFailAsync(
-                    transaction,
-                    (int)HttpStatusCode.Conflict,
-                    "A showtime that has already started cannot be cancelled.",
-                    BookingConstants.RefundErrorCodes.ShowtimeAlreadyStarted,
-                    cancellationToken);
-            }
-
-            var oldStatus = showtime.Status;
-            var cancellationId = NewId(BookingConstants.EntityIdPrefix.ShowtimeCancellation);
-            var staffProfileId = await GetActiveStaffProfileIdAsync(userId, cancellationToken);
-
-            showtime.Status = BookingConstants.ShowtimeStatus.Cancelled;
-            var cancellation = new ShowtimeCancellation
-            {
-                ShowtimeCancellationId = cancellationId,
-                ShowtimeId = showtime.ShowtimeId,
-                CancelledByUserId = userId,
-                CancelledByStaffId = staffProfileId,
-                CancelReason = reason,
-                CancelledAt = now
-            };
-            _dbContext.ShowtimeCancellations.Add(cancellation);
-
-            var paidBookingsMoved = 0;
-            var unpaidBookingsCancelled = 0;
-            var refundsCreated = 0;
-            var totalRefundAmount = 0m;
-            var cancellationEmails = new List<CancellationEmail>();
-
-            foreach (var showtimeSeat in showtime.ShowtimeSeats)
-            {
-                MarkShowtimeSeatUnavailable(showtimeSeat);
-            }
-
-            foreach (var booking in showtime.Bookings)
-            {
-                if (IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Paid))
+                var showtime = await LoadShowtimeForCancellationAsync(showtimeId.Trim(), cancellationToken);
+                if (showtime is null)
                 {
-                    var refundResult = MovePaidBookingToRefundPending(
-                        booking,
-                        cancellationId,
-                        reason,
-                        now);
-                    if (!refundResult.Success)
-                    {
-                        return await RollbackAndFailAsync(
-                            transaction,
-                            (int)HttpStatusCode.Conflict,
-                            refundResult.Message,
-                            refundResult.ErrorCode,
-                            cancellationToken);
-                    }
-
-                    paidBookingsMoved++;
-                    refundsCreated += refundResult.RefundCreated ? 1 : 0;
-                    totalRefundAmount += refundResult.RefundAmount;
-                    if (refundResult.RefundId is not null)
-                    {
-                        if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
-                        {
-                            var issue = _refundClaimIssuer.Create(
-                                refundResult.RefundId,
-                                booking.CustomerProfileId,
-                                now);
-                            _dbContext.RefundClaims.Add(issue.Claim);
-                            AddPaidCancellationEmail(
-                                cancellationEmails,
-                                booking,
-                                showtime,
-                                refundResult.RefundAmount,
-                                issue.RawToken,
-                                issue.Token.ExpiresAt);
-                        }
-                        else
-                        {
-                            AddCancellationEmail(cancellationEmails, booking, showtime);
-                        }
-                    }
-
-                    AddCancellationNotification(booking, showtime, now);
-                    continue;
+                    return await RollbackAndFailAsync(
+                        transaction,
+                        (int)HttpStatusCode.NotFound,
+                        "Showtime was not found.",
+                        BookingConstants.RefundErrorCodes.ShowtimeNotFound,
+                        cancellationToken);
                 }
 
-                if (IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Created)
-                    || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.PendingPayment))
+                if (IsStatus(showtime.Status, BookingConstants.ShowtimeStatus.Cancelled)
+                    || showtime.ShowtimeCancellation is not null)
                 {
-                    CancelUnpaidBooking(booking, now);
-                    unpaidBookingsCancelled++;
-                    AddCancellationNotification(booking, showtime, now);
-                    AddCancellationEmail(cancellationEmails, booking, showtime);
+                    return await RollbackAndFailAsync(
+                        transaction,
+                        (int)HttpStatusCode.Conflict,
+                        "Showtime has already been cancelled.",
+                        BookingConstants.RefundErrorCodes.ShowtimeAlreadyCancelled,
+                        cancellationToken);
                 }
-            }
 
-            _dbContext.AuditLogs.Add(CreateAuditLog(
-                userId,
-                showtime.ShowtimeId,
-                oldStatus,
-                cancellationId,
-                reason,
-                paidBookingsMoved,
-                unpaidBookingsCancelled,
-                refundsCreated,
-                totalRefundAmount,
-                now));
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
-            // Cancellation is committed before SMTP or payment-provider work. A failure
-            // outside the database must never reopen a showtime or allow new ticket sales.
-            await SendCancellationEmailsAsync(cancellationEmails, cancellationToken);
-
-            _logger.LogInformation(
-                "Showtime {ShowtimeId} cancelled by user {UserId}; refunds created: {RefundCount}, amount: {RefundAmount}.",
-                showtime.ShowtimeId,
-                userId,
-                refundsCreated,
-                totalRefundAmount);
-
-            return ServiceResult<CancelShowtimeResponse>.Ok(
-                new CancelShowtimeResponse
+                var now = _clock.UtcNow;
+                if (showtime.StartTime <= now)
                 {
-                    ShowtimeId = showtime.ShowtimeId,
-                    ShowtimeStatus = showtime.Status,
+                    return await RollbackAndFailAsync(
+                        transaction,
+                        (int)HttpStatusCode.Conflict,
+                        "A showtime that has already started cannot be cancelled.",
+                        BookingConstants.RefundErrorCodes.ShowtimeAlreadyStarted,
+                        cancellationToken);
+                }
+
+                var oldStatus = showtime.Status;
+                var cancellationId = NewId(BookingConstants.EntityIdPrefix.ShowtimeCancellation);
+                var staffProfileId = await GetActiveStaffProfileIdAsync(userId, cancellationToken);
+
+                showtime.Status = BookingConstants.ShowtimeStatus.Cancelled;
+                var cancellation = new ShowtimeCancellation
+                {
                     ShowtimeCancellationId = cancellationId,
-                    PaidBookingsMovedToRefundPending = paidBookingsMoved,
-                    UnpaidBookingsCancelled = unpaidBookingsCancelled,
-                    RefundsCreated = refundsCreated,
-                    TotalRefundAmount = totalRefundAmount,
-                    RefundsSucceeded = 0,
-                    RefundsManualRequired = 0,
-                    RefundsPending = refundsCreated
-                },
-                "Showtime cancelled and refund data generated successfully.");
-        }
-        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
-        {
-            await RollbackSafelyAsync(transaction);
-            var alreadyCancelled = await _dbContext.ShowtimeCancellations
-                .AsNoTracking()
-                .AnyAsync(item => item.ShowtimeId == showtimeId, cancellationToken);
-            if (alreadyCancelled)
-            {
-                return Fail(
-                    (int)HttpStatusCode.Conflict,
-                    "Showtime has already been cancelled.",
-                    BookingConstants.RefundErrorCodes.ShowtimeAlreadyCancelled);
-            }
+                    ShowtimeId = showtime.ShowtimeId,
+                    CancelledByUserId = userId,
+                    CancelledByStaffId = staffProfileId,
+                    CancelReason = reason,
+                    CancelledAt = now
+                };
+                _dbContext.ShowtimeCancellations.Add(cancellation);
 
-            throw;
-        }
-        catch
-        {
-            await RollbackSafelyAsync(transaction);
-            throw;
-        }
+                var paidBookingsMoved = 0;
+                var unpaidBookingsCancelled = 0;
+                var refundsCreated = 0;
+                var totalRefundAmount = 0m;
+                var cancellationEmails = new List<CancellationEmail>();
+
+                foreach (var showtimeSeat in showtime.ShowtimeSeats)
+                {
+                    MarkShowtimeSeatUnavailable(showtimeSeat);
+                }
+
+                foreach (var booking in showtime.Bookings)
+                {
+                    if (IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Paid))
+                    {
+                        var refundResult = MovePaidBookingToRefundPending(
+                            booking,
+                            cancellationId,
+                            reason,
+                            now);
+                        if (!refundResult.Success)
+                        {
+                            return await RollbackAndFailAsync(
+                                transaction,
+                                (int)HttpStatusCode.Conflict,
+                                refundResult.Message,
+                                refundResult.ErrorCode,
+                                cancellationToken);
+                        }
+
+                        paidBookingsMoved++;
+                        refundsCreated += refundResult.RefundCreated ? 1 : 0;
+                        totalRefundAmount += refundResult.RefundAmount;
+                        if (refundResult.RefundId is not null)
+                        {
+                            if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+                            {
+                                var issue = _refundClaimIssuer.Create(
+                                    refundResult.RefundId,
+                                    booking.CustomerProfileId,
+                                    now);
+                                _dbContext.RefundClaims.Add(issue.Claim);
+                                AddPaidCancellationEmail(
+                                    cancellationEmails,
+                                    booking,
+                                    showtime,
+                                    refundResult.RefundAmount,
+                                    issue.RawToken,
+                                    issue.Token.ExpiresAt);
+                            }
+                            else
+                            {
+                                AddCancellationEmail(cancellationEmails, booking, showtime);
+                            }
+                        }
+
+                        AddCancellationNotification(booking, showtime, now);
+                        continue;
+                    }
+
+                    if (IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Created)
+                        || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.PendingPayment))
+                    {
+                        CancelUnpaidBooking(booking, now);
+                        unpaidBookingsCancelled++;
+                        AddCancellationNotification(booking, showtime, now);
+                        AddCancellationEmail(cancellationEmails, booking, showtime);
+                    }
+                }
+
+                _dbContext.AuditLogs.Add(CreateAuditLog(
+                    userId,
+                    showtime.ShowtimeId,
+                    oldStatus,
+                    cancellationId,
+                    reason,
+                    paidBookingsMoved,
+                    unpaidBookingsCancelled,
+                    refundsCreated,
+                    totalRefundAmount,
+                    now));
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+
+                // Cancellation is committed before SMTP or payment-provider work. A failure
+                // outside the database must never reopen a showtime or allow new ticket sales.
+                await SendCancellationEmailsAsync(cancellationEmails, cancellationToken);
+
+                _logger.LogInformation(
+                    "Showtime {ShowtimeId} cancelled by user {UserId}; refunds created: {RefundCount}, amount: {RefundAmount}.",
+                    showtime.ShowtimeId,
+                    userId,
+                    refundsCreated,
+                    totalRefundAmount);
+
+                return ServiceResult<CancelShowtimeResponse>.Ok(
+                    new CancelShowtimeResponse
+                    {
+                        ShowtimeId = showtime.ShowtimeId,
+                        ShowtimeStatus = showtime.Status,
+                        ShowtimeCancellationId = cancellationId,
+                        PaidBookingsMovedToRefundPending = paidBookingsMoved,
+                        UnpaidBookingsCancelled = unpaidBookingsCancelled,
+                        RefundsCreated = refundsCreated,
+                        TotalRefundAmount = totalRefundAmount,
+                        RefundsSucceeded = 0,
+                        RefundsManualRequired = 0,
+                        RefundsPending = refundsCreated
+                    },
+                    "Showtime cancelled and refund data generated successfully.");
+            }
+            catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+            {
+                await RollbackSafelyAsync(transaction);
+                var alreadyCancelled = await _dbContext.ShowtimeCancellations
+                    .AsNoTracking()
+                    .AnyAsync(item => item.ShowtimeId == showtimeId, cancellationToken);
+                if (alreadyCancelled)
+                {
+                    return Fail(
+                        (int)HttpStatusCode.Conflict,
+                        "Showtime has already been cancelled.",
+                        BookingConstants.RefundErrorCodes.ShowtimeAlreadyCancelled);
+                }
+
+                throw;
+            }
+            catch
+            {
+                await RollbackSafelyAsync(transaction);
+                throw;
+            }
+        });
     }
 
     private async Task<Showtime?> LoadShowtimeForCancellationAsync(

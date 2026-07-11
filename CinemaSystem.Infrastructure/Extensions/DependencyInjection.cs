@@ -219,7 +219,12 @@ public static class DependencyInjection
 
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseSqlServer(defaultConnection);
+            options.UseSqlServer(
+                defaultConnection,
+                sqlOptions => sqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 1,
+                    maxRetryDelay: TimeSpan.FromSeconds(2),
+                    errorNumbersToAdd: null));
         });
 
         services.AddScoped<IAuthService, AuthService>();
