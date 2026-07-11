@@ -7,6 +7,10 @@ public interface IShowtimeService
 {
     Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesAsync(CancellationToken cancellationToken);
 
+    Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesByCinemaAsync(
+        string? cinemaId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<ShowtimeResponse>> GetShowtimeByIdAsync(string showtimeId, CancellationToken cancellationToken);
 
     Task<ServiceResult<ShowtimeResponse>> CreateShowtimeAsync(

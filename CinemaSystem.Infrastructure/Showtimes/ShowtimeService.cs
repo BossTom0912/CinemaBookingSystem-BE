@@ -116,6 +116,43 @@ public sealed class ShowtimeService : IShowtimeService
             "Showtimes retrieved successfully.");
     }
 
+    public async Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesByCinemaAsync(
+        string? cinemaId,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Showtimes
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(cinemaId))
+        {
+            query = query.Where(item => item.Room.CinemaId == cinemaId);
+        }
+
+        var showtimes = await query
+            .OrderBy(item => item.StartTime)
+            .Select(item => new ShowtimeResponse
+            {
+                ShowtimeId = item.ShowtimeId,
+                MovieId = item.MovieId,
+                MovieTitle = item.Movie.Title,
+                RoomId = item.RoomId,
+                RoomName = item.Room.RoomName,
+                CinemaId = item.Room.CinemaId,
+                CinemaName = item.Room.Cinema.CinemaName,
+                StartTime = item.StartTime,
+                EndTime = item.EndTime,
+                BasePrice = item.BasePrice,
+                Status = item.Status,
+                ShowtimeSeatCount = item.ShowtimeSeats.Count
+            })
+            .ToListAsync(cancellationToken);
+
+        return ServiceResult<IReadOnlyList<ShowtimeResponse>>.Ok(
+            showtimes,
+            "Scoped showtimes retrieved successfully.");
+    }
+
     // Phương thức lấy chi tiết một suất chiếu theo ID
     public async Task<ServiceResult<ShowtimeResponse>> GetShowtimeByIdAsync(
         string showtimeId,

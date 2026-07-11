@@ -38,15 +38,8 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try
-        {
-            await CleanupExpiredBookingsAsync(stoppingToken);
-            await CleanupExpiredUnstableBookingsAsync(stoppingToken);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Initial pending payment cleanup failed.");
-        }
+        await TryCleanupExpiredBookingsAsync(stoppingToken);
+        await TryCleanupExpiredUnstableBookingsAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -55,17 +48,45 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), stoppingToken);
-                await CleanupExpiredBookingsAsync(stoppingToken);
-                await CleanupExpiredUnstableBookingsAsync(stoppingToken);
+                await TryCleanupExpiredBookingsAsync(stoppingToken);
+                await TryCleanupExpiredUnstableBookingsAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 break;
             }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(exception, "Pending payment cleanup failed.");
-            }
+        }
+    }
+
+    private async Task TryCleanupExpiredBookingsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await CleanupExpiredBookingsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Pending payment cleanup failed.");
+        }
+    }
+
+    private async Task TryCleanupExpiredUnstableBookingsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await CleanupExpiredUnstableBookingsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Pending payment unstable cleanup failed.");
         }
     }
 
@@ -167,6 +188,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                 item.BookingStatus == BookingConstants.BookingStatus.PendingPayment &&
                 ((item.ExpiredAt.HasValue && item.ExpiredAt <= now) ||
                  (!item.ExpiredAt.HasValue && item.CreatedAt <= createdBefore)))
+            .OrderBy(item => item.ExpiredAt ?? item.CreatedAt)
             .Take(_settings.Value.PendingPaymentCleanupBatchSize)
             .ToListAsync(cancellationToken);
 
