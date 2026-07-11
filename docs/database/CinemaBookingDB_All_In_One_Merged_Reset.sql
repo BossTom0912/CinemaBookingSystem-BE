@@ -373,6 +373,7 @@ CREATE TABLE [BOOKING] (
     [expiredAt] DATETIME2 NULL,
     [fbFulfillmentStatus] NVARCHAR(30) NOT NULL DEFAULT 'NOT_REQUIRED',
     [fbFulfilledAt] DATETIME2 NULL,
+    [fbFulfilledByStaffProfileId] NVARCHAR(50) NULL,
 
     CONSTRAINT [CK_BOOKING_STATUS] CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE')),
     CONSTRAINT [CK_BOOKING_CHANNEL] CHECK ([bookingChannel] IN ('ONLINE', 'COUNTER')),
@@ -380,7 +381,8 @@ CREATE TABLE [BOOKING] (
     CONSTRAINT [CK_BOOKING_TOTAL_AMOUNT] CHECK ([totalAmount] >= 0),
     CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
     CONSTRAINT [FK_BOOKING_SHOWTIME] FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
-    CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF] FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
+    CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF] FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId]),
+    CONSTRAINT [FK_BOOKING_FB_FULFILLED_BY_STAFF] FOREIGN KEY ([fbFulfilledByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
 );
 GO
 
@@ -908,6 +910,7 @@ CREATE INDEX [IX_SHOWTIME_SEAT_SHOWTIME_ID] ON [SHOWTIME_SEAT]([showtimeId]);
 CREATE INDEX [IX_SHOWTIME_SEAT_STATUS] ON [SHOWTIME_SEAT]([showtimeId], [seatStatus]);
 CREATE INDEX [IX_BOOKING_CUSTOMER_PROFILE_ID] ON [BOOKING]([customerProfileId]);
 CREATE INDEX [IX_BOOKING_CREATED_BY_STAFF_PROFILE_ID] ON [BOOKING]([createdByStaffProfileId]);
+CREATE INDEX [IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID] ON [BOOKING]([fbFulfilledByStaffProfileId]);
 CREATE INDEX [IX_BOOKING_CHANNEL] ON [BOOKING]([bookingChannel]);
 CREATE INDEX [IX_BOOKING_SHOWTIME_ID] ON [BOOKING]([showtimeId]);
 CREATE INDEX [IX_BOOKING_STATUS] ON [BOOKING]([bookingStatus]);
@@ -1316,7 +1319,7 @@ FROM sys.tables t
 INNER JOIN sys.columns c ON c.[object_id] = t.[object_id]
 WHERE
     (t.[name] = 'CHECKIN_LOG' AND c.[name] IN ('staffProfileId', 'scannedByUserId', 'rawQrCode'))
-    OR (t.[name] = 'BOOKING' AND c.[name] IN ('fbFulfillmentStatus', 'fbFulfilledAt'))
+    OR (t.[name] = 'BOOKING' AND c.[name] IN ('fbFulfillmentStatus', 'fbFulfilledAt', 'fbFulfilledByStaffProfileId'))
     OR (t.[name] = 'MOVIE' AND c.[name] IN ('highlight', 'viewCount', 'averageRating', 'totalReviews', 'totalViews', 'dailyViews'))
     OR (t.[name] = 'USER' AND c.[name] IN ('spamViolationCount', 'isBlocked', 'blockedUntil'))
     OR (t.[name] = 'REVIEW' AND c.[name] IN ('bookingId', 'moderatedBy', 'editCount'))
@@ -1329,6 +1332,7 @@ FROM sys.indexes i
 WHERE i.[name] IN (
     'IX_CHECKIN_LOG_SCANNED_BY_USER_TIME',
     'IX_BOOKING_FB_FULFILLMENT_STATUS',
+    'IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID',
     'IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS',
     'IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT',
     'IX_MOVIE_HIGHLIGHT_VIEWS',

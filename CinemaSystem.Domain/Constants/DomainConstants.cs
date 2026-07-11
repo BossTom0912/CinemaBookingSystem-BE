@@ -324,6 +324,18 @@ public static class DomainConstants
         public const string CinemaNotFound = "CINEMA_NOT_FOUND";
     }
 
+    public static class StaffShiftReportErrorCode
+    {
+        public const string DateRangeRequired = "DATE_RANGE_REQUIRED";
+        public const string InvalidDateRange = "INVALID_DATE_RANGE";
+        public const string RoleForbidden = "ROLE_FORBIDDEN";
+        public const string StaffScopeForbidden = "STAFF_SCOPE_FORBIDDEN";
+        public const string CinemaScopeForbidden = "CINEMA_SCOPE_FORBIDDEN";
+        public const string StaffProfileNotFound = "STAFF_PROFILE_NOT_FOUND";
+        public const string CinemaNotFound = "CINEMA_NOT_FOUND";
+        public const string StaffCinemaMismatch = "STAFF_CINEMA_MISMATCH";
+    }
+
     public static class TicketStatus
     {
         public const string Generated = "GENERATED";

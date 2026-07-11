@@ -171,6 +171,8 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.CreatedByStaffProfileId, "IX_BOOKING_CREATED_BY_STAFF_PROFILE_ID");
 
+            entity.HasIndex(e => e.FbFulfilledByStaffProfileId, "IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID");
+
             entity.HasIndex(e => e.CustomerProfileId, "IX_BOOKING_CUSTOMER_PROFILE_ID");
 
             entity.HasIndex(e => e.ShowtimeId, "IX_BOOKING_SHOWTIME_ID");
@@ -216,6 +218,9 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("fbFulfillmentStatus");
             entity.Property(e => e.FbFulfilledAt)
                 .HasColumnName("fbFulfilledAt");
+            entity.Property(e => e.FbFulfilledByStaffProfileId)
+                .HasMaxLength(50)
+                .HasColumnName("fbFulfilledByStaffProfileId");
             entity.Property(e => e.TotalAmount)
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("totalAmount");
@@ -223,6 +228,10 @@ public partial class CinemaDbContext : DbContext
             entity.HasOne(d => d.CreatedByStaffProfile).WithMany(p => p.Bookings)
                 .HasForeignKey(d => d.CreatedByStaffProfileId)
                 .HasConstraintName("FK_BOOKING_CREATED_BY_STAFF");
+
+            entity.HasOne(d => d.FbFulfilledByStaffProfile).WithMany(p => p.FulfilledFbBookings)
+                .HasForeignKey(d => d.FbFulfilledByStaffProfileId)
+                .HasConstraintName("FK_BOOKING_FB_FULFILLED_BY_STAFF");
 
             entity.HasOne(d => d.CustomerProfile).WithMany(p => p.Bookings)
                 .HasForeignKey(d => d.CustomerProfileId)
