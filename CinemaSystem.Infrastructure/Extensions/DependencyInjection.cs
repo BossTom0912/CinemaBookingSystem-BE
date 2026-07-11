@@ -320,6 +320,7 @@ public static class DependencyInjection
         services.AddScoped<IAdminRefundService, AdminRefundService>();
         services.AddScoped<IFbItemService, FbItemService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IVoucherService, VoucherService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
         
 

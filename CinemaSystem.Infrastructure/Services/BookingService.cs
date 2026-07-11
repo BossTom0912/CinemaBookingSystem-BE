@@ -171,30 +171,160 @@ public sealed class BookingService : IBookingService
             }
         }
 
+        decimal bookingSubtotal = totalAmount;
+        decimal discountAmount = 0;
+        VoucherUsage? voucherUsage = null;
+        Voucher? voucher = null;
+
+        if (!string.IsNullOrWhiteSpace(request.VoucherCode))
+        {
+            var normalizedCode = request.VoucherCode.Trim().ToUpperInvariant();
+            voucher = await _dbContext.Vouchers
+                .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
+
+            if (voucher == null)
+            {
+                return ServiceResult<BookingResponse>.Fail(400, "Voucher code not found.", BookingConstants.ErrorCodes.VoucherNotFound);
+            }
+
+            // 1. Check Status
+            if (!string.Equals(voucher.VoucherStatus, DomainConstants.VoucherStatus.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                return ServiceResult<BookingResponse>.Fail(400, "Voucher is not active or has expired.", BookingConstants.ErrorCodes.VoucherExpired);
+            }
+
+            // 2. Check Dates
+            if (now < voucher.StartDate || now > voucher.EndDate)
+            {
+                return ServiceResult<BookingResponse>.Fail(400, "Voucher is out of active date range.", BookingConstants.ErrorCodes.VoucherExpired);
+            }
+
+            // 3. Check Minimum Order Amount
+            if (voucher.MinOrderAmount.HasValue && bookingSubtotal < voucher.MinOrderAmount.Value)
+            {
+                return ServiceResult<BookingResponse>.Fail(400, $"Minimum order amount of {voucher.MinOrderAmount.Value} VND is not met.", BookingConstants.ErrorCodes.VoucherMinOrderNotMet);
+            }
+
+            // 4. Check Global Usage Limit (count active usages: APPLIED & CONFIRMED)
+            var activeUsagesCount = await _dbContext.VoucherUsages
+                .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                    && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
+
+            if (activeUsagesCount >= voucher.UsageLimit)
+            {
+                return ServiceResult<BookingResponse>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
+            }
+
+            // 5. Check Customer Limit (count active customer usages)
+            var customerUsagesCount = await _dbContext.VoucherUsages
+                .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                    && vu.CustomerProfileId == customerProfile.CustomerProfileId 
+                    && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
+
+            if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
+            {
+                return ServiceResult<BookingResponse>.Fail(400, "You have reached your limit for this voucher.", BookingConstants.ErrorCodes.VoucherCustomerLimitReached);
+            }
+
+            // Calculate discount
+            if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Amount, StringComparison.OrdinalIgnoreCase))
+            {
+                discountAmount = voucher.DiscountValue;
+            }
+            else if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
+            {
+                discountAmount = bookingSubtotal * (voucher.DiscountValue / 100m);
+                if (voucher.MaxDiscountAmount.HasValue && discountAmount > voucher.MaxDiscountAmount.Value)
+                {
+                    discountAmount = voucher.MaxDiscountAmount.Value;
+                }
+            }
+
+            discountAmount = Math.Min(discountAmount, bookingSubtotal);
+            totalAmount = bookingSubtotal - discountAmount;
+
+            // Rule: If total amount after discount is less than 1,000 VND, convert to 0 VND (completely free)
+            if (totalAmount < 1000m)
+            {
+                totalAmount = 0;
+            }
+
+            voucherUsage = new VoucherUsage
+            {
+                VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
+                VoucherId = voucher.VoucherId,
+                CustomerProfileId = customerProfile.CustomerProfileId,
+                BookingId = string.Empty, // Set below
+                DiscountAmount = discountAmount,
+                UsageStatus = totalAmount == 0 ? DomainConstants.VoucherUsageStatus.Confirmed : DomainConstants.VoucherUsageStatus.Applied,
+                UsedAt = totalAmount == 0 ? now : null
+            };
+        }
+
         var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
+        if (voucherUsage != null)
+        {
+            voucherUsage.BookingId = bookingId;
+        }
+
         var booking = new Booking
         {
             BookingId = bookingId,
             CustomerProfileId = customerProfile.CustomerProfileId,
             ShowtimeId = showtime.ShowtimeId,
-            BookingStatus = DomainConstants.EntityStatus.PendingPayment,
+            BookingStatus = totalAmount == 0 ? DomainConstants.EntityStatus.Paid : DomainConstants.EntityStatus.PendingPayment,
             TotalAmount = totalAmount,
             CreatedAt = now,
-            ExpiredAt = now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
+            ExpiredAt = totalAmount == 0 ? null : now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
             BookingChannel = DomainConstants.BookingChannel.Online,
             BookingSeats = bookingSeats,
             BookingFbItems = bookingFbItems
         };
 
-        // Update showtime seats to LOCKED
-        foreach (var ss in showtimeSeats)
+        if (totalAmount == 0)
         {
-            ss.SeatStatus = DomainConstants.EntityStatus.Locked;
-            ss.LockedUntil = booking.ExpiredAt;
-            ss.LockedByUserId = userId;
+            // For free orders, book the seats immediately and generate tickets
+            foreach (var ss in showtimeSeats)
+            {
+                ss.SeatStatus = DomainConstants.EntityStatus.Booked;
+                ss.LockedUntil = null;
+                ss.LockedByUserId = null;
+            }
+
+            foreach (var bs in bookingSeats)
+            {
+                bs.Ticket = new Ticket
+                {
+                    TicketId = NewId(DomainConstants.EntityIdPrefix.Ticket),
+                    BookingSeatId = bs.BookingSeatId,
+                    QrCode = GenerateTicketQrCode(bookingId, bs.BookingSeatId),
+                    TicketStatus = DomainConstants.TicketStatus.Unused,
+                    GeneratedAt = now
+                };
+                _dbContext.Tickets.Add(bs.Ticket);
+            }
+
+            if (voucherUsage != null && voucher != null)
+            {
+                voucher.UsedCount += 1;
+            }
+        }
+        else
+        {
+            // Update showtime seats to LOCKED
+            foreach (var ss in showtimeSeats)
+            {
+                ss.SeatStatus = DomainConstants.EntityStatus.Locked;
+                ss.LockedUntil = booking.ExpiredAt;
+                ss.LockedByUserId = userId;
+            }
         }
 
         _dbContext.Bookings.Add(booking);
+        if (voucherUsage != null)
+        {
+            _dbContext.VoucherUsages.Add(voucherUsage);
+        }
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<BookingResponse>.Ok(new BookingResponse
@@ -209,7 +339,7 @@ public sealed class BookingService : IBookingService
             Status = booking.BookingStatus,
             CreatedAt = booking.CreatedAt,
             ExpiredAt = booking.ExpiredAt
-        }, "Booking created successfully.");
+        }, totalAmount == 0 ? "Booking created and confirmed successfully (Free order)." : "Booking created successfully.");
     }
 
     public async Task<ServiceResult<BookingDetailsResponse>> GetBookingDetailsAsync(
@@ -232,6 +362,9 @@ public sealed class BookingService : IBookingService
             .Include(b => b.BookingFbItems)
                 .ThenInclude(bfi => bfi.FbItem)
             .Include(b => b.CustomerProfile)
+            .Include(b => b.VoucherUsage)
+                .ThenInclude(vu => vu!.Voucher)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
 
         if (booking == null)
@@ -253,6 +386,8 @@ public sealed class BookingService : IBookingService
             RoomName = booking.Showtime.Room.RoomName,
             StartTime = booking.Showtime.StartTime,
             TotalAmount = booking.TotalAmount,
+            DiscountAmount = booking.VoucherUsage?.DiscountAmount ?? 0,
+            VoucherCode = booking.VoucherUsage?.Voucher?.VoucherCode,
             Status = booking.BookingStatus,
             CreatedAt = booking.CreatedAt,
             Seats = booking.BookingSeats.Select(bs => new BookedSeatDetailsResponse
@@ -316,6 +451,8 @@ public sealed class BookingService : IBookingService
             .Include(item => item.BookingSeats)
                 .ThenInclude(item => item.ShowtimeSeat)
             .Include(item => item.Payments)
+            .Include(item => item.VoucherUsage)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(item => item.BookingId == bookingId, cancellationToken);
 
         if (booking == null)
@@ -356,6 +493,11 @@ public sealed class BookingService : IBookingService
 
         booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
         booking.ExpiredAt = now;
+
+        if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+        {
+            booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -480,6 +622,8 @@ public sealed class BookingService : IBookingService
             .Include(item => item.BookingSeats)
                 .ThenInclude(item => item.ShowtimeSeat)
             .Include(item => item.Payments)
+            .Include(item => item.VoucherUsage)
+            .AsSplitQuery()
             .Where(item => staleBookingIds.Contains(item.BookingId))
             .ToListAsync(cancellationToken);
 
@@ -497,6 +641,12 @@ public sealed class BookingService : IBookingService
 
             booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
             booking.ExpiredAt ??= now;
+
+            if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+            {
+                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
+            }
+
             await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
         }
 
@@ -569,6 +719,14 @@ public sealed class BookingService : IBookingService
     }
 
     private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+
+    private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
+        string.Join(
+            DomainConstants.TicketQrCode.Separator,
+            DomainConstants.TicketQrCode.Prefix,
+            bookingId,
+            bookingSeatId,
+            Guid.NewGuid().ToString("N"));
 
     public async Task<ServiceResult<bool>> ReassignBookingSeatAsync(
         ReassignSeatRequest request,
