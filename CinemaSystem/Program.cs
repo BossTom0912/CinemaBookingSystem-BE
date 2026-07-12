@@ -19,6 +19,8 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Hangfire;
 using Hangfire.InMemory;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 // COMPOSITION ROOT:
 // 1) Nhận configuration và đăng ký API/Swagger/auth/policy tại file này.
@@ -249,6 +251,24 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole(AuthConstants.Roles.Admin));
     // approval-specific policies removed
 });
+
+var serviceName = "CinemaSystemApi";
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing =>
+    {
+        _ = tracing
+            .AddSource(serviceName)
+            .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))
+            // Theo dõi HTTP Request đi vào API
+            .AddAspNetCoreInstrumentation(options => { options.RecordException = true; })
+            // Theo dõi nếu API có gọi HTTP ra bên ngoài
+            .AddHttpClientInstrumentation()
+// Bắt câu lệnh SQL của Entity Framework Core
+.AddEntityFrameworkCoreInstrumentation()
+// Đẩy dữ liệu sang Jaeger đang chạy ở Docker
+            .AddOtlpExporter(options => { options.Endpoint = new Uri("http://localhost:4317"); });
+    });
 
 var app = builder.Build();
 
