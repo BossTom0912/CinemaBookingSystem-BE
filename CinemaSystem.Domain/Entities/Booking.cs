@@ -13,9 +13,11 @@ public partial class Booking
 
     public string? ShowtimeId { get; set; }
 
-    public string FbFulfillmentStatus { get; set; } = FbConstants.FulfillmentStatus.NotApplicable;
+    public string FbFulfillmentStatus { get; set; } = FbConstants.FulfillmentStatus.NotRequired;
 
     public DateTime? FbFulfilledAt { get; set; }
+
+    public string? FbFulfilledByStaffProfileId { get; set; }
 
     public string BookingStatus { get; set; } = null!;
 
@@ -24,6 +26,10 @@ public partial class Booking
     public DateTime CreatedAt { get; set; }
 
     public DateTime? ExpiredAt { get; set; }
+
+    public Guid? ClientRequestId { get; set; }
+
+    public string? RequestFingerprint { get; set; }
 
     public string? CreatedByStaffProfileId { get; set; }
 
@@ -40,6 +46,8 @@ public partial class Booking
     public virtual ICollection<BookingSeat> BookingSeats { get; set; } = new List<BookingSeat>();
 
     public virtual StaffProfile? CreatedByStaffProfile { get; set; }
+
+    public virtual StaffProfile? FbFulfilledByStaffProfile { get; set; }
 
     public virtual CustomerProfile? CustomerProfile { get; set; }
 

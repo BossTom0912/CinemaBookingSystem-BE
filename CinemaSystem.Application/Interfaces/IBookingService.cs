@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
@@ -11,6 +12,12 @@ public interface IBookingService
     Task<ServiceResult<BookingResponse>> CreateBookingAsync(
         CreateBookingRequest request,
         string userId,
+        Guid? clientRequestId,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<CheckoutRecoveryResponse>> GetCheckoutRecoveryAsync(
+        string userId,
+        Guid clientRequestId,
         CancellationToken cancellationToken);
 
     Task<ServiceResult<BookingDetailsResponse>> CreateCounterBookingAsync(

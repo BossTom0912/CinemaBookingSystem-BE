@@ -29,6 +29,8 @@ public partial class StaffProfile
 
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 
+    public virtual ICollection<Booking> FulfilledFbBookings { get; set; } = new List<Booking>();
+
     public virtual ICollection<CheckinLog> CheckinLogs { get; set; } = new List<CheckinLog>();
 
     public virtual Cinema Cinema { get; set; } = null!;

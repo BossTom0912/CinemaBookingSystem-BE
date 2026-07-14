@@ -1,5 +1,8 @@
 -- ==========================================
 -- FILE: cinema-booking-schema.sql
+-- Purpose: Canonical full reset schema for CinemaBookingDB.
+-- This script drops and recreates the database. Do not run it against
+-- an environment whose data must be retained.
 -- ==========================================
 /*
 ============================================================
@@ -349,6 +352,7 @@ CREATE TABLE [BOOKING] (
     [customerProfileId] NVARCHAR(50) NULL,
     [showtimeId] NVARCHAR(50) NOT NULL,
     [createdByStaffProfileId] NVARCHAR(50) NULL,
+    [fbFulfilledByStaffProfileId] NVARCHAR(50) NULL,
     [bookingChannel] NVARCHAR(30) NOT NULL DEFAULT 'ONLINE',
     [guestName] NVARCHAR(255) NULL,
     [guestPhone] NVARCHAR(30) NULL,
@@ -357,14 +361,20 @@ CREATE TABLE [BOOKING] (
     [totalAmount] DECIMAL(18,2) NOT NULL DEFAULT 0,
     [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     [expiredAt] DATETIME2 NULL,
+    [fbFulfillmentStatus] NVARCHAR(30) NOT NULL DEFAULT 'NOT_REQUIRED',
+    [fbFulfilledAt] DATETIME2 NULL,
+    [clientRequestId] UNIQUEIDENTIFIER NULL,
+    [requestFingerprint] VARCHAR(64) NULL,
 
     CONSTRAINT [CK_BOOKING_STATUS] CHECK ([bookingStatus] IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE')),
     CONSTRAINT [CK_BOOKING_CHANNEL] CHECK ([bookingChannel] IN ('ONLINE', 'COUNTER')),
+    CONSTRAINT [CK_BOOKING_FB_FULFILLMENT_STATUS] CHECK ([fbFulfillmentStatus] IN ('NOT_REQUIRED', 'PENDING', 'PREPARING', 'FULFILLED', 'CANCELLED')),
     CONSTRAINT [CK_BOOKING_ONLINE_CUSTOMER_REQUIRED] CHECK ([bookingChannel] <> 'ONLINE' OR [customerProfileId] IS NOT NULL),
     CONSTRAINT [CK_BOOKING_TOTAL_AMOUNT] CHECK ([totalAmount] >= 0),
     CONSTRAINT [FK_BOOKING_CUSTOMER_PROFILE] FOREIGN KEY ([customerProfileId]) REFERENCES [CUSTOMER_PROFILE]([customerProfileId]),
     CONSTRAINT [FK_BOOKING_SHOWTIME] FOREIGN KEY ([showtimeId]) REFERENCES [SHOWTIME]([showtimeId]),
-    CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF] FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
+    CONSTRAINT [FK_BOOKING_CREATED_BY_STAFF] FOREIGN KEY ([createdByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId]),
+    CONSTRAINT [FK_BOOKING_FB_FULFILLED_BY_STAFF] FOREIGN KEY ([fbFulfilledByStaffProfileId]) REFERENCES [STAFF_PROFILE]([staffProfileId])
 );
 GO
 
@@ -543,6 +553,35 @@ CREATE TABLE [REFUND_CLAIM_TOKEN] (
     CONSTRAINT [FK_REFUND_CLAIM_TOKEN_CLAIM]
         FOREIGN KEY ([refundClaimId])
         REFERENCES [REFUND_CLAIM]([refundClaimId])
+);
+GO
+
+CREATE TABLE [REFUND_PAYOUT_ATTEMPT] (
+    [refundPayoutAttemptId] NVARCHAR(50) PRIMARY KEY,
+    [refundId] NVARCHAR(50) NOT NULL,
+    [refundClaimId] NVARCHAR(50) NOT NULL,
+    [paymentProviderId] NVARCHAR(50) NOT NULL,
+    [idempotencyKey] NVARCHAR(100) NOT NULL,
+    [attemptNumber] INT NOT NULL,
+    [attemptStatus] NVARCHAR(30) NOT NULL DEFAULT 'CREATED',
+    [providerRequestId] NVARCHAR(255) NULL,
+    [providerTransactionCode] NVARCHAR(255) NULL,
+    [failureReason] NVARCHAR(1000) NULL,
+    [requestedAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [respondedAt] DATETIME2 NULL,
+    [confirmedAt] DATETIME2 NULL,
+
+    CONSTRAINT [UQ_REFUND_PAYOUT_ATTEMPT_IDEMPOTENCY_KEY] UNIQUE ([idempotencyKey]),
+    CONSTRAINT [UQ_REFUND_PAYOUT_ATTEMPT_NUMBER] UNIQUE ([refundId], [attemptNumber]),
+    CONSTRAINT [CK_REFUND_PAYOUT_ATTEMPT_NUMBER] CHECK ([attemptNumber] > 0),
+    CONSTRAINT [CK_REFUND_PAYOUT_ATTEMPT_STATUS] CHECK ([attemptStatus] IN
+        ('CREATED', 'SUBMITTED', 'ACCEPTED', 'CONFIRMED', 'FAILED', 'UNKNOWN')),
+    CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_REFUND]
+        FOREIGN KEY ([refundId]) REFERENCES [REFUND]([refundId]),
+    CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_CLAIM]
+        FOREIGN KEY ([refundClaimId]) REFERENCES [REFUND_CLAIM]([refundClaimId]),
+    CONSTRAINT [FK_REFUND_PAYOUT_ATTEMPT_PAYMENT_PROVIDER]
+        FOREIGN KEY ([paymentProviderId]) REFERENCES [PAYMENT_PROVIDER]([paymentProviderId])
 );
 GO
 
@@ -802,12 +841,35 @@ CREATE TABLE [MOVIE_DAILY_VIEW] (
 );
 GO
 
+CREATE TABLE [EMAIL_OUTBOX] (
+    [emailOutboxId] NVARCHAR(50) PRIMARY KEY,
+    [messageType] NVARCHAR(100) NOT NULL,
+    [recipientEmail] NVARCHAR(255) NOT NULL,
+    [relatedEntityId] NVARCHAR(50) NULL,
+    [payloadEncrypted] VARBINARY(MAX) NOT NULL,
+    [outboxStatus] NVARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    [attemptCount] INT NOT NULL DEFAULT 0,
+    [nextAttemptAt] DATETIME2 NULL,
+    [lastError] NVARCHAR(1000) NULL,
+    [createdAt] DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    [sentAt] DATETIME2 NULL,
+
+    CONSTRAINT [CK_EMAIL_OUTBOX_STATUS] CHECK ([outboxStatus] IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED')),
+    CONSTRAINT [CK_EMAIL_OUTBOX_ATTEMPT_COUNT] CHECK ([attemptCount] >= 0)
+);
+GO
+
 -- =========================
 -- 10. FILTERED UNIQUE INDEXES
 -- =========================
 
 CREATE UNIQUE INDEX [UX_PAYMENT_ONE_SUCCESS_PER_BOOKING]
 ON [PAYMENT]([bookingId]) WHERE [paymentStatus] = 'SUCCESS';
+GO
+
+CREATE UNIQUE INDEX [UX_BOOKING_CUSTOMER_CLIENT_REQUEST]
+ON [BOOKING]([customerProfileId], [clientRequestId])
+WHERE [clientRequestId] IS NOT NULL;
 GO
 
 CREATE UNIQUE INDEX [UX_PAYMENT_TRANSACTION_CODE]
@@ -843,11 +905,15 @@ CREATE INDEX [IX_SHOWTIME_SEAT_SHOWTIME_ID] ON [SHOWTIME_SEAT]([showtimeId]);
 CREATE INDEX [IX_SHOWTIME_SEAT_STATUS] ON [SHOWTIME_SEAT]([showtimeId], [seatStatus]);
 CREATE INDEX [IX_BOOKING_CUSTOMER_PROFILE_ID] ON [BOOKING]([customerProfileId]);
 CREATE INDEX [IX_BOOKING_CREATED_BY_STAFF_PROFILE_ID] ON [BOOKING]([createdByStaffProfileId]);
+CREATE INDEX [IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID] ON [BOOKING]([fbFulfilledByStaffProfileId]);
 CREATE INDEX [IX_BOOKING_CHANNEL] ON [BOOKING]([bookingChannel]);
 CREATE INDEX [IX_BOOKING_SHOWTIME_ID] ON [BOOKING]([showtimeId]);
 CREATE INDEX [IX_BOOKING_STATUS] ON [BOOKING]([bookingStatus]);
+CREATE INDEX [IX_BOOKING_FB_FULFILLMENT_STATUS] ON [BOOKING]([fbFulfillmentStatus]);
 CREATE INDEX [IX_PAYMENT_BOOKING_ID] ON [PAYMENT]([bookingId]);
 CREATE INDEX [IX_REFUND_BOOKING_ID] ON [REFUND]([bookingId]);
+CREATE INDEX [IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS] ON [REFUND_PAYOUT_ATTEMPT]([refundId], [attemptStatus], [requestedAt]);
+CREATE INDEX [IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT] ON [EMAIL_OUTBOX]([outboxStatus], [nextAttemptAt], [createdAt]);
 CREATE INDEX [IX_CHECKIN_LOG_TICKET_ID] ON [CHECKIN_LOG]([ticketId]);
 CREATE INDEX [IX_CHECKIN_LOG_RAW_QR_CODE] ON [CHECKIN_LOG]([rawQrCode]) WHERE [rawQrCode] IS NOT NULL;
 CREATE INDEX [IX_CHECKIN_LOG_SCANNED_BY_USER_TIME] ON [CHECKIN_LOG]([scannedByUserId], [scanTime]);
