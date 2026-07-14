@@ -11,7 +11,9 @@ using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Configuration;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using CinemaSystem.Domain.Constants;
 
@@ -22,6 +24,7 @@ public sealed class BookingService : IBookingService
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
     private readonly ISeatLockStore _seatLockStore;
+    private readonly ILogger<BookingService> _logger;
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     private readonly BookingSettings _bookingSettings;
 
@@ -30,11 +33,13 @@ public sealed class BookingService : IBookingService
         IClock clock,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.SecuritySettings> securityOptions,
         IOptions<BookingSettings> bookingOptions,
-        ISeatLockStore seatLockStore)
+        ISeatLockStore seatLockStore,
+        ILogger<BookingService> logger)
     {
         _dbContext = dbContext;
         _clock = clock;
         _seatLockStore = seatLockStore;
+        _logger = logger;
         _securitySettings = securityOptions.Value;
         _bookingSettings = bookingOptions.Value;
     }
@@ -205,6 +210,9 @@ public sealed class BookingService : IBookingService
             ClientRequestId = clientRequestId,
             RequestFingerprint = requestFingerprint,
             BookingChannel = DomainConstants.BookingChannel.Online,
+            FbFulfillmentStatus = bookingFbItems.Count == 0
+                ? FbConstants.FulfillmentStatus.NotRequired
+                : FbConstants.FulfillmentStatus.Pending,
             BookingSeats = bookingSeats,
             BookingFbItems = bookingFbItems
         };
@@ -222,8 +230,26 @@ public sealed class BookingService : IBookingService
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException exception)
         {
+            if (!IsCheckoutConflict(exception))
+            {
+                _logger.LogError(
+                    exception,
+                    "Checkout persistence failed for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
+                    bookingId,
+                    request.ShowtimeId,
+                    clientRequestId);
+                throw;
+            }
+
+            _logger.LogWarning(
+                exception,
+                "Checkout concurrency conflict for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
+                bookingId,
+                request.ShowtimeId,
+                clientRequestId);
+
             // SQL Server's filtered unique index is the final guard when two
             // requests with the same key arrive at the same time. A fresh query
             // returns the winner's response; other seat conflicts stay a 409.
@@ -262,6 +288,12 @@ public sealed class BookingService : IBookingService
             CreatedAt = booking.CreatedAt,
             ExpiredAt = booking.ExpiredAt
         }, "Booking created successfully.");
+    }
+
+    private static bool IsCheckoutConflict(DbUpdateException exception)
+    {
+        return exception is DbUpdateConcurrencyException
+            || exception.InnerException is SqlException { Number: 2601 or 2627 };
     }
 
     public async Task<ServiceResult<CheckoutRecoveryResponse>> GetCheckoutRecoveryAsync(

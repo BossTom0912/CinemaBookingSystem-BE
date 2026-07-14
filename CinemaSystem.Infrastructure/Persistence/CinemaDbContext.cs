@@ -224,7 +224,7 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("requestFingerprint");
             entity.Property(e => e.FbFulfillmentStatus)
                 .HasMaxLength(30)
-                .HasDefaultValue("NOT_APPLICABLE")
+                .HasDefaultValue("NOT_REQUIRED")
                 .HasColumnName("fbFulfillmentStatus");
             entity.Property(e => e.FbFulfilledAt)
                 .HasColumnName("fbFulfilledAt");

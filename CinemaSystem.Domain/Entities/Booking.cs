@@ -13,7 +13,7 @@ public partial class Booking
 
     public string? ShowtimeId { get; set; }
 
-    public string FbFulfillmentStatus { get; set; } = FbConstants.FulfillmentStatus.NotApplicable;
+    public string FbFulfillmentStatus { get; set; } = FbConstants.FulfillmentStatus.NotRequired;
 
     public DateTime? FbFulfilledAt { get; set; }
 

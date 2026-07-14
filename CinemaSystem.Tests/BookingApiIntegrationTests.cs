@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Contracts.Common;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Tests.Infrastructure;
@@ -44,6 +45,47 @@ public sealed class BookingApiIntegrationTests
         Assert.True(body!.Success);
         Assert.Equal("PENDING_PAYMENT", body.Data!.Status);
         Assert.Equal(110000m, body.Data.TotalAmount); // 100000 (base) + 10000 (extra)
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var booking = await db.Bookings.SingleAsync(item => item.BookingId == body.Data.BookingId);
+        Assert.Equal(FbConstants.FulfillmentStatus.NotRequired, booking.FbFulfillmentStatus);
+    }
+
+    [Fact]
+    public async Task CreateBooking_WithFoodAndBeverage_SetsFulfillmentPending()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var (showtimeId, showtimeSeatIds) = await SeedBookingDataAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
+
+        var request = new CreateBookingRequest
+        {
+            ShowtimeId = showtimeId,
+            ShowtimeSeatIds = showtimeSeatIds,
+            FoodAndBeverages = new List<BookingFbItemRequest>
+            {
+                new() { FbItemId = "FB_TEST", Quantity = 2 }
+            }
+        };
+
+        var response = await client.PostAsJsonAsync("/api/bookings", request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<BookingResponse>>(JsonOptions);
+        Assert.True(body!.Success);
+        Assert.Equal(210000m, body.Data!.TotalAmount);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var booking = await db.Bookings
+            .Include(item => item.BookingFbItems)
+            .SingleAsync(item => item.BookingId == body.Data.BookingId);
+        Assert.Equal(FbConstants.FulfillmentStatus.Pending, booking.FbFulfillmentStatus);
+        Assert.Single(booking.BookingFbItems);
     }
 
     [Fact]
@@ -233,6 +275,14 @@ public sealed class BookingApiIntegrationTests
         // Seed Cinema, Room, SeatType, Seat
         var cinema = new Cinema { CinemaId = "CIN_01", CinemaName = "Test Cinema", Address = "Add", City = "City", CinemaStatus = "ACTIVE" };
         db.Cinemas.Add(cinema);
+
+        db.FbItems.Add(new FbItem
+        {
+            FbItemId = "FB_TEST",
+            ItemName = "Test Popcorn Combo",
+            Price = 50000m,
+            ItemStatus = FbConstants.ItemStatus.Available
+        });
 
         var room = new Room { RoomId = "ROM_01", CinemaId = cinema.CinemaId, RoomName = "Room 1", Capacity = 10, RoomStatus = "ACTIVE" };
         db.Rooms.Add(room);

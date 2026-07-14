@@ -341,7 +341,7 @@ public sealed class FbItemService : IFbItemService
                 FbConstants.ErrorCodes.WrongCinemaBranch);
         }
 
-        if (booking.FbFulfillmentStatus == FbConstants.FulfillmentStatus.NotApplicable || !booking.BookingFbItems.Any())
+        if (booking.FbFulfillmentStatus == FbConstants.FulfillmentStatus.NotRequired || !booking.BookingFbItems.Any())
         {
             return ServiceResult<FbFulfillmentResponse>.Fail(400, FbConstants.Messages.NoFbItemsError, FbConstants.ErrorCodes.NoFbItems);
         }
