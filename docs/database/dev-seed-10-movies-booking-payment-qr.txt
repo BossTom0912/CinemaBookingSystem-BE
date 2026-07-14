@@ -92,7 +92,12 @@ BEGIN TRY
         movie.[highlight], 'NOW_SHOWING', movie.[viewCount], movie.[averageRating],
         movie.[totalReviews], movie.[totalViews], movie.[dailyViews]
     FROM @Movies AS movie
-    WHERE NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = movie.[movieId]);
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[MOVIE] AS persistedMovie
+        WHERE persistedMovie.[movieId] = movie.[movieId]
+    );
 
     INSERT INTO dbo.[MOVIE_GENRE] ([movieId], [genreId])
     SELECT persistedMovie.[movieId], genre.[genreId]
@@ -138,7 +143,12 @@ BEGIN TRY
         DATEADD(MINUTE, showtime.[durationMinutes], showtime.[startTime]),
         showtime.[basePrice], 'OPEN'
     FROM @Showtimes AS showtime
-    WHERE NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = showtime.[showtimeId]);
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME] AS persistedShowtime
+        WHERE persistedShowtime.[showtimeId] = showtime.[showtimeId]
+    );
 
     IF EXISTS
     (
