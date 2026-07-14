@@ -8,8 +8,11 @@ Run this script against the existing target database, for example:
 Safety contract:
 - No DROP DATABASE, DROP TABLE, DELETE, TRUNCATE, or destructive data rewrite.
 - Every schema change is guarded, so the script is safe to re-run.
-- All operations are in one transaction. If historic CHECKIN_LOG rows cannot be
-  mapped to a user, the script throws and rolls back instead of guessing.
+- Each upgrade phase runs in a transaction. The retry-safe checkout contract
+  commits first, so an optional later migration cannot leave the running API
+  without its required booking columns.
+- If historic CHECKIN_LOG rows cannot be mapped to a user, that later phase
+  throws and rolls back instead of guessing.
 */
 
 SET NOCOUNT ON;
@@ -18,6 +21,42 @@ SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
 
+-- Commit the checkout contract first. This phase only depends on BOOKING and
+-- remains usable even when an older database lacks optional workflow tables.
+IF OBJECT_ID(N'dbo.BOOKING', N'U') IS NULL
+BEGIN
+    THROW 52000, 'Required table dbo.BOOKING is missing. Use the reset schema only for a new local database.', 1;
+END;
+GO
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    IF COL_LENGTH(N'dbo.BOOKING', N'clientRequestId') IS NULL
+        ALTER TABLE dbo.[BOOKING] ADD [clientRequestId] UNIQUEIDENTIFIER NULL;
+
+    IF COL_LENGTH(N'dbo.BOOKING', N'requestFingerprint') IS NULL
+        ALTER TABLE dbo.[BOOKING] ADD [requestFingerprint] VARCHAR(64) NULL;
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.BOOKING')
+          AND name = N'UX_BOOKING_CUSTOMER_CLIENT_REQUEST'
+    )
+        CREATE UNIQUE INDEX [UX_BOOKING_CUSTOMER_CLIENT_REQUEST]
+            ON dbo.[BOOKING]([customerProfileId], [clientRequestId])
+            WHERE [clientRequestId] IS NOT NULL;
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+-- Apply the remaining workflow upgrades only when their base tables exist.
 IF OBJECT_ID(N'dbo.BOOKING', N'U') IS NULL
    OR OBJECT_ID(N'dbo.CHECKIN_LOG', N'U') IS NULL
    OR OBJECT_ID(N'dbo.[USER]', N'U') IS NULL
@@ -29,6 +68,7 @@ IF OBJECT_ID(N'dbo.BOOKING', N'U') IS NULL
    OR OBJECT_ID(N'dbo.CINEMA', N'U') IS NULL
    OR OBJECT_ID(N'dbo.FB_ITEM', N'U') IS NULL
    OR OBJECT_ID(N'dbo.CINEMA_FB_INVENTORY', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.VOUCHER', N'U') IS NULL
 BEGIN
     THROW 52001, 'Required base tables are missing. Use the reset schema only for a new local database.', 1;
 END;
@@ -37,7 +77,7 @@ GO
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    -- Booking fulfillment and retry-safe checkout columns.
+    -- Booking fulfillment columns.
     IF COL_LENGTH(N'dbo.BOOKING', N'fbFulfillmentStatus') IS NULL
         ALTER TABLE dbo.[BOOKING]
             ADD [fbFulfillmentStatus] NVARCHAR(30) NOT NULL
@@ -49,12 +89,6 @@ BEGIN TRY
 
     IF COL_LENGTH(N'dbo.BOOKING', N'fbFulfilledByStaffProfileId') IS NULL
         ALTER TABLE dbo.[BOOKING] ADD [fbFulfilledByStaffProfileId] NVARCHAR(50) NULL;
-
-    IF COL_LENGTH(N'dbo.BOOKING', N'clientRequestId') IS NULL
-        ALTER TABLE dbo.[BOOKING] ADD [clientRequestId] UNIQUEIDENTIFIER NULL;
-
-    IF COL_LENGTH(N'dbo.BOOKING', N'requestFingerprint') IS NULL
-        ALTER TABLE dbo.[BOOKING] ADD [requestFingerprint] VARCHAR(64) NULL;
 
     IF NOT EXISTS
     (
@@ -77,16 +111,6 @@ BEGIN TRY
             ADD CONSTRAINT [FK_BOOKING_FB_FULFILLED_BY_STAFF]
             FOREIGN KEY ([fbFulfilledByStaffProfileId])
             REFERENCES dbo.[STAFF_PROFILE]([staffProfileId]);
-
-    IF NOT EXISTS
-    (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID(N'dbo.BOOKING')
-          AND name = N'UX_BOOKING_CUSTOMER_CLIENT_REQUEST'
-    )
-        CREATE UNIQUE INDEX [UX_BOOKING_CUSTOMER_CLIENT_REQUEST]
-            ON dbo.[BOOKING]([customerProfileId], [clientRequestId])
-            WHERE [clientRequestId] IS NOT NULL;
 
     IF NOT EXISTS
     (
@@ -147,6 +171,48 @@ BEGIN TRY
     )
         CREATE INDEX [IX_CHECKIN_LOG_SCANNED_BY_USER_TIME]
             ON dbo.[CHECKIN_LOG]([scannedByUserId], [scanTime]);
+
+    -- Voucher wallet introduced by the customer voucher feature.
+    IF OBJECT_ID(N'dbo.CUSTOMER_VOUCHER', N'U') IS NULL
+        CREATE TABLE dbo.[CUSTOMER_VOUCHER]
+        (
+            [customerVoucherId] NVARCHAR(50) NOT NULL PRIMARY KEY,
+            [customerProfileId] NVARCHAR(50) NOT NULL,
+            [voucherId] NVARCHAR(50) NOT NULL,
+            [claimedAt] DATETIME2 NOT NULL
+                CONSTRAINT [DF_CUSTOMER_VOUCHER_CLAIMED_AT] DEFAULT SYSUTCDATETIME(),
+            [isUsed] BIT NOT NULL
+                CONSTRAINT [DF_CUSTOMER_VOUCHER_IS_USED] DEFAULT 0,
+            [usedAt] DATETIME2 NULL,
+            CONSTRAINT [CK_CUSTOMER_VOUCHER_USAGE_STATE] CHECK
+            (
+                ([isUsed] = 0 AND [usedAt] IS NULL)
+                OR ([isUsed] = 1 AND [usedAt] IS NOT NULL)
+            ),
+            CONSTRAINT [FK_CUSTOMER_VOUCHER_CUSTOMER_PROFILE]
+                FOREIGN KEY ([customerProfileId])
+                REFERENCES dbo.[CUSTOMER_PROFILE]([customerProfileId]),
+            CONSTRAINT [FK_CUSTOMER_VOUCHER_VOUCHER]
+                FOREIGN KEY ([voucherId]) REFERENCES dbo.[VOUCHER]([voucherId])
+        );
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.CUSTOMER_VOUCHER')
+          AND name = N'IX_CUSTOMER_VOUCHER_CUSTOMER_USED'
+    )
+        CREATE INDEX [IX_CUSTOMER_VOUCHER_CUSTOMER_USED]
+            ON dbo.[CUSTOMER_VOUCHER]([customerProfileId], [isUsed]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.CUSTOMER_VOUCHER')
+          AND name = N'IX_CUSTOMER_VOUCHER_VOUCHER'
+    )
+        CREATE INDEX [IX_CUSTOMER_VOUCHER_VOUCHER]
+            ON dbo.[CUSTOMER_VOUCHER]([voucherId]);
 
     -- Customer-assisted refund workflow.
     IF EXISTS
@@ -370,6 +436,6 @@ GO
 SELECT N'DB_UPGRADE_APPLIED=1' AS [verification];
 SELECT [name] AS [tableName]
 FROM sys.tables
-WHERE [name] IN (N'BANK_DIRECTORY', N'REFUND_CLAIM', N'REFUND_CLAIM_TOKEN', N'CUSTOMER_REFUND_REQUEST', N'MANUAL_REFUND_PROCESS', N'REFUND_PAYOUT_ATTEMPT', N'EMAIL_OUTBOX')
+WHERE [name] IN (N'BANK_DIRECTORY', N'CUSTOMER_VOUCHER', N'REFUND_CLAIM', N'REFUND_CLAIM_TOKEN', N'CUSTOMER_REFUND_REQUEST', N'MANUAL_REFUND_PROCESS', N'REFUND_PAYOUT_ATTEMPT', N'EMAIL_OUTBOX')
 ORDER BY [name];
 GO
