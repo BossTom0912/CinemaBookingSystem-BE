@@ -11,11 +11,29 @@ sqlcmd -S YOUR_SERVER -U YOUR_USER -P "YOUR_PASSWORD" -b -f 65001 `
   -i "docs\database\cinema-booking-schema.sql"
 ```
 
+For an existing database with data to keep, run
+`docs\database\cinema-booking-schema-upgrade.sql` against that database
+instead. It contains no `DROP`, `DELETE`, or `TRUNCATE` statements.
+
+With SQL authentication:
+
+```powershell
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -U YOUR_USER -P "YOUR_PASSWORD" -b -f 65001 `
+  -i "docs\database\cinema-booking-schema-upgrade.sql"
+```
+
 If Windows authentication is used:
 
 ```powershell
 sqlcmd -S YOUR_SERVER -E -b -f 65001 `
   -i "docs\database\cinema-booking-schema.sql"
+```
+
+For an existing database with Windows authentication:
+
+```powershell
+sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -E -b -f 65001 `
+  -i "docs\database\cinema-booking-schema-upgrade.sql"
 ```
 
 Confirm:

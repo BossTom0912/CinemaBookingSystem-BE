@@ -38,9 +38,13 @@ agents discover them there automatically.
 ## Database
 
 - [`database/cinema-booking-schema.sql`](database/cinema-booking-schema.sql):
-  canonical complete local database reset/creation script. It includes the
+  canonical complete local database reset/creation script. It drops and
+  recreates the database; it includes the
   ticket-scan, refund, F&B fulfillment, email outbox, and checkout-idempotency
   schema; it replaces the old standalone `.sql` patches.
+- [`database/cinema-booking-schema-upgrade.sql`](database/cinema-booking-schema-upgrade.sql):
+  idempotent upgrade script for an existing database. It preserves data and
+  rolls back if a safe conversion is not possible.
 - [`database/SCRUM-198-ticket-scan-db-changes.md`](database/SCRUM-198-ticket-scan-db-changes.md):
   team handoff and deployment notes for ticket-scan actor auditing.
 - [`database/SCRUM-193-customer-assisted-refund-db-changes.md`](database/SCRUM-193-customer-assisted-refund-db-changes.md):

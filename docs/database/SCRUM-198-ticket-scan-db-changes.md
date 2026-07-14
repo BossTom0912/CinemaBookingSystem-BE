@@ -23,7 +23,9 @@ available, but may be null for Admin.
 
 The schema is consolidated into `docs/database/cinema-booking-schema.sql`.
 It creates `CHECKIN_LOG` with `scannedByUserId` from the outset and is a full
-database reset script. It must not be used as an in-place production migration.
+database reset script. For an existing database, use
+`docs/database/cinema-booking-schema-upgrade.sql`; it rolls back rather than
+inventing an actor for an unmappable historic scan.
 
 ## Application configuration
 

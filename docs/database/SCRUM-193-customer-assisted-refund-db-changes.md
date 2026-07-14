@@ -14,8 +14,9 @@ Invalid object name 'REFUND_CLAIM'
 - Full reset schema:
   `docs/database/cinema-booking-schema.sql`
 
-The former in-place patch has been consolidated into the full reset schema.
-Use a separately reviewed migration for an existing database with data to keep.
+For an existing database with data to keep, use
+`docs/database/cinema-booking-schema-upgrade.sql`. The reset schema remains
+for a disposable/local database only.
 
 ## Schema Changes
 
