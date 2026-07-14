@@ -13,12 +13,9 @@ Invalid object name 'REFUND_CLAIM'
 
 - Full reset schema:
   `docs/database/cinema-booking-schema.sql`
-- Existing-database patch:
-  `docs/database/SCRUM-193-customer-assisted-refund-patch.sql`
 
-The patch has no `USE [database]` statement. The target database must be chosen
-by the deployment command or connection configuration instead of being
-hardcoded in SQL.
+The former in-place patch has been consolidated into the full reset schema.
+Use a separately reviewed migration for an existing database with data to keep.
 
 ## Schema Changes
 
@@ -89,23 +86,10 @@ account inquiry or automatic payout is available.
 
 ## Apply
 
-SQL authentication:
-
-```powershell
-sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -U YOUR_USER -P "YOUR_PASSWORD" -b `
-  -i "docs\database\SCRUM-193-customer-assisted-refund-patch.sql"
-```
-
-Windows authentication:
-
-```powershell
-sqlcmd -S YOUR_SERVER -d YOUR_DATABASE -E -b `
-  -i "docs\database\SCRUM-193-customer-assisted-refund-patch.sql"
-```
-
-The patch is idempotent and can be rerun. It creates missing tables and indexes,
-updates the refund-status check constraint when required, seeds missing banks,
-and verifies required columns.
+The refund schema is now part of `cinema-booking-schema.sql`, the canonical full
+reset script. It recreates `CinemaBookingDB`, so it is appropriate only for a
+disposable/local database. An existing database with retained data needs a
+reviewed deployment migration outside this consolidated reset script.
 
 Expected verification:
 

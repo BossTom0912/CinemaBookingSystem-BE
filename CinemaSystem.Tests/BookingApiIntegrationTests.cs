@@ -47,6 +47,39 @@ public sealed class BookingApiIntegrationTests
     }
 
     [Fact]
+    public async Task CreateBooking_SameIdempotencyKey_ReturnsTheOriginalBookingAndRecoveryState()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var (showtimeId, showtimeSeatIds) = await SeedBookingDataAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
+        var idempotencyKey = Guid.NewGuid().ToString();
+        client.DefaultRequestHeaders.Add("Idempotency-Key", idempotencyKey);
+        var request = new CreateBookingRequest
+        {
+            ShowtimeId = showtimeId,
+            ShowtimeSeatIds = showtimeSeatIds
+        };
+
+        var firstResponse = await client.PostAsJsonAsync("/api/bookings", request);
+        var secondResponse = await client.PostAsJsonAsync("/api/bookings", request);
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        var firstBody = await firstResponse.Content.ReadFromJsonAsync<ApiResponse<BookingResponse>>(JsonOptions);
+        var secondBody = await secondResponse.Content.ReadFromJsonAsync<ApiResponse<BookingResponse>>(JsonOptions);
+        Assert.Equal(firstBody!.Data!.BookingId, secondBody!.Data!.BookingId);
+
+        var recoveryResponse = await client.GetAsync("/api/bookings/checkout-recovery");
+        var recoveryBody = await recoveryResponse.Content.ReadFromJsonAsync<ApiResponse<CheckoutRecoveryResponse>>(JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, recoveryResponse.StatusCode);
+        Assert.Equal(firstBody.Data.BookingId, recoveryBody!.Data!.BookingId);
+        Assert.Equal("PENDING_PAYMENT", recoveryBody.Data.BookingStatus);
+    }
+
+    [Fact]
     public async Task GetBookingDetails_ExistingBooking_ReturnsDetails()
     {
         await using var factory = new CinemaWebApplicationFactory();

@@ -175,6 +175,10 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.CustomerProfileId, "IX_BOOKING_CUSTOMER_PROFILE_ID");
 
+            entity.HasIndex(e => new { e.CustomerProfileId, e.ClientRequestId }, "UX_BOOKING_CUSTOMER_CLIENT_REQUEST")
+                .IsUnique()
+                .HasFilter("[clientRequestId] IS NOT NULL");
+
             entity.HasIndex(e => e.ShowtimeId, "IX_BOOKING_SHOWTIME_ID");
 
             entity.HasIndex(e => e.BookingStatus, "IX_BOOKING_STATUS");
@@ -199,6 +203,8 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.CustomerProfileId)
                 .HasMaxLength(50)
                 .HasColumnName("customerProfileId");
+            entity.Property(e => e.ClientRequestId)
+                .HasColumnName("clientRequestId");
             entity.Property(e => e.ExpiredAt).HasColumnName("expiredAt");
             entity.Property(e => e.GuestEmail)
                 .HasMaxLength(255)
@@ -212,6 +218,10 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.ShowtimeId)
                 .HasMaxLength(50)
                 .HasColumnName("showtimeId");
+            entity.Property(e => e.RequestFingerprint)
+                .HasMaxLength(64)
+                .IsUnicode(false)
+                .HasColumnName("requestFingerprint");
             entity.Property(e => e.FbFulfillmentStatus)
                 .HasMaxLength(30)
                 .HasDefaultValue("NOT_APPLICABLE")

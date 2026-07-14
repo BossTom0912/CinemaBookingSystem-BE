@@ -457,7 +457,7 @@ Các cột tồn tại:
 ### 5.4 Script database được đưa vào nhánh
 
 - `docs/database/Genre_Languge.sql`
-- `docs/database/SCRUM-193-customer-assisted-refund-patch.sql`
+- `docs/database/cinema-booking-schema.sql` (canonical reset schema; the former patch was consolidated)
 - `docs/database/sprint-2-full-architecture.sql`
 - `docs/database/sprint-2-review-and-views.sql`
 - `docs/database/sprint-2-update-constraints.sql`

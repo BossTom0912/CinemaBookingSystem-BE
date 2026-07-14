@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
@@ -40,6 +42,7 @@ public sealed class BookingService : IBookingService
     public async Task<ServiceResult<BookingResponse>> CreateBookingAsync(
         CreateBookingRequest request,
         string userId,
+        Guid? clientRequestId,
         CancellationToken cancellationToken)
     {
         var customerProfile = await _dbContext.CustomerProfiles
@@ -48,6 +51,31 @@ public sealed class BookingService : IBookingService
         if (customerProfile == null)
         {
             return ServiceResult<BookingResponse>.Fail(403, "Only customers can book tickets.", "CUSTOMER_PROFILE_NOT_FOUND");
+        }
+
+        var requestFingerprint = clientRequestId.HasValue
+            ? CreateRequestFingerprint(request)
+            : null;
+        var existingBooking = clientRequestId.HasValue
+            ? await FindBookingByClientRequestAsync(
+                customerProfile.CustomerProfileId,
+                clientRequestId.Value,
+                cancellationToken)
+            : null;
+
+        if (existingBooking != null)
+        {
+            if (!string.Equals(existingBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    409,
+                    "This Idempotency-Key was already used for a different checkout request.",
+                    "IDEMPOTENCY_KEY_REUSED");
+            }
+
+            return ServiceResult<BookingResponse>.Ok(
+                ToBookingResponse(existingBooking),
+                "Existing checkout returned successfully.");
         }
 
         var showtime = await _dbContext.Showtimes
@@ -174,6 +202,8 @@ public sealed class BookingService : IBookingService
             TotalAmount = totalAmount,
             CreatedAt = now,
             ExpiredAt = now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
+            ClientRequestId = clientRequestId,
+            RequestFingerprint = requestFingerprint,
             BookingChannel = DomainConstants.BookingChannel.Online,
             BookingSeats = bookingSeats,
             BookingFbItems = bookingFbItems
@@ -188,7 +218,36 @@ public sealed class BookingService : IBookingService
         }
 
         _dbContext.Bookings.Add(booking);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // SQL Server's filtered unique index is the final guard when two
+            // requests with the same key arrive at the same time. A fresh query
+            // returns the winner's response; other seat conflicts stay a 409.
+            _dbContext.ChangeTracker.Clear();
+            var recoveredBooking = clientRequestId.HasValue
+                ? await FindBookingByClientRequestAsync(
+                    customerProfile.CustomerProfileId,
+                    clientRequestId.Value,
+                    cancellationToken)
+                : null;
+
+            if (recoveredBooking != null
+                && string.Equals(recoveredBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+            {
+                return ServiceResult<BookingResponse>.Ok(
+                    ToBookingResponse(recoveredBooking),
+                    "Existing checkout returned successfully.");
+            }
+
+            return ServiceResult<BookingResponse>.Fail(
+                409,
+                "The selected seats were changed by another checkout. Please refresh the seat map.",
+                "CHECKOUT_CONFLICT");
+        }
 
         return ServiceResult<BookingResponse>.Ok(new BookingResponse
         {
@@ -203,6 +262,39 @@ public sealed class BookingService : IBookingService
             CreatedAt = booking.CreatedAt,
             ExpiredAt = booking.ExpiredAt
         }, "Booking created successfully.");
+    }
+
+    public async Task<ServiceResult<CheckoutRecoveryResponse>> GetCheckoutRecoveryAsync(
+        string userId,
+        Guid clientRequestId,
+        CancellationToken cancellationToken)
+    {
+        var recovery = await _dbContext.Bookings
+            .AsNoTracking()
+            .Where(booking => booking.CustomerProfile != null
+                && booking.CustomerProfile.UserId == userId
+                && booking.ClientRequestId == clientRequestId)
+            .Select(booking => new CheckoutRecoveryResponse
+            {
+                BookingId = booking.BookingId,
+                ShowtimeId = booking.ShowtimeId,
+                BookingStatus = booking.BookingStatus,
+                PaymentStatus = booking.Payments
+                    .OrderByDescending(payment => payment.CreatedAt)
+                    .Select(payment => payment.PaymentStatus)
+                    .FirstOrDefault(),
+                ExpiredAt = booking.ExpiredAt
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return recovery == null
+            ? ServiceResult<CheckoutRecoveryResponse>.Fail(
+                404,
+                "No checkout was found for this Idempotency-Key.",
+                "CHECKOUT_NOT_FOUND")
+            : ServiceResult<CheckoutRecoveryResponse>.Ok(
+                recovery,
+                "Checkout recovery state retrieved successfully.");
     }
 
     public async Task<ServiceResult<BookingDetailsResponse>> GetBookingDetailsAsync(
@@ -430,6 +522,60 @@ public sealed class BookingService : IBookingService
             await _dbContext.SaveChangesAsync(cancellationToken);
             return ServiceResult<bool>.Ok(true, "Time change rejected. Refund initiated.");
         }
+    }
+
+    private async Task<Booking?> FindBookingByClientRequestAsync(
+        string customerProfileId,
+        Guid clientRequestId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.Bookings
+            .Include(booking => booking.Showtime)
+                .ThenInclude(showtime => showtime!.Movie)
+            .Include(booking => booking.Showtime)
+                .ThenInclude(showtime => showtime!.Room)
+                    .ThenInclude(room => room!.Cinema)
+            .FirstOrDefaultAsync(
+                booking => booking.CustomerProfileId == customerProfileId
+                    && booking.ClientRequestId == clientRequestId,
+                cancellationToken);
+    }
+
+    private static BookingResponse ToBookingResponse(Booking booking)
+    {
+        return new BookingResponse
+        {
+            BookingId = booking.BookingId,
+            ShowtimeId = booking.ShowtimeId ?? string.Empty,
+            MovieTitle = booking.Showtime?.Movie?.Title ?? string.Empty,
+            CinemaName = booking.Showtime?.Room?.Cinema?.CinemaName ?? string.Empty,
+            RoomName = booking.Showtime?.Room?.RoomName ?? string.Empty,
+            StartTime = booking.Showtime?.StartTime,
+            TotalAmount = booking.TotalAmount,
+            Status = booking.BookingStatus,
+            CreatedAt = booking.CreatedAt,
+            ExpiredAt = booking.ExpiredAt
+        };
+    }
+
+    private static string CreateRequestFingerprint(CreateBookingRequest request)
+    {
+        var seatIds = request.ShowtimeSeatIds
+            .Select(item => item.Trim())
+            .OrderBy(item => item, StringComparer.Ordinal);
+        var foodItems = (request.FoodAndBeverages ?? [])
+            .OrderBy(item => item.FbItemId, StringComparer.Ordinal)
+            .ThenBy(item => item.Quantity)
+            .Select(item => $"{item.FbItemId.Trim()}:{item.Quantity}");
+        var canonicalRequest = string.Join(
+            "|",
+            request.ShowtimeId.Trim(),
+            string.Join(",", seatIds),
+            (request.VoucherCode ?? string.Empty).Trim(),
+            string.Join(",", foodItems));
+
+        return Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRequest)));
     }
 
     private async Task ReleaseStaleBookingSeatsForShowtimeAsync(

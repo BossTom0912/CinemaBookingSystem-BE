@@ -27,6 +27,10 @@ public partial class Booking
 
     public DateTime? ExpiredAt { get; set; }
 
+    public Guid? ClientRequestId { get; set; }
+
+    public string? RequestFingerprint { get; set; }
+
     public string? CreatedByStaffProfileId { get; set; }
 
     public string BookingChannel { get; set; } = null!;
