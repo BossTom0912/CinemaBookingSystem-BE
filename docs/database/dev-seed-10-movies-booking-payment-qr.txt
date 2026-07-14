@@ -95,14 +95,15 @@ BEGIN TRY
     WHERE NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = movie.[movieId]);
 
     INSERT INTO dbo.[MOVIE_GENRE] ([movieId], [genreId])
-    SELECT movie.[movieId], genre.[genreId]
-    FROM @Movies AS movie
+    SELECT persistedMovie.[movieId], genre.[genreId]
+    FROM dbo.[MOVIE] AS persistedMovie
+    INNER JOIN @Movies AS movie ON movie.[movieId] = persistedMovie.[movieId]
     CROSS APPLY (SELECT TOP (1) [genreId] FROM dbo.[GENRE] ORDER BY [genreId]) AS genre
     WHERE NOT EXISTS
     (
         SELECT 1
         FROM dbo.[MOVIE_GENRE] AS existing
-        WHERE existing.[movieId] = movie.[movieId]
+        WHERE existing.[movieId] = persistedMovie.[movieId]
           AND existing.[genreId] = genre.[genreId]
     );
 
