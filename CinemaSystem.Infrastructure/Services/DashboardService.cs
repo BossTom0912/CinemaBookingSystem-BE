@@ -294,18 +294,12 @@ public sealed class DashboardService : IDashboardService
         var query = BuildBaseBookingQuery(fromDate, toDate, request.CinemaId);
 
         var channelGroups = await query
-            .SelectMany(b => b.BookingFbItems, (booking, item) => new
-            {
-                booking.BookingId,
-                booking.BookingChannel,
-                item.Subtotal
-            })
-            .GroupBy(item => item.BookingChannel)
+            .GroupBy(b => b.BookingChannel)
             .Select(g => new
             {
                 Channel = g.Key,
-                TotalRevenue = g.Sum(item => item.Subtotal),
-                BookingCount = g.Select(item => item.BookingId).Distinct().Count()
+                TotalRevenue = g.Sum(b => b.TotalAmount),
+                BookingCount = g.Count()
             })
             .ToListAsync(cancellationToken);
 

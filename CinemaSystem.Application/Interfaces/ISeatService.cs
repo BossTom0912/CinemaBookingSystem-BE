@@ -13,7 +13,7 @@ public interface ISeatService
     Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
         string? cinemaScopeId,
         string? roomId,
-        bool? isActive,
+        string? seatStatus,
         int pageIndex,
         int pageSize,
         CancellationToken cancellationToken);
@@ -55,4 +55,10 @@ public interface ISeatService
         GetSeatMapAsync(
             string showtimeId,
             CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> UpdateRoomSeatsWithHistoryAsync(
+        string roomId,
+        string adminId,
+        List<SeatDto> newSeats,
+        CancellationToken cancellationToken = default);
 }

@@ -1029,7 +1029,8 @@ public sealed class SeatMissingCoverageTests
             SeatId = "SEAT_GHOST",
             RowLabel = "B",
             SeatNumber = 2,
-            SeatTypeId = "ST_STD"
+            SeatTypeId = "ST_STD",
+            SeatStatus = "ACTIVE"
         });
 
         Assert.True(
@@ -1242,7 +1243,7 @@ public sealed class CustomerMissingCoverageTests
             new Claim(ClaimTypes.NameIdentifier, "USR_1"));
 
         var result = await controller.VerifyEmailChange(
-            new VerifyEmailUpdateRequest { NewEmail = "new@example.com", Otp = "123456" },
+            new VerifyEmailUpdateRequest { NewEmail = "new@example.com", Otp = "123456", OldEmailOtp = "654321" },
             CancellationToken.None);
 
         var objectResult = Assert.IsAssignableFrom<ObjectResult>(result);

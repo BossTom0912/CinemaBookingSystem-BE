@@ -14,7 +14,7 @@ public sealed class BatchUpdateSeatStatusRequest
     /// <summary>
     /// New status value for all specified seats.
     /// </summary>
-    public bool IsActive { get; init; }
+    public string SeatStatus { get; init; } = default!;
 
     /// <summary>
     /// Optional: Room ID to validate all seats belong to the same room.

@@ -168,11 +168,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu cấu hình không cho phép lấy phòng INACTIVE và phòng hiện tại đang INACTIVE
-        if (!includeInactive
-            && string.Equals(
-                room.RoomStatus,
-                DomainConstants.RoomStatus.Inactive,
-                StringComparison.OrdinalIgnoreCase))
+        if (!includeInactive && string.Equals(room.RoomStatus, DomainConstants.RoomStatus.Inactive, StringComparison.OrdinalIgnoreCase))
         {
             // Trả về lỗi không tìm thấy (che giấu phòng INACTIVE)
             return ServiceResult<RoomResponse>.Fail(
@@ -408,9 +404,7 @@ public sealed class RoomService : IRoomService
         }
 
         // Nếu có sự thay đổi trạng thái và trạng thái mới là bảo trì hoặc ngưng hoạt động
-        if (room.RoomStatus != roomStatus
-            && (roomStatus == DomainConstants.RoomStatus.Maintenance
-                || roomStatus == DomainConstants.RoomStatus.Inactive))
+        if (room.RoomStatus != roomStatus && (roomStatus == DomainConstants.RoomStatus.Maintenance || roomStatus == DomainConstants.RoomStatus.Inactive))
         {
             // Tìm tất cả các suất chiếu đang mở (Open) tại phòng này
             var openShowtimes = await _dbContext.Showtimes

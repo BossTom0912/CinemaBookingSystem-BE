@@ -187,8 +187,15 @@ public sealed class CustomerService : ICustomerService
             return ServiceResult<object>.Fail(409, "Email already in use.", "DUPLICATE_EMAIL");
         }
 
+        // Gửi OTP về email cũ để xác nhận việc thay đổi (Bảo vệ Email Takeover)
+        var oldEmailResult = await SendUpdateOtpAsync(user, user.Email, "EMAIL_UPDATE_OLD", cancellationToken);
+        if (!oldEmailResult.Success)
+        {
+            return oldEmailResult;
+        }
+
         // Thực hiện gửi mã OTP đến email mới
-        return await SendUpdateOtpAsync(user, normalizedEmail, EmailUpdatePurpose, cancellationToken);
+        return await SendUpdateOtpAsync(user, normalizedEmail, "EMAIL_UPDATE_NEW", cancellationToken);
     }
 
     public async Task<ServiceResult<object>> VerifyEmailUpdateAsync(string userId, VerifyEmailUpdateRequest request, CancellationToken cancellationToken)
@@ -204,26 +211,35 @@ public sealed class CustomerService : ICustomerService
 
         // Chuẩn hóa email tương tự như lúc request đổi
         var normalizedEmail = request.NewEmail.Trim().ToLowerInvariant();
-        // Tìm Token (OTP) gần nhất khớp với userId và chưa được sử dụng
-        var token = await _dbContext.EmailVerificationTokens
-            // Điều kiện: đúng người dùng, đúng mục đích cập nhật email, mã chưa được sử dụng
-            .Where(t => t.UserId == userId && t.Purpose == EmailUpdatePurpose && !t.IsUsed)
-            // Sắp xếp mã OTP mới tạo lên đầu
+
+        // 1. Xác thực OTP gửi tới email cũ
+        var oldToken = await _dbContext.EmailVerificationTokens
+            .Where(t => t.UserId == userId && t.Purpose == "EMAIL_UPDATE_OLD" && !t.IsUsed)
             .OrderByDescending(t => t.CreatedAt)
-            // Lấy mã mới nhất
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Kiểm tra tính hợp lệ của OTP (không tồn tại, hết hạn, hoặc mã nhập vào sai)
-        if (token is null || token.ExpiredAt <= _clock.UtcNow || !_passwordHasher.VerifySecret(request.Otp, token.Token))
+        if (oldToken is null || oldToken.ExpiredAt <= _clock.UtcNow || !_passwordHasher.VerifySecret(request.OldEmailOtp, oldToken.Token))
         {
-            // Trả về lỗi nếu OTP không hợp lệ hoặc đã hết hạn
-            return ServiceResult<object>.Fail(400, "Invalid or expired OTP.", "INVALID_OTP");
+            return ServiceResult<object>.Fail(400, "Invalid or expired OTP for the old email.", "INVALID_OLD_OTP");
         }
 
-        // Đánh dấu mã OTP này đã được dùng
-        token.IsUsed = true;
-        // Ghi nhận thời điểm xác thực thành công
-        token.VerifiedAt = _clock.UtcNow;
+        // 2. Xác thực OTP gửi tới email mới
+        var newToken = await _dbContext.EmailVerificationTokens
+            .Where(t => t.UserId == userId && t.Purpose == "EMAIL_UPDATE_NEW" && !t.IsUsed)
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (newToken is null || newToken.ExpiredAt <= _clock.UtcNow || !_passwordHasher.VerifySecret(request.Otp, newToken.Token))
+        {
+            return ServiceResult<object>.Fail(400, "Invalid or expired OTP for the new email.", "INVALID_NEW_OTP");
+        }
+
+        // Đánh dấu cả 2 mã OTP này đã được dùng
+        oldToken.IsUsed = true;
+        oldToken.VerifiedAt = _clock.UtcNow;
+        newToken.IsUsed = true;
+        newToken.VerifiedAt = _clock.UtcNow;
+
         // Tiến hành cập nhật email mới cho người dùng
         user.Email = normalizedEmail;
         // Đánh dấu tài khoản người dùng đã verify email

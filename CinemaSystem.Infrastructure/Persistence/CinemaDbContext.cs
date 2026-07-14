@@ -99,6 +99,8 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<VoucherUsage> VoucherUsages { get; set; }
 
+    public virtual DbSet<CustomerVoucher> CustomerVouchers { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // ChangeRequest workflow removed - direct CRUD used instead
@@ -1617,6 +1619,45 @@ public partial class CinemaDbContext : DbContext
                 .HasForeignKey(d => d.VoucherId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_VOUCHER_USAGE_VOUCHER");
+        });
+
+        modelBuilder.Entity<CustomerVoucher>(entity =>
+        {
+            entity.HasKey(e => e.CustomerVoucherId);
+            entity.ToTable("CUSTOMER_VOUCHER");
+
+            entity.Property(e => e.CustomerVoucherId)
+                .HasMaxLength(50)
+                .HasColumnName("customerVoucherId");
+
+            entity.Property(e => e.CustomerProfileId)
+                .HasMaxLength(50)
+                .HasColumnName("customerProfileId");
+
+            entity.Property(e => e.VoucherId)
+                .HasMaxLength(50)
+                .HasColumnName("voucherId");
+
+            entity.Property(e => e.ClaimedAt)
+                .HasColumnName("claimedAt");
+
+            entity.Property(e => e.IsUsed)
+                .HasColumnName("isUsed");
+
+            entity.Property(e => e.UsedAt)
+                .HasColumnName("usedAt");
+
+            entity.HasOne(d => d.CustomerProfile)
+                .WithMany()
+                .HasForeignKey(d => d.CustomerProfileId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CUSTOMER_VOUCHER_CUSTOMER_PROFILE");
+
+            entity.HasOne(d => d.Voucher)
+                .WithMany()
+                .HasForeignKey(d => d.VoucherId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CUSTOMER_VOUCHER_VOUCHER");
         });
 
         var dateTimeConverter = new ValueConverter<DateTime, DateTime>(

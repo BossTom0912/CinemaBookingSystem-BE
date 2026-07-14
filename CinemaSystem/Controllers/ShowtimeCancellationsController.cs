@@ -12,15 +12,46 @@ namespace CinemaSystem.Controllers;
 [Route("api/manager/showtimes")]
 public sealed class ShowtimeCancellationsController : ControllerBase
 {
+    private readonly IShowtimeService _showtimeService;
     private readonly IShowtimeCancellationService _showtimeCancellationService;
     private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
     public ShowtimeCancellationsController(
+        IShowtimeService showtimeService,
         IShowtimeCancellationService showtimeCancellationService,
         ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
     {
+        _showtimeService = showtimeService;
         _showtimeCancellationService = showtimeCancellationService;
         _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService;
+    }
+
+    [HttpGet]
+    [Authorize(Policy = AuthConstants.Policies.CanManageShowtime)]
+    [ProducesResponseType(
+        typeof(ApiResponse<IReadOnlyList<ShowtimeResponse>>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        typeof(ApiResponse<object>),
+        StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(
+        typeof(ApiResponse<object>),
+        StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetScopedShowtimes(CancellationToken cancellationToken)
+    {
+        var scope = await _cinemaScopeAuthorizationService.GetUserCinemaScopeAsync(
+            User,
+            cancellationToken);
+        if (!scope.Allowed)
+        {
+            return ToActionResult(scope);
+        }
+
+        var result = await _showtimeService.GetShowtimesByCinemaAsync(
+            scope.CinemaId,
+            cancellationToken);
+
+        return ToActionResult(result);
     }
 
     [HttpPost("{showtimeId}/cancel")]

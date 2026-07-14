@@ -219,7 +219,12 @@ public static class DependencyInjection
 
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseSqlServer(defaultConnection);
+            options.UseSqlServer(
+                defaultConnection,
+                sqlOptions => sqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 1,
+                    maxRetryDelay: TimeSpan.FromSeconds(2),
+                    errorNumbersToAdd: null));
         });
 
         services.AddScoped<IAuthService, AuthService>();
@@ -314,11 +319,13 @@ public static class DependencyInjection
             .Validate(options => !string.IsNullOrWhiteSpace(options.Model), "Gemini model is required.")
             .Validate(options => options.ContextMovieLimit > 0, "Gemini movie-context limit must be positive.");
         services.AddScoped<IChatbotService, GeminiChatbotService>();
+        services.AddScoped<IAiEmailService, GeminiAiEmailService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAiModerationService, GeminiModerationService>();
         services.AddScoped<IAdminRefundService, AdminRefundService>();
         services.AddScoped<IFbItemService, FbItemService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IVoucherService, VoucherService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
         
 
