@@ -15,14 +15,10 @@ namespace CinemaSystem.Controllers;
 public sealed class TicketsController : ControllerBase
 {
     private readonly ITicketScanService _ticketScanService;
-    private readonly ICinemaScopeAuthorizationService _cinemaScopeAuthorizationService;
 
-    public TicketsController(
-        ITicketScanService ticketScanService,
-        ICinemaScopeAuthorizationService cinemaScopeAuthorizationService)
+    public TicketsController(ITicketScanService ticketScanService)
     {
         _ticketScanService = ticketScanService;
-        _cinemaScopeAuthorizationService = cinemaScopeAuthorizationService;
     }
 
     [HttpPost("scan")]
@@ -38,14 +34,6 @@ public sealed class TicketsController : ControllerBase
         [FromBody] ScanTicketRequest request,
         CancellationToken cancellationToken)
     {
-        var scope = await _cinemaScopeAuthorizationService.GetUserCinemaScopeAsync(
-            User,
-            cancellationToken);
-        if (!scope.Allowed)
-        {
-            return ToActionResult(scope);
-        }
-
         var userId = GetUserId();
         if (string.IsNullOrWhiteSpace(userId))
         {
@@ -54,9 +42,19 @@ public sealed class TicketsController : ControllerBase
                 BookingConstants.ErrorCodes.Unauthorized));
         }
 
+        var actorRole = GetActorRole();
+        if (string.IsNullOrWhiteSpace(actorRole))
+        {
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                ApiResponse<object>.Fail(
+                    "The authenticated role is not allowed to scan tickets.",
+                    BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden));
+        }
+
         var result = await _ticketScanService.ScanAsync(
             userId,
-            scope.CinemaId,
+            actorRole,
             request,
             cancellationToken);
         return ToActionResult(result);
@@ -70,17 +68,33 @@ public sealed class TicketsController : ControllerBase
             ?? string.Empty;
     }
 
+    private string GetActorRole()
+    {
+        foreach (var role in new[]
+        {
+            AuthConstants.Roles.Admin,
+            AuthConstants.Roles.Manager,
+            AuthConstants.Roles.Staff,
+            AuthConstants.Roles.Customer
+        })
+        {
+            if (User.IsInRole(role))
+            {
+                return role;
+            }
+        }
+
+        var claimRole = User.FindFirstValue(ClaimTypes.Role)
+            ?? User.FindFirstValue("role")
+            ?? string.Empty;
+        return AuthConstants.Roles.Normalize(claimRole);
+    }
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success
             ? ApiResponse<T>.Ok(result.Data, result.Message)
             : ApiResponse<T>.Fail(result.Message, result.ErrorCode, result.Errors);
-        return StatusCode(result.StatusCode, response);
-    }
-
-    private ObjectResult ToActionResult(CinemaScopeAuthorizationResult result)
-    {
-        var response = ApiResponse<object>.Fail(result.Message, result.ErrorCode);
         return StatusCode(result.StatusCode, response);
     }
 }

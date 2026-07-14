@@ -93,13 +93,11 @@ public sealed class TicketScanApiIntegrationTests
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         var log = await db.CheckinLogs.SingleAsync();
         Assert.Equal(BookingConstants.CheckInResult.Failed, log.Result);
-        Assert.Equal(
-            BookingConstants.TicketScanErrorCodes.TicketWrongCinema,
-            log.FailureReason);
+        Assert.Equal(FailureReasons.WrongCinema, log.FailureReason);
     }
 
     [Fact]
-    public async Task Scan_WrongRoom_ReturnsConflict()
+    public async Task Scan_WrongRoom_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);
@@ -112,6 +110,12 @@ public sealed class TicketScanApiIntegrationTests
         Assert.Equal(
             BookingConstants.TicketScanErrorCodes.TicketWrongRoom,
             body!.ErrorCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var log = await db.CheckinLogs.SingleAsync();
+        Assert.Equal(BookingConstants.CheckInResult.Failed, log.Result);
+        Assert.Equal(FailureReasons.WrongRoom, log.FailureReason);
     }
 
     [Fact]
@@ -130,6 +134,7 @@ public sealed class TicketScanApiIntegrationTests
         Assert.Equal(
             BookingConstants.TicketScanErrorCodes.TicketAlreadyCheckedIn,
             body!.ErrorCode);
+        Assert.Equal("Ticket has already been used.", body.Message);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
@@ -138,10 +143,15 @@ public sealed class TicketScanApiIntegrationTests
             1,
             await db.CheckinLogs.CountAsync(
                 log => log.Result == BookingConstants.CheckInResult.Success));
+        Assert.Equal(
+            1,
+            await db.CheckinLogs.CountAsync(
+                log => log.Result == BookingConstants.CheckInResult.Failed
+                    && log.FailureReason == FailureReasons.TicketAlreadyUsed));
     }
 
     [Fact]
-    public async Task Scan_CancelledTicket_ReturnsConflict()
+    public async Task Scan_CancelledTicket_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);
@@ -158,10 +168,16 @@ public sealed class TicketScanApiIntegrationTests
         Assert.Equal(
             BookingConstants.TicketScanErrorCodes.TicketCancelled,
             body!.ErrorCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var log = await db.CheckinLogs.SingleAsync();
+        Assert.Equal(BookingConstants.CheckInResult.Failed, log.Result);
+        Assert.Equal(FailureReasons.TicketCancelled, log.FailureReason);
     }
 
     [Fact]
-    public async Task Scan_RefundedTicket_ReturnsConflict()
+    public async Task Scan_RefundedTicket_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);
@@ -178,6 +194,12 @@ public sealed class TicketScanApiIntegrationTests
         Assert.Equal(
             BookingConstants.TicketScanErrorCodes.TicketRefunded,
             body!.ErrorCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var log = await db.CheckinLogs.SingleAsync();
+        Assert.Equal(BookingConstants.CheckInResult.Failed, log.Result);
+        Assert.Equal(FailureReasons.TicketRefunded, log.FailureReason);
     }
 
     [Fact]
@@ -215,13 +237,11 @@ public sealed class TicketScanApiIntegrationTests
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         var log = await db.CheckinLogs.SingleAsync();
         Assert.Null(log.TicketId);
-        Assert.Equal(
-            BookingConstants.TicketScanErrorCodes.TicketNotFound,
-            log.FailureReason);
+        Assert.Equal(FailureReasons.TicketNotFound, log.FailureReason);
     }
 
     [Fact]
-    public async Task Scan_BeforeConfiguredWindow_ReturnsConflict()
+    public async Task Scan_BeforeConfiguredWindow_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);
@@ -234,6 +254,34 @@ public sealed class TicketScanApiIntegrationTests
         Assert.Equal(
             BookingConstants.TicketScanErrorCodes.CheckInTooEarly,
             body!.ErrorCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var log = await db.CheckinLogs.SingleAsync();
+        Assert.Equal(BookingConstants.CheckInResult.Failed, log.Result);
+        Assert.Equal(FailureReasons.InvalidTime, log.FailureReason);
+    }
+
+    [Fact]
+    public async Task Scan_AfterConfiguredWindow_ReturnsConflictAndWritesFailedLog()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedAsync(factory);
+
+        using var client = CreateClient(factory, TestAuthTokens.Manager());
+        var response = await ScanAsync(client, TicketLate.QrCode, RoomA.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<object>>(response);
+        Assert.Equal(
+            BookingConstants.TicketScanErrorCodes.CheckInWindowClosed,
+            body!.ErrorCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var log = await db.CheckinLogs.SingleAsync();
+        Assert.Equal(BookingConstants.CheckInResult.Failed, log.Result);
+        Assert.Equal(FailureReasons.InvalidTime, log.FailureReason);
     }
 
     [Fact]
@@ -364,7 +412,8 @@ public sealed class TicketScanApiIntegrationTests
             db.Seats.AddRange(
                 NewSeat(SeatA.Id, RoomA.Id, SeatA.Code),
                 NewSeat(SeatB.Id, RoomB.Id, SeatB.Code),
-                NewSeat(SeatEarly.Id, RoomA.Id, SeatEarly.Code));
+                NewSeat(SeatEarly.Id, RoomA.Id, SeatEarly.Code),
+                NewSeat(SeatLate.Id, RoomA.Id, SeatLate.Code));
 
             AddTicketGraph(
                 db,
@@ -387,6 +436,13 @@ public sealed class TicketScanApiIntegrationTests
                 SeatEarly.Id,
                 now.AddMinutes(ScanWindow.EarlyShowtimeStartOffsetMinutes),
                 now.AddMinutes(ScanWindow.EarlyShowtimeEndOffsetMinutes));
+            AddTicketGraph(
+                db,
+                TicketLate,
+                RoomA.Id,
+                SeatLate.Id,
+                now.AddMinutes(ScanWindow.LateShowtimeStartOffsetMinutes),
+                now.AddMinutes(ScanWindow.LateShowtimeEndOffsetMinutes));
 
             db.Roles.Add(new Role
             {
@@ -522,6 +578,19 @@ public sealed class TicketScanApiIntegrationTests
         public const int CurrentShowtimeEndOffsetMinutes = 120;
         public const int EarlyShowtimeStartOffsetMinutes = 120;
         public const int EarlyShowtimeEndOffsetMinutes = 240;
+        public const int LateShowtimeStartOffsetMinutes = -180;
+        public const int LateShowtimeEndOffsetMinutes = -60;
+    }
+
+    private static class FailureReasons
+    {
+        public const string TicketNotFound = "Ticket Not Found";
+        public const string WrongCinema = "Wrong Cinema";
+        public const string WrongRoom = "Wrong Room";
+        public const string TicketAlreadyUsed = "Ticket Already Used";
+        public const string TicketCancelled = "Ticket Cancelled";
+        public const string TicketRefunded = "Ticket Refunded";
+        public const string InvalidTime = "Invalid Time";
     }
 
     private static readonly TicketFixture TicketA =
@@ -536,6 +605,14 @@ public sealed class TicketScanApiIntegrationTests
             "BKS_SCAN_EARLY",
             "STS_SCAN_EARLY",
             "SHW_SCAN_EARLY");
+    private static readonly TicketFixture TicketLate =
+        new(
+            "TCK_SCAN_LATE",
+            "QR_SCAN_LATE",
+            "BOK_SCAN_LATE",
+            "BKS_SCAN_LATE",
+            "STS_SCAN_LATE",
+            "SHW_SCAN_LATE");
 
     private static readonly (string Id, string Name) CinemaA = ("CIN_SCAN_A", "Scan Cinema A");
     private static readonly (string Id, string Name) CinemaB = ("CIN_SCAN_B", "Scan Cinema B");
@@ -544,6 +621,7 @@ public sealed class TicketScanApiIntegrationTests
     private static readonly (string Id, string Code) SeatA = ("SEAT_SCAN_A", "A1");
     private static readonly (string Id, string Code) SeatB = ("SEAT_SCAN_B", "B1");
     private static readonly (string Id, string Code) SeatEarly = ("SEAT_SCAN_EARLY", "A2");
+    private static readonly (string Id, string Code) SeatLate = ("SEAT_SCAN_LATE", "A3");
 
     private const string MovieId = "MOV_SCAN";
     private const string MovieTitle = "Ticket Scan Movie";

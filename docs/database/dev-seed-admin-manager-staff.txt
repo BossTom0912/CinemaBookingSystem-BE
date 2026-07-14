@@ -1,0 +1,230 @@
+-- Development seed accounts for manual API testing.
+-- Run this after the schema/base data has been created and CINEMA has rows.
+-- All accounts below use the same development password: Password1
+-- Do not use this script for production data.
+-- In SSMS/Azure Data Studio: open this file, press Ctrl+A, then Execute.
+-- Do not execute only a selected middle block because this script uses variables.
+
+USE [CinemaBookingDB];
+GO
+
+SET NOCOUNT ON;
+
+DECLARE @PasswordHash NVARCHAR(500) =
+    N'PBKDF2-SHA256.100000.AQIDBAUGBwgJCgsMDQ4PEA==.oA2tfdpk85oVNGhL7KlOtwvlkGWr0Id6feUHpwxbbjI=';
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = N'ROLE_ADMIN')
+BEGIN
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES (N'ROLE_ADMIN', N'ADMIN', N'System administrator account');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = N'ROLE_MANAGER')
+BEGIN
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES (N'ROLE_MANAGER', N'MANAGER', N'Cinema manager account');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = N'ROLE_STAFF')
+BEGIN
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES (N'ROLE_STAFF', N'STAFF', N'Cinema staff account');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = N'ROLE_CUSTOMER')
+BEGIN
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES (N'ROLE_CUSTOMER', N'CUSTOMER', N'Customer account');
+END;
+
+-- One global admin account.
+IF NOT EXISTS (
+    SELECT 1
+    FROM dbo.[USER]
+    WHERE [userId] = N'U_DEV_ADMIN' OR [email] = N'admin@cinema.local'
+)
+BEGIN
+    INSERT INTO dbo.[USER]
+        ([userId], [roleId], [email], [passwordHash], [fullName],
+         [phoneNumber], [status], [emailVerified], [createdAt])
+    VALUES
+        (N'U_DEV_ADMIN', N'ROLE_ADMIN', N'admin@cinema.local', @PasswordHash,
+         N'Dev Admin', NULL, N'ACTIVE', 1, SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    UPDATE dbo.[USER]
+    SET
+        [roleId] = N'ROLE_ADMIN',
+        [passwordHash] = @PasswordHash,
+        [fullName] = N'Dev Admin',
+        [status] = N'ACTIVE',
+        [emailVerified] = 1,
+        [updatedAt] = SYSUTCDATETIME()
+    WHERE [userId] = N'U_DEV_ADMIN' OR [email] = N'admin@cinema.local';
+END;
+
+DECLARE @CinemaId NVARCHAR(50);
+DECLARE @CinemaName NVARCHAR(255);
+DECLARE @CinemaIndex INT = 1;
+DECLARE @Suffix NVARCHAR(10);
+DECLARE @ManagerUserId NVARCHAR(50);
+DECLARE @ManagerProfileId NVARCHAR(50);
+DECLARE @ManagerEmail NVARCHAR(255);
+DECLARE @StaffUserId NVARCHAR(50);
+DECLARE @StaffProfileId NVARCHAR(50);
+DECLARE @StaffEmail NVARCHAR(255);
+
+DECLARE cinema_cursor CURSOR LOCAL FAST_FORWARD FOR
+    SELECT [cinemaId], [cinemaName]
+    FROM dbo.[CINEMA]
+    ORDER BY [cinemaId];
+
+OPEN cinema_cursor;
+FETCH NEXT FROM cinema_cursor INTO @CinemaId, @CinemaName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @Suffix = RIGHT(N'000' + CONVERT(NVARCHAR(10), @CinemaIndex), 3);
+
+    SET @ManagerUserId = N'U_DEV_MANAGER_' + @Suffix;
+    SET @ManagerProfileId = N'STF_DEV_MANAGER_' + @Suffix;
+    SET @ManagerEmail = N'manager' + @Suffix + N'@cinema.local';
+
+    SET @StaffUserId = N'U_DEV_STAFF_' + @Suffix;
+    SET @StaffProfileId = N'STF_DEV_STAFF_' + @Suffix;
+    SET @StaffEmail = N'staff' + @Suffix + N'@cinema.local';
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.[USER]
+        WHERE [userId] = @ManagerUserId OR [email] = @ManagerEmail
+    )
+    BEGIN
+        INSERT INTO dbo.[USER]
+            ([userId], [roleId], [email], [passwordHash], [fullName],
+             [phoneNumber], [status], [emailVerified], [createdAt])
+        VALUES
+            (@ManagerUserId, N'ROLE_MANAGER', @ManagerEmail, @PasswordHash,
+             N'Dev Manager ' + @Suffix, NULL, N'ACTIVE', 1, SYSUTCDATETIME());
+    END
+    ELSE
+    BEGIN
+        UPDATE dbo.[USER]
+        SET
+            [roleId] = N'ROLE_MANAGER',
+            [passwordHash] = @PasswordHash,
+            [fullName] = N'Dev Manager ' + @Suffix,
+            [status] = N'ACTIVE',
+            [emailVerified] = 1,
+            [updatedAt] = SYSUTCDATETIME()
+        WHERE [userId] = @ManagerUserId OR [email] = @ManagerEmail;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.[STAFF_PROFILE]
+        WHERE [staffProfileId] = @ManagerProfileId OR [userId] = @ManagerUserId
+    )
+    BEGIN
+        INSERT INTO dbo.[STAFF_PROFILE]
+            ([staffProfileId], [userId], [cinemaId], [position],
+             [hireDate], [employmentStatus])
+        VALUES
+            (@ManagerProfileId, @ManagerUserId, @CinemaId, N'Manager',
+             CAST(SYSUTCDATETIME() AS DATE), N'ACTIVE');
+    END
+    ELSE
+    BEGIN
+        UPDATE dbo.[STAFF_PROFILE]
+        SET
+            [cinemaId] = @CinemaId,
+            [position] = N'Manager',
+            [employmentStatus] = N'ACTIVE'
+        WHERE [staffProfileId] = @ManagerProfileId OR [userId] = @ManagerUserId;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.[USER]
+        WHERE [userId] = @StaffUserId OR [email] = @StaffEmail
+    )
+    BEGIN
+        INSERT INTO dbo.[USER]
+            ([userId], [roleId], [email], [passwordHash], [fullName],
+             [phoneNumber], [status], [emailVerified], [createdAt])
+        VALUES
+            (@StaffUserId, N'ROLE_STAFF', @StaffEmail, @PasswordHash,
+             N'Dev Staff ' + @Suffix, NULL, N'ACTIVE', 1, SYSUTCDATETIME());
+    END
+    ELSE
+    BEGIN
+        UPDATE dbo.[USER]
+        SET
+            [roleId] = N'ROLE_STAFF',
+            [passwordHash] = @PasswordHash,
+            [fullName] = N'Dev Staff ' + @Suffix,
+            [status] = N'ACTIVE',
+            [emailVerified] = 1,
+            [updatedAt] = SYSUTCDATETIME()
+        WHERE [userId] = @StaffUserId OR [email] = @StaffEmail;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM dbo.[STAFF_PROFILE]
+        WHERE [staffProfileId] = @StaffProfileId OR [userId] = @StaffUserId
+    )
+    BEGIN
+        INSERT INTO dbo.[STAFF_PROFILE]
+            ([staffProfileId], [userId], [cinemaId], [position],
+             [hireDate], [employmentStatus])
+        VALUES
+            (@StaffProfileId, @StaffUserId, @CinemaId, N'Staff',
+             CAST(SYSUTCDATETIME() AS DATE), N'ACTIVE');
+    END
+    ELSE
+    BEGIN
+        UPDATE dbo.[STAFF_PROFILE]
+        SET
+            [cinemaId] = @CinemaId,
+            [position] = N'Staff',
+            [employmentStatus] = N'ACTIVE'
+        WHERE [staffProfileId] = @StaffProfileId OR [userId] = @StaffUserId;
+    END;
+
+    SET @CinemaIndex += 1;
+    FETCH NEXT FROM cinema_cursor INTO @CinemaId, @CinemaName;
+END;
+
+CLOSE cinema_cursor;
+DEALLOCATE cinema_cursor;
+
+SELECT
+    u.[email],
+    N'Password1' AS [password],
+    r.[roleName],
+    sp.[cinemaId],
+    c.[cinemaName],
+    sp.[position],
+    u.[status],
+    u.[emailVerified]
+FROM dbo.[USER] AS u
+INNER JOIN dbo.[ROLE] AS r
+    ON r.[roleId] = u.[roleId]
+LEFT JOIN dbo.[STAFF_PROFILE] AS sp
+    ON sp.[userId] = u.[userId]
+LEFT JOIN dbo.[CINEMA] AS c
+    ON c.[cinemaId] = sp.[cinemaId]
+WHERE u.[email] = N'admin@cinema.local'
+   OR u.[email] LIKE N'manager[0-9][0-9][0-9]@cinema.local'
+   OR u.[email] LIKE N'staff[0-9][0-9][0-9]@cinema.local'
+ORDER BY
+    CASE r.[roleName]
+        WHEN N'ADMIN' THEN 0
+        WHEN N'MANAGER' THEN 1
+        WHEN N'STAFF' THEN 2
+        ELSE 9
+    END,
+    sp.[cinemaId],
+    u.[email];
