@@ -13,6 +13,12 @@ public interface IBookingService
         string userId,
         CancellationToken cancellationToken);
 
+    Task<ServiceResult<BookingDetailsResponse>> CreateCounterBookingAsync(
+        CreateCounterBookingRequest request,
+        string staffProfileId,
+        string currentStaffCinemaId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<BookingDetailsResponse>> GetBookingDetailsAsync(
         string bookingId,
         string userId,

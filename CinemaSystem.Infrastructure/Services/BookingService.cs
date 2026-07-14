@@ -259,6 +259,17 @@ public sealed class BookingService : IBookingService
                 UsageStatus = totalAmount == 0 ? DomainConstants.VoucherUsageStatus.Confirmed : DomainConstants.VoucherUsageStatus.Applied,
                 UsedAt = totalAmount == 0 ? now : null
             };
+
+            // Mark the customer's claimed voucher as used if it exists in their wallet
+            var claimedVoucher = await _dbContext.CustomerVouchers
+                .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId 
+                    && cv.CustomerProfileId == customerProfile.CustomerProfileId 
+                    && !cv.IsUsed, cancellationToken);
+            if (claimedVoucher != null)
+            {
+                claimedVoucher.IsUsed = true;
+                claimedVoucher.UsedAt = now;
+            }
         }
 
         var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
@@ -817,6 +828,364 @@ public sealed class BookingService : IBookingService
         {
             await transaction.RollbackAsync(cancellationToken);
             return ServiceResult<bool>.Fail(500, $"Internal server error while reassigning seat: {ex.Message}", "INTERNAL_ERROR");
+        }
+    }
+
+    public async Task<ServiceResult<BookingDetailsResponse>> CreateCounterBookingAsync(
+        CreateCounterBookingRequest request,
+        string staffProfileId,
+        string currentStaffCinemaId,
+        CancellationToken cancellationToken)
+    {
+        var showtime = await _dbContext.Showtimes
+            .Include(s => s.Movie)
+            .Include(s => s.Room)
+                .ThenInclude(r => r.Cinema)
+            .FirstOrDefaultAsync(s => s.ShowtimeId == request.ShowtimeId, cancellationToken);
+
+        if (showtime == null)
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(404, "Showtime not found.", "SHOWTIME_NOT_FOUND");
+        }
+
+        // Validate cinema scoping: counter booking must belong to the staff's cinema
+        if (!string.IsNullOrEmpty(currentStaffCinemaId) && !string.Equals(showtime.Room.CinemaId, currentStaffCinemaId, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(403, "Staff is not authorized to sell tickets for other cinemas.", "FORBIDDEN_CINEMA_BRANCH");
+        }
+
+        if (!string.Equals(showtime.Status, DomainConstants.ShowtimeStatus.Open, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(400, "This showtime is no longer accepting bookings.", "SHOWTIME_UNAVAILABLE");
+        }
+
+        if (request.ShowtimeSeatIds.Count > _bookingSettings.MaxSeatsPerCheckout)
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(
+                400,
+                $"A booking can contain at most {_bookingSettings.MaxSeatsPerCheckout} seats.",
+                "MAX_SEATS_EXCEEDED");
+        }
+
+        await ReleaseStaleBookingSeatsForShowtimeAsync(
+            request.ShowtimeId,
+            request.ShowtimeSeatIds,
+            _clock.UtcNow,
+            cancellationToken);
+
+        var showtimeSeats = await _dbContext.ShowtimeSeats
+            .Include(ss => ss.BookingSeat)
+                .ThenInclude(bs => bs!.Booking)
+            .Include(ss => ss.Seat)
+                .ThenInclude(s => s.SeatType)
+            .Where(ss => request.ShowtimeSeatIds.Contains(ss.ShowtimeSeatId) && ss.ShowtimeId == request.ShowtimeId)
+            .ToListAsync(cancellationToken);
+
+        if (showtimeSeats.Count != request.ShowtimeSeatIds.Count)
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(400, "One or more selected seats are invalid.", "INVALID_SEATS");
+        }
+
+        var now = _clock.UtcNow;
+
+        foreach (var ss in showtimeSeats)
+        {
+            if (IsSoldBookingSeat(ss.BookingSeat) || ss.SeatStatus == DomainConstants.EntityStatus.Booked)
+            {
+                return ServiceResult<BookingDetailsResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is already booked.", "SEAT_ALREADY_BOOKED");
+            }
+
+            if (IsActivePendingBookingSeat(ss.BookingSeat, now))
+            {
+                return ServiceResult<BookingDetailsResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is waiting for payment.", "SEAT_PENDING_PAYMENT");
+            }
+        }
+
+        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Calculate total amount from seats
+            decimal totalAmount = 0;
+            var bookingSeats = new List<BookingSeat>();
+            foreach (var ss in showtimeSeats)
+            {
+                var seatPrice = showtime.BasePrice + ss.Seat.SeatType.ExtraFee;
+                totalAmount += seatPrice;
+                bookingSeats.Add(new BookingSeat
+                {
+                    BookingSeatId = NewId(DomainConstants.EntityIdPrefix.BookingSeat),
+                    ShowtimeSeatId = ss.ShowtimeSeatId,
+                    SeatPrice = seatPrice
+                });
+            }
+
+            // Calculate F&B items
+            var bookingFbItems = new List<BookingFbItem>();
+            if (request.FoodAndBeverages != null && request.FoodAndBeverages.Any())
+            {
+                var fbItemIds = request.FoodAndBeverages.Select(f => f.FbItemId).ToList();
+                var fbItems = await _dbContext.FbItems
+                    .Where(f => fbItemIds.Contains(f.FbItemId))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var itemRequest in request.FoodAndBeverages)
+                {
+                    var fbItem = fbItems.FirstOrDefault(f => f.FbItemId == itemRequest.FbItemId);
+                    if (fbItem == null || fbItem.ItemStatus == FbConstants.ItemStatus.Inactive)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return ServiceResult<BookingDetailsResponse>.Fail(404, $"F&B item '{itemRequest.FbItemId}' is unavailable.", "ITEM_UNAVAILABLE");
+                    }
+
+                    // Deduct stock via Raw SQL (atomic inventory decrease)
+                    int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
+                        "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
+                        new object[] { itemRequest.Quantity, showtime.Room.CinemaId, itemRequest.FbItemId, itemRequest.Quantity },
+                        cancellationToken);
+
+                    if (rowsAffected == 0)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return ServiceResult<BookingDetailsResponse>.Fail(409, $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.", "INSUFFICIENT_STOCK");
+                    }
+
+                    var subtotal = fbItem.Price * itemRequest.Quantity;
+                    totalAmount += subtotal;
+                    bookingFbItems.Add(new BookingFbItem
+                    {
+                        BookingFbitemId = NewId(DomainConstants.EntityIdPrefix.BookingFoodItem),
+                        FbItemId = fbItem.FbItemId,
+                        Quantity = itemRequest.Quantity,
+                        UnitPrice = fbItem.Price,
+                        Subtotal = subtotal
+                    });
+                }
+            }
+
+            decimal bookingSubtotal = totalAmount;
+            decimal discountAmount = 0;
+            VoucherUsage? voucherUsage = null;
+            Voucher? voucher = null;
+
+            if (!string.IsNullOrWhiteSpace(request.VoucherCode))
+            {
+                var normalizedCode = request.VoucherCode.Trim().ToUpperInvariant();
+                voucher = await _dbContext.Vouchers
+                    .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
+
+                if (voucher == null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher code not found.", BookingConstants.ErrorCodes.VoucherNotFound);
+                }
+
+                if (!string.Equals(voucher.VoucherStatus, DomainConstants.VoucherStatus.Active, StringComparison.OrdinalIgnoreCase))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher is not active.", BookingConstants.ErrorCodes.VoucherExpired);
+                }
+
+                if (now < voucher.StartDate || now > voucher.EndDate)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher has expired.", BookingConstants.ErrorCodes.VoucherExpired);
+                }
+
+                if (voucher.MinOrderAmount.HasValue && bookingSubtotal < voucher.MinOrderAmount.Value)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(400, $"Minimum order amount of {voucher.MinOrderAmount.Value} VND is not met.", BookingConstants.ErrorCodes.VoucherMinOrderNotMet);
+                }
+
+                var activeUsagesCount = await _dbContext.VoucherUsages
+                    .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                        && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
+
+                if (activeUsagesCount >= voucher.UsageLimit)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
+                }
+
+                if (!string.IsNullOrEmpty(request.CustomerProfileId))
+                {
+                    var customerUsagesCount = await _dbContext.VoucherUsages
+                        .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                            && vu.CustomerProfileId == request.CustomerProfileId 
+                            && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
+
+                    if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return ServiceResult<BookingDetailsResponse>.Fail(400, "Customer limit reached for this voucher.", BookingConstants.ErrorCodes.VoucherCustomerLimitReached);
+                    }
+                }
+
+                if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Amount, StringComparison.OrdinalIgnoreCase))
+                {
+                    discountAmount = voucher.DiscountValue;
+                }
+                else if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
+                {
+                    discountAmount = bookingSubtotal * (voucher.DiscountValue / 100m);
+                    if (voucher.MaxDiscountAmount.HasValue && discountAmount > voucher.MaxDiscountAmount.Value)
+                    {
+                        discountAmount = voucher.MaxDiscountAmount.Value;
+                    }
+                }
+
+                discountAmount = Math.Min(discountAmount, bookingSubtotal);
+                totalAmount = bookingSubtotal - discountAmount;
+
+                if (totalAmount < 1000m)
+                {
+                    totalAmount = 0;
+                }
+
+                voucherUsage = new VoucherUsage
+                {
+                    VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
+                    VoucherId = voucher.VoucherId,
+                    CustomerProfileId = !string.IsNullOrEmpty(request.CustomerProfileId) ? request.CustomerProfileId : null,
+                    BookingId = string.Empty, // Set below
+                    DiscountAmount = discountAmount,
+                    UsageStatus = DomainConstants.VoucherUsageStatus.Confirmed,
+                    UsedAt = now
+                };
+
+                // Mark claimed customer voucher as used if applicable
+                if (!string.IsNullOrEmpty(request.CustomerProfileId))
+                {
+                    var claimedVoucher = await _dbContext.CustomerVouchers
+                        .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId 
+                            && cv.CustomerProfileId == request.CustomerProfileId 
+                            && !cv.IsUsed, cancellationToken);
+                    if (claimedVoucher != null)
+                    {
+                        claimedVoucher.IsUsed = true;
+                        claimedVoucher.UsedAt = now;
+                    }
+                }
+            }
+
+            var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
+            if (voucherUsage != null)
+            {
+                voucherUsage.BookingId = bookingId;
+            }
+
+            var booking = new Booking
+            {
+                BookingId = bookingId,
+                CustomerProfileId = !string.IsNullOrEmpty(request.CustomerProfileId) ? request.CustomerProfileId : null,
+                ShowtimeId = showtime.ShowtimeId,
+                BookingStatus = DomainConstants.EntityStatus.Paid, // Paid immediately at counter
+                TotalAmount = totalAmount,
+                CreatedAt = now,
+                ExpiredAt = null, // POS tickets never expire
+                BookingChannel = DomainConstants.BookingChannel.Counter,
+                CreatedByStaffProfileId = staffProfileId,
+                GuestName = request.GuestName,
+                GuestPhone = request.GuestPhone,
+                GuestEmail = request.GuestEmail,
+                BookingSeats = bookingSeats,
+                BookingFbItems = bookingFbItems,
+                FbFulfillmentStatus = bookingFbItems.Any() ? FbConstants.FulfillmentStatus.Fulfilled : null,
+                FbFulfilledAt = bookingFbItems.Any() ? now : null
+            };
+
+            // Book seats and generate tickets immediately
+            foreach (var ss in showtimeSeats)
+            {
+                ss.SeatStatus = DomainConstants.EntityStatus.Booked;
+                ss.LockedUntil = null;
+                ss.LockedByUserId = null;
+            }
+
+            foreach (var bs in bookingSeats)
+            {
+                bs.Ticket = new Ticket
+                {
+                    TicketId = NewId(DomainConstants.EntityIdPrefix.Ticket),
+                    BookingSeatId = bs.BookingSeatId,
+                    QrCode = GenerateTicketQrCode(bookingId, bs.BookingSeatId),
+                    TicketStatus = DomainConstants.TicketStatus.Unused,
+                    GeneratedAt = now
+                };
+                _dbContext.Tickets.Add(bs.Ticket);
+            }
+
+            if (voucherUsage != null && voucher != null)
+            {
+                voucher.UsedCount += 1;
+                _dbContext.VoucherUsages.Add(voucherUsage);
+            }
+
+            _dbContext.Bookings.Add(booking);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            // Generate detailed response body
+            var seatResponses = new List<BookedSeatDetailsResponse>();
+            foreach (var bs in bookingSeats)
+            {
+                var ss = showtimeSeats.First(s => s.ShowtimeSeatId == bs.ShowtimeSeatId);
+                seatResponses.Add(new BookedSeatDetailsResponse
+                {
+                    SeatId = ss.SeatId,
+                    SeatNumber = ss.Seat.SeatCode,
+                    RowLabel = ss.Seat.RowLabel,
+                    SeatType = ss.Seat.SeatType.TypeName,
+                    Price = bs.SeatPrice,
+                    TicketId = bs.Ticket?.TicketId,
+                    TicketQrCode = bs.Ticket?.QrCode,
+                    TicketStatus = bs.Ticket?.TicketStatus
+                });
+            }
+
+            var fbResponses = new List<BookedFbItemResponse>();
+            if (bookingFbItems.Any())
+            {
+                var fbItemIds = bookingFbItems.Select(f => f.FbItemId).ToList();
+                var fbItems = await _dbContext.FbItems
+                    .Where(f => fbItemIds.Contains(f.FbItemId))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var bfi in bookingFbItems)
+                {
+                    var item = fbItems.FirstOrDefault(f => f.FbItemId == bfi.FbItemId);
+                    fbResponses.Add(new BookedFbItemResponse
+                    {
+                        ItemName = item?.ItemName ?? "Unknown Item",
+                        Quantity = bfi.Quantity,
+                        Subtotal = bfi.Subtotal
+                    });
+                }
+            }
+
+            var response = new BookingDetailsResponse
+            {
+                BookingId = booking.BookingId,
+                ShowtimeId = booking.ShowtimeId,
+                MovieTitle = showtime.Movie.Title,
+                CinemaName = showtime.Room.Cinema.CinemaName,
+                RoomName = showtime.Room.RoomName,
+                StartTime = showtime.StartTime,
+                TotalAmount = booking.TotalAmount,
+                DiscountAmount = discountAmount,
+                VoucherCode = request.VoucherCode,
+                Status = booking.BookingStatus,
+                CreatedAt = booking.CreatedAt,
+                Seats = seatResponses,
+                FoodAndBeverages = fbResponses
+            };
+
+            return ServiceResult<BookingDetailsResponse>.Ok(response, "Counter ticket booking completed successfully.", 201);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ServiceResult<BookingDetailsResponse>.Fail(500, $"Internal server error while creating counter booking: {ex.Message}", "INTERNAL_ERROR");
         }
     }
 }

@@ -46,6 +46,34 @@ public sealed class VouchersController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpPost("{voucherId}/claim")]
+    public async Task<IActionResult> ClaimVoucher(
+        string voucherId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _voucherService.ClaimVoucherForCustomerAsync(voucherId, userId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpGet("my-wallet")]
+    public async Task<IActionResult> GetMyWallet(CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _voucherService.GetMyVouchersAsync(userId, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private string? GetUserId()
     {
         return User.FindFirst(AuthConstants.Claims.UserId)?.Value

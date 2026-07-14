@@ -314,6 +314,86 @@ public sealed class VoucherService : IVoucherService
 
     private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
 
+    public async Task<ServiceResult<bool>> ClaimVoucherForCustomerAsync(
+        string voucherId,
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var customerProfile = await _dbContext.CustomerProfiles
+            .FirstOrDefaultAsync(cp => cp.UserId == userId, cancellationToken);
+
+        if (customerProfile == null)
+        {
+            return ServiceResult<bool>.Fail(403, "Only customers can claim vouchers.", "CUSTOMER_PROFILE_NOT_FOUND");
+        }
+
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(v => v.VoucherId == voucherId, cancellationToken);
+
+        if (voucher == null)
+        {
+            return ServiceResult<bool>.Fail(404, "Voucher not found.", "VOUCHER_NOT_FOUND");
+        }
+
+        var now = _clock.UtcNow;
+
+        if (!string.Equals(voucher.VoucherStatus, DomainConstants.VoucherStatus.Active, StringComparison.OrdinalIgnoreCase)
+            || now < voucher.StartDate || now > voucher.EndDate)
+        {
+            return ServiceResult<bool>.Fail(400, "Voucher is not active or has expired.", "VOUCHER_UNAVAILABLE");
+        }
+
+        if (voucher.UsedCount >= voucher.UsageLimit)
+        {
+            return ServiceResult<bool>.Fail(400, "Voucher global usage limit has been reached.", "VOUCHER_USAGE_LIMIT_REACHED");
+        }
+
+        var claimCount = await _dbContext.CustomerVouchers
+            .CountAsync(cv => cv.VoucherId == voucherId && cv.CustomerProfileId == customerProfile.CustomerProfileId, cancellationToken);
+
+        if (voucher.PerCustomerLimit.HasValue && claimCount >= voucher.PerCustomerLimit.Value)
+        {
+            return ServiceResult<bool>.Fail(400, "You have reached your claim limit for this voucher.", "VOUCHER_CUSTOMER_LIMIT_REACHED");
+        }
+
+        var customerVoucher = new CustomerVoucher
+        {
+            CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+            CustomerProfileId = customerProfile.CustomerProfileId,
+            VoucherId = voucher.VoucherId,
+            ClaimedAt = now,
+            IsUsed = false,
+            UsedAt = null
+        };
+
+        _dbContext.CustomerVouchers.Add(customerVoucher);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(true, "Voucher claimed successfully.");
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetMyVouchersAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var customerProfile = await _dbContext.CustomerProfiles
+            .FirstOrDefaultAsync(cp => cp.UserId == userId, cancellationToken);
+
+        if (customerProfile == null)
+        {
+            return ServiceResult<IReadOnlyList<VoucherResponse>>.Fail(403, "Only customers have voucher wallets.", "CUSTOMER_PROFILE_NOT_FOUND");
+        }
+
+        var claimedVouchers = await _dbContext.CustomerVouchers
+            .Include(cv => cv.Voucher)
+            .Where(cv => cv.CustomerProfileId == customerProfile.CustomerProfileId && !cv.IsUsed)
+            .Select(cv => cv.Voucher)
+            .ToListAsync(cancellationToken);
+
+        var responseList = claimedVouchers.Select(MapToResponse).ToList();
+        return ServiceResult<IReadOnlyList<VoucherResponse>>.Ok(responseList, "Claimed vouchers retrieved successfully.");
+    }
+
     private static VoucherResponse MapToResponse(Voucher voucher)
     {
         return new VoucherResponse

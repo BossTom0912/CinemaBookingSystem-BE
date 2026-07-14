@@ -38,4 +38,13 @@ public interface IVoucherService
 
     Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetActiveVouchersForCustomerAsync(
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> ClaimVoucherForCustomerAsync(
+        string voucherId,
+        string userId,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetMyVouchersAsync(
+        string userId,
+        CancellationToken cancellationToken);
 }
