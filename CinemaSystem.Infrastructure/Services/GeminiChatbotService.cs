@@ -8,11 +8,13 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Contracts.Common;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
+using System.Linq;
 
 namespace CinemaSystem.Infrastructure.Services;
 
 /// <summary>
-/// Orchestrator chatbot: gom dữ liệu phim/suất chiếu và gọi Gemini sinh câu trả lời.
+/// Orchestrator chatbot: gom dữ liệu phim, suất chiếu, rạp chiếu, voucher và gọi Gemini sinh câu trả lời.
 /// </summary>
 /// <remarks>
 /// Nhận request từ <c>CinemaSystem/Controllers/ChatbotController.cs</c>; gọi
@@ -31,13 +33,16 @@ public class GeminiChatbotService : IChatbotService
     private readonly GeminiSettings _settings;
     // Khai báo DbContext để tương tác với cơ sở dữ liệu
     private readonly CinemaSystem.Infrastructure.Persistence.CinemaDbContext _dbContext;
+    // Khai báo IClock để lấy thời gian
+    private readonly IClock _clock;
 
     // Khởi tạo GeminiChatbotService thông qua Dependency Injection
     public GeminiChatbotService(
         IMovieService movieService,
         IShowtimeService showtimeService,
         IOptions<GeminiSettings> settings,
-        CinemaSystem.Infrastructure.Persistence.CinemaDbContext dbContext)
+        CinemaSystem.Infrastructure.Persistence.CinemaDbContext dbContext,
+        IClock clock)
     {
         // Gán service xử lý phim
         _movieService = movieService;
@@ -47,6 +52,8 @@ public class GeminiChatbotService : IChatbotService
         _settings = settings.Value;
         // Gán DbContext
         _dbContext = dbContext;
+        // Gán Clock
+        _clock = clock;
     }
 
     // Hàm gọi AI xử lý tin nhắn của người dùng và trả về phản hồi
@@ -59,7 +66,23 @@ public class GeminiChatbotService : IChatbotService
             return ServiceResult<ChatbotResponse>.Fail(500, "Gemini API key is not configured.", "MISSING_API_KEY");
         }
 
-        // Truy vấn danh sách các bộ phim từ cơ sở dữ liệu (tối đa 100 phim)
+        // Truy vấn danh sách cụm rạp chiếu phim đang hoạt động
+        var cinemas = await _dbContext.Cinemas
+            .AsNoTracking()
+            .Where(c => c.CinemaStatus == DomainConstants.CinemaStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        // Truy vấn danh sách voucher đang hoạt động và còn thời hạn sử dụng
+        var now = _clock.UtcNow;
+        var vouchers = await _dbContext.Vouchers
+            .AsNoTracking()
+            .Where(v => v.VoucherStatus == DomainConstants.VoucherStatus.Active
+                && v.StartDate <= now
+                && v.EndDate >= now
+                && v.UsedCount < v.UsageLimit)
+            .ToListAsync(cancellationToken);
+
+        // Truy vấn danh sách các bộ phim từ cơ sở dữ liệu (tối đa theo cấu hình)
         var moviesResult = await _movieService.GetMoviesAsync(
             null,
             PaginationDefaults.FirstPageIndex,
@@ -67,44 +90,105 @@ public class GeminiChatbotService : IChatbotService
             null,
             false,
             cancellationToken);
+
         // Truy vấn danh sách lịch chiếu hiện tại từ cơ sở dữ liệu
         var showtimesResult = await _showtimeService.GetShowtimesAsync(cancellationToken);
 
         // Khởi tạo chuỗi động (StringBuilder) để xây dựng bối cảnh (context) cho AI
-        var contextBuilder = new StringBuilder("Movie Theater Context:\n");
-        // Kiểm tra xem việc lấy dữ liệu phim có thành công và có dữ liệu hay không
+        var contextBuilder = new StringBuilder("Movie Theater System Context:\n");
+
+        // 1. Thông tin rạp chiếu (Địa chỉ và Hotline)
+        contextBuilder.AppendLine("\nAvailable Cinemas (Locations, Addresses & Contact Hotlines):");
+        if (cinemas != null && cinemas.Any())
+        {
+            foreach (var c in cinemas)
+            {
+                contextBuilder.AppendLine($"- {c.CinemaName}: Address: {c.Address}, City: {c.City}, Phone: {c.PhoneNumber ?? "N/A"}");
+            }
+        }
+        else
+        {
+            contextBuilder.AppendLine("- No active cinemas available at the moment.");
+        }
+
+        // 2. Thông tin Voucher hiện có
+        contextBuilder.AppendLine("\nAvailable Active Vouchers & Promotions:");
+        if (vouchers != null && vouchers.Any())
+        {
+            foreach (var v in vouchers)
+            {
+                var discountStr = v.DiscountType == DomainConstants.DiscountType.Percent ? $"{v.DiscountValue}%" : $"{v.DiscountValue:N0} VND";
+                var minOrderStr = v.MinOrderAmount.HasValue ? $"{v.MinOrderAmount.Value:N0} VND" : "No minimum";
+                contextBuilder.AppendLine($"- Code: {v.VoucherCode} | Title: {v.Title} | Discount: {discountStr} | Description: {v.Description} | Min Order: {minOrderStr} | Expiry Date: {v.EndDate:yyyy-MM-dd HH:mm}");
+            }
+        }
+        else
+        {
+            contextBuilder.AppendLine("- No active global vouchers found right now. However, customers can check their personal Wallet or register a new account to receive a welcome voucher.");
+        }
+
+        // 3. Thông tin phim đang chiếu
+        contextBuilder.AppendLine("\nAvailable Movies:");
         if (moviesResult.Success && moviesResult.Data != null && moviesResult.Data.Items != null)
         {
-            // Bổ sung tiêu đề thông báo danh sách phim hiện có vào ngữ cảnh
-            contextBuilder.AppendLine("Available Movies:");
-            // Duyệt qua từng bộ phim trong kết quả trả về
             foreach (var m in moviesResult.Data.Items)
             {
-                // Xử lý nối danh sách các thể loại phim thành một chuỗi
                 var genresStr = m.Genres != null ? string.Join(", ", m.Genres) : "";
-                // Thêm chi tiết về tên phim, thể loại, thời lượng, đánh giá và thông tin nổi bật vào ngữ cảnh
                 contextBuilder.AppendLine($"- {m.MovieNameVn} (Genre: {genresStr}, Duration: {m.Duration}m, Avg Rating: {m.AvgRating}, Highlight: {m.Highlight})");
             }
         }
+        else
+        {
+            contextBuilder.AppendLine("- No movies are currently available.");
+        }
         
-        // Kiểm tra xem việc lấy lịch chiếu có thành công và có dữ liệu hay không
+        // 4. Thông tin lịch chiếu
+        contextBuilder.AppendLine("\nAvailable Showtimes:");
         if (showtimesResult.Success && showtimesResult.Data != null)
         {
-            // Bổ sung tiêu đề thông báo danh sách lịch chiếu vào ngữ cảnh
-            contextBuilder.AppendLine("Available Showtimes:");
-            // Duyệt qua từng lịch chiếu có sẵn
             foreach (var s in showtimesResult.Data)
             {
-                // Bổ sung chi tiết một lịch chiếu: Phim, Thời gian, Rạp, Phòng chiếu, Giá và trạng thái vào ngữ cảnh
-                contextBuilder.AppendLine($"- Movie: {s.MovieTitle}, Time: {s.StartTime:yyyy-MM-dd HH:mm} to {s.EndTime:HH:mm}, Cinema: {s.CinemaName}, Room: {s.RoomName}, Price: {s.BasePrice}, Status: {s.Status}");
+                contextBuilder.AppendLine($"- Movie: {s.MovieTitle}, Time: {s.StartTime:yyyy-MM-dd HH:mm} to {s.EndTime:HH:mm}, Cinema: {s.CinemaName}, Room: {s.RoomName}, Price: {s.BasePrice:N0} VND, Status: {s.Status}");
             }
+        }
+        else
+        {
+            contextBuilder.AppendLine("- No showtimes are scheduled at this time.");
         }
 
         // Định nghĩa câu lệnh hệ thống (System Prompt) hướng dẫn AI xử lý tin nhắn
-        string systemPrompt = $@"You are a helpful customer support AI for our movie theater system.
-        Use the following context to answer the user's questions about movies and showtimes.
-        If you don't know the answer or the information is not in the context, politely say you don't have that information.
-        Keep your answers concise, friendly, and formatted nicely.
+        string systemPrompt = $@"You are 'CinemaBot', a helpful, friendly, and professional customer support AI for our movie theater system (CinemaSystem).
+        Your mission is to guide users on booking tickets, active vouchers, how to get vouchers, showtimes, and cinema locations (addresses & hotlines).
+        Use the following database context to answer the user's questions. 
+        If the user asks for information that is not in the context, politely say you don't have that information.
+
+        GUIDELINES FOR YOUR ANSWERS:
+        1. Guiding Ticket Booking (Hướng dẫn đặt vé):
+           Explain the 6-step online booking process clearly and step-by-step:
+           - Bước 1: Đăng nhập/Đăng ký tài khoản thành viên trên website hoặc ứng dụng di động CinemaSystem để tích lũy điểm thưởng và sử dụng voucher.
+           - Bước 2: Chọn phim, rạp chiếu gần bạn nhất và suất chiếu (khung giờ) phù hợp.
+           - Bước 3: Lựa chọn vị trí ghế ngồi (Ghế Thường, Ghế VIP hoặc Ghế đôi Sweetbox) trên sơ đồ phòng chiếu. (Lưu ý: Ghế được giữ tạm thời trong 5-10 phút).
+           - Bước 4: Chọn thêm dịch vụ bắp nước (F&B) đi kèm nếu mong muốn.
+           - Bước 5: Tại màn hình thanh toán, nhập mã voucher khả dụng (ví dụ: các mã voucher trong danh sách bên dưới) để được giảm giá đơn hàng.
+           - Bước 6: Thanh toán trực tuyến quét mã QR qua cổng thanh toán SePay. Sau khi giao dịch thành công, mã QR vé điện tử sẽ gửi về email của bạn hoặc hiển thị trong phần lịch sử giao dịch. Bạn chỉ cần đưa mã QR này cho nhân viên soát vé để vào phòng chiếu mà không cần đổi vé giấy.
+
+        2. Vouchers & Promotions (Nội dung voucher hiện có):
+           List the active vouchers from the context dynamically. Emphasize their code, description, discount value, and minimum order requirements. If no vouchers are in the context, let them know they can register a new account to get a welcome voucher or check their personal Wallet.
+
+        3. How to Get Vouchers (Cách nhận voucher):
+           Guide the user with the following options:
+           - Đăng ký tài khoản thành viên mới: Nhận ngay voucher chào mừng thành viên mới gửi trực tiếp vào ví voucher của họ.
+           - Tích điểm thành viên (Reward Points): Mua vé thành công tích lũy điểm để đổi voucher ưu đãi tiếp theo.
+           - Theo dõi các chương trình/minigame trên trang Fanpage chính thức của rạp để nhận giftcode khuyến mãi đặc biệt.
+
+        4. Showtimes & Addresses:
+           Always format showtimes and addresses beautifully in bullet points or markdown tables. Use the exact addresses and hotlines provided in the context.
+
+        5. Language, Tone & Formatting Rules (Quy tắc Ngôn ngữ, Giọng điệu & Định dạng):
+           - NEVER use markdown bold syntax (such as double asterisks '**') or stars in your responses. Keep the text clean, flat, and professional.
+           - Keep answers extremely concise, clean, and to the point. Avoid fluff or wordy explanations.
+           - Use simple lists with plain bullet points (like '-' or '•') or numbered lists for clean structure.
+           - Always respond in Vietnamese (matching the user's query). Use a warm, polite, and customer-oriented tone. Use polite Vietnamese pronouns: 'Dạ', 'Em' (as CinemaBot), 'Anh/Chị' or 'Bạn' (for customers).
 
         Context:
         {contextBuilder.ToString()}";
@@ -150,7 +234,7 @@ public class GeminiChatbotService : IChatbotService
         // Bắt đầu xử lý giải nén chuỗi JSON phản hồi
         try
         {
-            // Chuyển đổi phản hồi của AI (Json) thành đối tượng JsonElement
+            // Chuyển đổi phản hồi của AI (Json) thành đối tượng Json Element
             var jsonDoc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
             // Trích xuất nội dung văn bản AI sinh ra thông qua cấu trúc JSON
             replyText = jsonDoc.GetProperty("candidates")[0]

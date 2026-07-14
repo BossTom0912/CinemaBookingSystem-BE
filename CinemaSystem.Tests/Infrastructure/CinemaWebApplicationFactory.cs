@@ -79,6 +79,7 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IEmailService>();
             services.AddSingleton<IEmailSender>(EmailCapture);
             services.AddSingleton<IEmailService>(EmailCapture);
+            services.AddSingleton<IAiEmailService, FakeAiEmailService>();
             services.RemoveAll<Hangfire.IBackgroundJobClient>();
             services.AddSingleton<Hangfire.IBackgroundJobClient>(
                 new InlineEmailBackgroundJobClient(EmailCapture));
@@ -367,5 +368,39 @@ public static class TestAuthTokens
     private sealed class WallClock : IClock
     {
         public DateTime UtcNow => DateTime.UtcNow;
+    }
+}
+
+public sealed class FakeAiEmailService : IAiEmailService
+{
+    private readonly IEmailService _emailService;
+
+    public FakeAiEmailService(IEmailService emailService)
+    {
+        _emailService = emailService;
+    }
+
+    public Task SendAiApologyEmailAsync(
+        string toEmail, 
+        string subject, 
+        string reason, 
+        string details, 
+        CancellationToken cancellationToken)
+    {
+        var body = $"Apology Email. Reason: {reason}. Details: {details}.";
+        return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
+    }
+
+    public Task SendAiTimeChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string newTime,
+        string bookingId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var body = $"Movie {movieTitle}. Start time changed to {newTime}. Booking {bookingId}. Token {token}. Please wait for the cinema to handle it.";
+        return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 }

@@ -14,5 +14,5 @@ public sealed class SeatResponse
 
     public string SeatTypeId { get; init; } = null!;
 
-    public bool IsActive { get; init; }
+    public string SeatStatus { get; init; } = null!;
 }

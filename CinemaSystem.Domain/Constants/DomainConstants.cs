@@ -180,6 +180,8 @@ public static class DomainConstants
         public const string Movie = "MOV";
         public const string Review = "REV";
         public const string ChatHistory = "CHT";
+        public const string Voucher = "VOU";
+        public const string VoucherUsage = "VUS";
     }
 
     public static class VerificationTokenPurpose

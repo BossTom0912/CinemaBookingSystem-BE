@@ -12,6 +12,8 @@ public sealed class BookingDetailsResponse
     public string RoomName { get; init; } = string.Empty;
     public DateTime StartTime { get; init; }
     public decimal TotalAmount { get; init; }
+    public decimal DiscountAmount { get; init; }
+    public string? VoucherCode { get; init; }
     public string Status { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
     

@@ -239,7 +239,7 @@ public sealed class ControllerMoqCoverageTests
         AssertApiResponse<CustomerProfileResponse>(await controller.UpdateProfile(new UpdateProfileRequest { FullName = "Updated" }, CancellationToken.None), StatusCodes.Status200OK, true);
         AssertApiResponse<object>(await controller.ChangePassword(new ChangePasswordRequest { OldPassword = "old", NewPassword = "new" }, CancellationToken.None), StatusCodes.Status400BadRequest, false);
         AssertApiResponse<object>(await controller.RequestEmailChange(new UpdateEmailRequest { NewEmail = "new@example.com" }, CancellationToken.None), StatusCodes.Status200OK, true);
-        AssertApiResponse<object>(await controller.VerifyEmailChange(new VerifyEmailUpdateRequest { NewEmail = "new@example.com", Otp = "123456" }, CancellationToken.None), StatusCodes.Status409Conflict, false);
+        AssertApiResponse<object>(await controller.VerifyEmailChange(new VerifyEmailUpdateRequest { NewEmail = "new@example.com", Otp = "123456", OldEmailOtp = "654321" }, CancellationToken.None), StatusCodes.Status409Conflict, false);
         var history = AssertApiResponse<List<BookingHistoryResponse>>(await controller.GetBookingHistory(CancellationToken.None), StatusCodes.Status200OK, true);
         Assert.Single(history.Data!);
         service.VerifyAll();
@@ -454,7 +454,7 @@ public sealed class ControllerMoqCoverageTests
             new Claim("userId", "USR_MANAGER"));
 
         AssertApiResponse<bool>(await controller.CreateSeatRequest(new CreateSeatRequest { RoomId = "ROOM_1", RowLabel = "A", SeatNumber = 1, SeatTypeId = "STD" }, CancellationToken.None), StatusCodes.Status201Created, true);
-        AssertApiResponse<bool>(await controller.UpdateSeat("SEAT_1", new UpdateSeatRequest { RowLabel = "A", SeatNumber = 2, SeatTypeId = "STD" }, CancellationToken.None), StatusCodes.Status200OK, true);
+        AssertApiResponse<bool>(await controller.UpdateSeat("SEAT_1", new UpdateSeatRequest { RowLabel = "A", SeatNumber = 2, SeatTypeId = "STD", SeatStatus = "ACTIVE" }, CancellationToken.None), StatusCodes.Status200OK, true);
         AssertApiResponse<bool>(await controller.DeleteSeat("SEAT_1", CancellationToken.None), StatusCodes.Status409Conflict, false);
         Assert.Single(AssertApiResponse<IEnumerable<SeatResponse>>(await controller.GetSeatsByRoom("ROOM_1", CancellationToken.None), StatusCodes.Status200OK, true).Data!);
         AssertApiResponse<SeatMapResponse>(await controller.GetSeatMap("ST_1", CancellationToken.None), StatusCodes.Status200OK, true);

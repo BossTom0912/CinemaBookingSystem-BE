@@ -200,6 +200,34 @@ public sealed class BookingsController : ControllerBase
         return StatusCode(result.StatusCode, response);
     }
 
+    [HttpPost("counter")]
+    [Authorize(Policy = AuthConstants.Policies.CanScanTicket)]
+    public async Task<IActionResult> CreateCounterBooking(
+        CreateCounterBookingRequest request,
+        CancellationToken cancellationToken)
+    {
+        var staffProfileId = GetStaffProfileId() ?? GetUserId() ?? CinemaSystem.Domain.Constants.DomainConstants.Staff.Unknown;
+        var staffCinemaId = GetStaffCinemaId() ?? string.Empty;
+
+        var result = await _bookingService.CreateCounterBookingAsync(
+            request,
+            staffProfileId,
+            staffCinemaId,
+            cancellationToken);
+
+        var response = result.Success
+            ? ApiResponse<BookingDetailsResponse>.Ok(result.Data, result.Message)
+            : ApiResponse<BookingDetailsResponse>.Fail(
+                result.Message,
+                result.ErrorCode,
+                result.Errors);
+
+        return StatusCode(result.StatusCode, response);
+    }
+
+    private string? GetStaffProfileId() => User.FindFirst("staffProfileId")?.Value;
+    private string? GetStaffCinemaId() => User.FindFirst("cinemaId")?.Value;
+
     private string? GetUserId()
     {
         return User.FindFirst(AuthConstants.Claims.UserId)?.Value

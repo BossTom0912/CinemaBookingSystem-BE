@@ -243,6 +243,9 @@ public class PaymentService : IPaymentService
                 // Bao gồm thông tin Suất chiếu (Showtime) của Booking đó
                 .ThenInclude(b => b.Showtime)
             .Include(p => p.Booking)
+                .ThenInclude(b => b.VoucherUsage)
+                    .ThenInclude(vu => vu!.Voucher)
+            .Include(p => p.Booking)
                 .ThenInclude(b => b.CustomerProfile)
                     .ThenInclude(c => c!.User)
             // Bao gồm nhánh BookingSeats (các ghế đã đặt)
@@ -257,6 +260,7 @@ public class PaymentService : IPaymentService
                 .ThenInclude(b => b.BookingSeats)
                     // Bao gồm thông tin vé (Ticket) được sinh ra cho ghế đó
                     .ThenInclude(bs => bs.Ticket)
+            .AsSplitQuery()
             // Lấy ra bản ghi duy nhất khớp mã giao dịch
             .SingleOrDefaultAsync(
                 p => p.TransactionCode != null
@@ -305,6 +309,17 @@ public class PaymentService : IPaymentService
             if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase))
             {
                 booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+
+                // Xác nhận sử dụng Voucher
+                if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+                {
+                    booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Confirmed;
+                    booking.VoucherUsage.UsedAt = now;
+                    if (booking.VoucherUsage.Voucher != null)
+                    {
+                        booking.VoucherUsage.Voucher.UsedCount += 1;
+                    }
+                }
             }
 
             // Kiểm tra trường hợp suất chiếu đã bị hủy trong lúc người dùng đang chuyển khoản

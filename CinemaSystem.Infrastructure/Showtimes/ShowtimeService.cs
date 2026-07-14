@@ -46,6 +46,8 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     // Khai báo biến chứa cấu hình mẫu email gửi đi
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
+    // Khai báo biến dịch vụ AI viết thư xin lỗi
+    private readonly IAiEmailService _aiEmailService;
 
     public ShowtimeService(
         CinemaDbContext dbContext,
@@ -54,7 +56,8 @@ public sealed class ShowtimeService : IShowtimeService
         IOptions<CinemaSystem.Application.Settings.SecuritySettings>? securityOptions = null,
         IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings>? emailTemplatesOptions = null,
         IBackgroundJobClient? backgroundJobClient = null,
-        IHttpContextAccessor? httpContextAccessor = null)
+        IHttpContextAccessor? httpContextAccessor = null,
+        IAiEmailService? aiEmailService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
@@ -63,6 +66,7 @@ public sealed class ShowtimeService : IShowtimeService
         _emailTemplates = emailTemplatesOptions?.Value ?? new CinemaSystem.Application.Settings.EmailTemplatesSettings();
         _backgroundJobClient = backgroundJobClient!;
         _httpContextAccessor = httpContextAccessor!;
+        _aiEmailService = aiEmailService!;
     }
 
     // Phương thức lấy danh sách tất cả các suất chiếu
@@ -110,6 +114,43 @@ public sealed class ShowtimeService : IShowtimeService
         return ServiceResult<IReadOnlyList<ShowtimeResponse>>.Ok(
             showtimes,
             "Showtimes retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesByCinemaAsync(
+        string? cinemaId,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Showtimes
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(cinemaId))
+        {
+            query = query.Where(item => item.Room.CinemaId == cinemaId);
+        }
+
+        var showtimes = await query
+            .OrderBy(item => item.StartTime)
+            .Select(item => new ShowtimeResponse
+            {
+                ShowtimeId = item.ShowtimeId,
+                MovieId = item.MovieId,
+                MovieTitle = item.Movie.Title,
+                RoomId = item.RoomId,
+                RoomName = item.Room.RoomName,
+                CinemaId = item.Room.CinemaId,
+                CinemaName = item.Room.Cinema.CinemaName,
+                StartTime = item.StartTime,
+                EndTime = item.EndTime,
+                BasePrice = item.BasePrice,
+                Status = item.Status,
+                ShowtimeSeatCount = item.ShowtimeSeats.Count
+            })
+            .ToListAsync(cancellationToken);
+
+        return ServiceResult<IReadOnlyList<ShowtimeResponse>>.Ok(
+            showtimes,
+            "Scoped showtimes retrieved successfully.");
     }
 
     // Phương thức lấy chi tiết một suất chiếu theo ID
@@ -384,29 +425,35 @@ public sealed class ShowtimeService : IShowtimeService
                             
                             // Lấy tiêu đề email cho sự kiện đổi giờ chiếu
                             string subject = _emailTemplates.ShowtimeTimeChangeSubject;
-                            // Tạo nội dung email từ template, truyền vào tên phim, thời gian mới, booking ID và token xác nhận
-                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeBody,
-                                showtime.Movie.Title,
-                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
-                                booking.BookingId,
-                                encodedToken);
-                                
-                            // Đẩy job gửi email này vào hàng đợi của Hangfire chạy ngầm
-                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                            var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                            var newTimeStr = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                            var bookingId = booking.BookingId;
+                            
+                            // Đẩy job gửi email AI song ngữ kèm các nút bấm chấp nhận/hoàn tiền qua Hangfire
+                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                ai.SendAiTimeChangeEmailAsync(
+                                    customerEmail, 
+                                    subject, 
+                                    movieTitle,
+                                    newTimeStr, 
+                                    bookingId, 
+                                    encodedToken, 
+                                    CancellationToken.None));
                         }
                         else
                         {
-                            // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng
-                            // Lấy tiêu đề email thông báo sự thay đổi
+                            // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng qua dịch vụ AI
                             string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
-                            // Tạo nội dung thông báo từ template
-                            string message = string.Format(_emailTemplates.ShowtimeTimeChangeNoticeBody,
-                                showtime.Movie.Title,
-                                normalizedStartTime.ToString("dd/MM/yyyy HH:mm"),
-                                updateReason);
-                                
-                            // Đẩy job gửi email vào Hangfire
-                            _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                            var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
+                            var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                            
+                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                ai.SendAiApologyEmailAsync(
+                                    customerEmail, 
+                                    subject, 
+                                    "Điều chỉnh thông tin suất chiếu", 
+                                    $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice} (Chi tiết thay đổi: {updateReason}).", 
+                                    CancellationToken.None));
                         }
                     }
                 }
@@ -578,9 +625,23 @@ public sealed class ShowtimeService : IShowtimeService
             }
         }
 
-        // Bắt đầu xóa toàn bộ bản ghi ghế của suất chiếu (thuộc phòng cũ)
-        _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
-        
+        var bookingIds = showtime.Bookings.Select(b => b.BookingId).ToList();
+
+        // Truy vấn tất cả BookingSeats liên quan đến những Booking của suất chiếu này kèm thông tin Booking
+        var bookingSeats = await _dbContext.BookingSeats
+            // Lọc những BookingSeat thuộc về các Booking của suất chiếu
+            .Where(bs => bookingIds.Contains(bs.BookingId))
+            // Include để lấy thông tin Booking liên quan để chuyển trạng thái và gửi email
+            .Include(bs => bs.Booking)
+                .ThenInclude(b => b.CustomerProfile)
+                    .ThenInclude(cp => cp!.User)
+            // Include để lấy ShowtimeSeat hiện tại của BookingSeat
+            .Include(bs => bs.ShowtimeSeat)
+                // Lấy thông tin Seat từ ShowtimeSeat
+                .ThenInclude(sts => sts.Seat)
+            // Lấy kết quả ra List
+            .ToListAsync(cancellationToken);
+
         // Khởi tạo list để tạo các bản ghi ghế cho suất chiếu ở phòng mới
         var newShowtimeSeats = new List<ShowtimeSeat>();
         // Lặp qua tất cả ghế active của phòng mới
@@ -591,23 +652,14 @@ public sealed class ShowtimeService : IShowtimeService
         }
         // Thêm tất cả vào Database context
         await _dbContext.ShowtimeSeats.AddRangeAsync(newShowtimeSeats, cancellationToken);
-        
-        // Cần gán lại SeatId cho các vé đã đặt (BookingSeat)
-        // Note: do EF Core theo dõi, ta chỉ cần update thẳng BookingSeat.ShowtimeSeatId
-        // Truy vấn tất cả BookingSeats liên quan đến những Booking của suất chiếu này
-        var bookingSeats = await _dbContext.BookingSeats
-            // Lọc những BookingSeat thuộc về các Booking của suất chiếu
-            .Where(bs => showtime.Bookings.Select(b => b.BookingId).Contains(bs.BookingId))
-            // Include để lấy ShowtimeSeat hiện tại của BookingSeat
-            .Include(bs => bs.ShowtimeSeat)
-                // Lấy thông tin Seat từ ShowtimeSeat
-                .ThenInclude(sts => sts.Seat)
-            // Lấy kết quả ra List
-            .ToListAsync(cancellationToken);
+
+        var affectedBookings = new System.Collections.Generic.HashSet<string>();
 
         // Duyệt qua từng bản ghi ghế của đơn đặt vé
         foreach (var bs in bookingSeats)
         {
+            if (bs.ShowtimeSeat?.Seat == null) continue;
+
             // Biến tạm để lưu SeatID mới
             string? newSeatId = null;
             // Nếu có trong map truyền vào thì lấy
@@ -633,23 +685,36 @@ public sealed class ShowtimeService : IShowtimeService
                     bs.ShowtimeSeatId = newSts.ShowtimeSeatId;
                     // Đánh dấu trạng thái ghế mới là đã bán (Booked)
                     newSts.SeatStatus = DomainConstants.EntityStatus.Booked;
+
+                    // Kiểm tra xem loại ghế ở phòng mới có trùng khớp với phòng cũ không
+                    var newSeat = activeNewSeats.FirstOrDefault(s => s.SeatId == newSeatId);
+                    if (newSeat != null && newSeat.SeatTypeId != bs.ShowtimeSeat.Seat.SeatTypeId)
+                    {
+                        // Đánh dấu Booking bị ảnh hưởng (hạ cấp hoặc đổi loại ghế)
+                        bs.Booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
+                        affectedBookings.Add(bs.BookingId);
+                    }
                 }
             }
         }
 
+        // Bắt đầu xóa toàn bộ bản ghi ghế của suất chiếu (thuộc phòng cũ)
+        _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats.ToList());
+
         // Cập nhật ID phòng mới cho suất chiếu
         showtime.RoomId = request.NewRoomId;
-        // Đặt trạng thái của suất chiếu về Mở bán (Open) do đã đổi xong phòng êm thấm
-        showtime.Status = DomainConstants.EntityStatus.Open;
+        // Đặt trạng thái của suất chiếu về Mở bán (Open) hoặc ProcessingUnstable nếu có ghế bị xung đột loại
+        showtime.Status = affectedBookings.Any() 
+            ? DomainConstants.EntityStatus.ProcessingUnstable 
+            : DomainConstants.EntityStatus.Open;
 
         // Lưu toàn bộ thay đổi xuống DB
         await _dbContext.SaveChangesAsync(cancellationToken);
         
-        // Gửi email thông báo sơ đồ ghế mới cho khách
-        // Lấy các Booking đã thanh toán của suất chiếu
+        // Gửi email thông báo sơ đồ ghế mới cho các khách hàng không bị ảnh hưởng (giữ nguyên loại ghế)
         var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
         
-        // Lặp qua từng Booking
+        // Lặp qua từng Booking ổn định
         foreach(var booking in paidBookings)
         {
             // Lấy Email khách (ưu tiên email account)
@@ -660,10 +725,40 @@ public sealed class ShowtimeService : IShowtimeService
             {
                 // Lấy tiêu đề từ cấu hình template cho việc đổi phòng
                 string subject = _emailTemplates.ShowtimeRoomChangeSubject;
-                // Format nội dung chứa tên phòng mới
-                string message = string.Format(_emailTemplates.ShowtimeRoomChangeBody, newRoom.RoomName);
-                // Đẩy job nền gửi email
-                _backgroundJobClient.Enqueue<IEmailService>(e => e.SendEmailAsync(email, subject, message, CancellationToken.None));
+                var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                var roomName = newRoom.RoomName;
+                
+                // Đẩy job nền gửi email qua dịch vụ AI
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(
+                        email, 
+                        subject, 
+                        "Thay đổi phòng chiếu của suất chiếu", 
+                        $"Suất chiếu phim {movieTitle} của bạn đã được chuyển sang phòng chiếu mới: {roomName}. Vui lòng kiểm tra lại vé để xem vị trí ghế mới của bạn.", 
+                        CancellationToken.None));
+            }
+        }
+
+        // Gửi email AI thông báo và xin lỗi song ngữ cho các khách hàng có vé bị ảnh hưởng (ProcessingUnstable)
+        var unstableBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.ProcessingUnstable).ToList();
+        foreach (var booking in unstableBookings)
+        {
+            var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            if (!string.IsNullOrEmpty(email))
+            {
+                var secret = _securitySettings.ConfirmationTokenSecret;
+                using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                var token = Convert.ToBase64String(hash);
+                var encodedToken = System.Uri.EscapeDataString(token);
+
+                string subject = "Thông báo đổi phòng chiếu và loại ghế / Showtime Room and Seat Type Change Notice";
+                string reason = "Thay đổi phòng chiếu dẫn đến thay đổi loại ghế của bạn (Hạ cấp/Thay đổi loại ghế)";
+                string details = $"Suất chiếu của phim {showtime.Movie.Title} đã chuyển sang phòng mới: {newRoom.RoomName}. Do đó ghế của bạn bị thay đổi loại ghế. Vui lòng bấm vào Link xác nhận để chấp nhận thay đổi hoặc yêu cầu hủy hoàn tiền.";
+
+                // Đẩy job gửi Email AI ngầm qua Hangfire
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(email, subject, reason, details, CancellationToken.None));
             }
         }
 
@@ -886,14 +981,18 @@ public sealed class ShowtimeService : IShowtimeService
             // Nếu có email
             if (!string.IsNullOrEmpty(customerEmail))
             {
-                // Lấy tiêu đề và nội dung email hủy từ cấu hình
                 string subject = _emailTemplates.ShowtimeCancellationSubject;
-                string message = string.Format(
-                    _emailTemplates.ShowtimeCancellationBody,
-                    cancelReason);
+                var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                var startTimeStr = showtime.StartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
                 
-                // Đẩy tiến trình gửi Email vào Hangfire
-                _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
+                // Đẩy tiến trình gửi Email vào Hangfire sử dụng AI viết thư xin lỗi
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                    ai.SendAiApologyEmailAsync(
+                        customerEmail, 
+                        subject, 
+                        "Hủy suất chiếu", 
+                        $"Suất chiếu của phim {movieTitle} vào lúc {startTimeStr} bị hủy bỏ do sự cố kỹ thuật đột xuất của rạp. Hệ thống đang tiến hành thủ tục hoàn tiền tự động.", 
+                        CancellationToken.None));
             }
         }
 

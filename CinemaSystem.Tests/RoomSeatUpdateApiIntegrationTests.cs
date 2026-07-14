@@ -49,7 +49,8 @@ public sealed class RoomSeatUpdateApiIntegrationTests
                 SeatId = "SEAT_RS_B_1",
                 RowLabel = "B",
                 SeatNumber = 1,
-                SeatTypeId = "SEAT_TYPE_RS"
+                SeatTypeId = "SEAT_TYPE_RS",
+                SeatStatus = "ACTIVE"
             });
 
         Assert.Equal(HttpStatusCode.OK, adminSeatResponse.StatusCode);
@@ -79,7 +80,8 @@ public sealed class RoomSeatUpdateApiIntegrationTests
                 SeatId = "SEAT_RS_A_1",
                 RowLabel = "C",
                 SeatNumber = 1,
-                SeatTypeId = "SEAT_TYPE_RS"
+                SeatTypeId = "SEAT_TYPE_RS",
+                SeatStatus = "ACTIVE"
             });
 
         Assert.Equal(HttpStatusCode.OK, managerOwnSeatResponse.StatusCode);
@@ -104,7 +106,8 @@ public sealed class RoomSeatUpdateApiIntegrationTests
                 SeatId = "SEAT_RS_B_2",
                 RowLabel = "D",
                 SeatNumber = 2,
-                SeatTypeId = "SEAT_TYPE_RS"
+                SeatTypeId = "SEAT_TYPE_RS",
+                SeatStatus = "ACTIVE"
             });
 
         Assert.Equal(HttpStatusCode.Forbidden, managerOtherSeatResponse.StatusCode);

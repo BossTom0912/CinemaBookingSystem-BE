@@ -120,7 +120,7 @@ public sealed class SeatService : ISeatService
     public async Task<ServiceResult<PagedList<SeatResponse>>> GetSeatsAsync(
         string? cinemaScopeId,
         string? roomId,
-        bool? isActive,
+        string? seatStatus,
         int pageIndex,
         int pageSize,
         CancellationToken cancellationToken)
@@ -140,11 +140,11 @@ public sealed class SeatService : ISeatService
             query = query.Where(s => s.RoomId == roomId);
         }
 
-        // Nếu cờ trạng thái hoạt động có giá trị
-        if (isActive.HasValue)
+        // Nếu trạng thái ghế không trống
+        if (!string.IsNullOrWhiteSpace(seatStatus))
         {
-            // Thêm điều kiện lọc theo trạng thái hoạt động
-            query = query.Where(s => s.IsActive == isActive.Value);
+            var isStatusActive = string.Equals(seatStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase);
+            query = query.Where(s => s.IsActive == isStatusActive);
         }
 
         // Đếm tổng số ghế thỏa mãn điều kiện lọc
@@ -314,18 +314,32 @@ public sealed class SeatService : ISeatService
         // Cập nhật loại ghế
         seat.SeatTypeId = request.SeatTypeId;
         
+        // Kiểm tra xem trạng thái truyền vào có hợp lệ không
+        if (string.IsNullOrWhiteSpace(request.SeatStatus))
+        {
+            return ServiceResult<bool>.Fail(400, "Seat status is required.", "SEAT_STATUS_REQUIRED");
+        }
+
+        var isRequestActive = string.Equals(request.SeatStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase);
+        if (!isRequestActive && 
+            !string.Equals(request.SeatStatus, DomainConstants.EntityStatus.Inactive, StringComparison.OrdinalIgnoreCase) && 
+            !string.Equals(request.SeatStatus, DomainConstants.EntityStatus.Maintenance, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<bool>.Fail(400, "Seat status is invalid.", "INVALID_SEAT_STATUS");
+        }
+
         // Khởi tạo biến theo dõi việc ghế chuyển sang trạng thái bảo trì
         bool isMaintenanceTriggered = false;
         // Nếu request yêu cầu vô hiệu hóa ghế và ghế hiện đang kích hoạt
-        if (!request.IsActive && seat.IsActive)
+        if (!isRequestActive && seat.IsActive)
         {
             // Đánh dấu cần xử lý bảo trì ghế
             isMaintenanceTriggered = true;
         }
         // Cập nhật trạng thái hoạt động của ghế
-        seat.IsActive = request.IsActive;
+        seat.IsActive = isRequestActive;
 
-        // Nếu trạng thái bảo trì được kích hoạt
+        // Nếu trạng thái bảo trì được kích hoạt (chuyển từ Active -> Inactive)
         if (isMaintenanceTriggered)
         {
             // Tìm các ghế trong các suất chiếu tương lai
@@ -347,45 +361,18 @@ public sealed class SeatService : ISeatService
                 // Chuyển kết quả thành danh sách bất đồng bộ
                 .ToListAsync(cancellationToken);
 
-            // Duyệt qua từng ghế của các suất chiếu tìm được
+            // Kiểm tra xem ghế có đang được đặt ở bất kỳ suất chiếu tương lai nào không
+            var hasFutureBookings = futureShowtimeSeats.Any(sts => sts.BookingSeat != null);
+            if (hasFutureBookings)
+            {
+                // Ngăn chặn và thông báo lỗi yêu cầu đổi ghế cho khách trước
+                return ServiceResult<bool>.Fail(400, "Không thể đưa ghế vào bảo trì vì đang có khách đặt ghế này trong các suất chiếu tương lai. Vui lòng chuyển ghế của khách sang vị trí khác trước.", "SEAT_HAS_FUTURE_BOOKINGS");
+            }
+
+            // Duyệt qua từng ghế của các suất chiếu tìm được và cập nhật trạng thái sang đang bảo trì
             foreach (var sts in futureShowtimeSeats)
             {
-                // Cập nhật trạng thái ghế thành đang bảo trì
                 sts.SeatStatus = DomainConstants.EntityStatus.Maintenance;
-                
-                // Nếu ghế này đã được đặt trong một Booking
-                if (sts.BookingSeat != null && sts.BookingSeat.Booking != null)
-                {
-                    // Lấy đối tượng Booking
-                    var booking = sts.BookingSeat.Booking;
-                    // Lấy email khách hàng (ưu tiên người dùng hệ thống hoặc khách vãng lai)
-                    var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
-                    // Nếu tìm thấy email hợp lệ
-                    if (!string.IsNullOrEmpty(customerEmail))
-                    {
-                        // Lấy khóa bí mật để tạo token xác nhận từ cấu hình
-                        var secret = _securitySettings.ConfirmationTokenSecret;
-                        // Khởi tạo thuật toán mã hóa HMACSHA256 với khóa bí mật
-                        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
-                        // Băm ID của Booking
-                        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
-                        // Chuyển mã băm thành chuỗi Base64
-                        var token = Convert.ToBase64String(hash);
-                        // Mã hóa token để an toàn khi truyền qua URL
-                        var encodedToken = System.Uri.EscapeDataString(token);
-                        
-                        // Lấy tiêu đề email thông báo bảo trì ghế từ cấu hình
-                        string subject = _emailTemplates.SeatMaintenanceSubject;
-                        // Xây dựng nội dung email từ mẫu cấu hình và thay thế các thông số
-                        string message = string.Format(_emailTemplates.SeatMaintenanceBody,
-                            seat.SeatCode,
-                            sts.Showtime.StartTime.ToString("dd/MM/yyyy HH:mm"),
-                            booking.BookingId,
-                            encodedToken);
-                        // Đẩy công việc gửi email vào hàng đợi Hangfire để chạy nền
-                        _backgroundJobClient.Enqueue<IEmailService>(email => email.SendEmailAsync(customerEmail, subject, message, CancellationToken.None));
-                    }
-                }
             }
         }
 
@@ -931,6 +918,11 @@ public sealed class SeatService : ISeatService
         // Cập nhật lại loại ghế
         seat.SeatTypeId = updateRequest.SeatTypeId;
 
+        if (!string.IsNullOrWhiteSpace(updateRequest.SeatStatus))
+        {
+            seat.IsActive = string.Equals(updateRequest.SeatStatus, DomainConstants.EntityStatus.Active, StringComparison.OrdinalIgnoreCase);
+        }
+
         // Lưu thay đổi cập nhật vào cơ sở dữ liệu
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -1055,7 +1047,7 @@ public sealed class SeatService : ISeatService
             // Ánh xạ loại ghế
             SeatTypeId = seat.SeatTypeId,
             // Ánh xạ trạng thái hoạt động
-            IsActive = seat.IsActive
+            SeatStatus = seat.IsActive ? DomainConstants.EntityStatus.Active : DomainConstants.EntityStatus.Inactive
         };
     }
 
@@ -1118,6 +1110,82 @@ public sealed class SeatService : ISeatService
     {
         // Trả về chuỗi khóa kết hợp từ tiền tố, mã suất chiếu và mã ghế
         return $"seat-lock:{showtimeId}:{seatId}";
+    }
+
+    public async Task<ServiceResult<bool>> UpdateRoomSeatsWithHistoryAsync(
+        string roomId,
+        string adminId,
+        List<SeatDto> newSeats,
+        CancellationToken cancellationToken = default)
+    {
+        // Validation đầu vào: Nếu newSeats null hoặc không có phần tử nào thì thoát không xử lý.
+        if (newSeats == null || !newSeats.Any())
+        {
+            return ServiceResult<bool>.Ok(false, "No seats provided to update.");
+        }
+
+        // Sử dụng Database Transaction để đảm bảo an toàn dữ liệu
+        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Bước 1: Truy vấn toàn bộ danh sách ghế cũ trong bảng Seats dựa theo RoomId
+            var oldSeats = await _dbContext.Seats
+                .Where(s => s.RoomId == roomId)
+                .ToListAsync(cancellationToken);
+
+            // Bước 2 (Lưu Lịch Sử): Nếu phòng đã có ghế cũ, serialize lưu vào AuditLog
+            if (oldSeats.Any())
+            {
+                var serializedSnapshot = JsonSerializer.Serialize(
+                    oldSeats.Select(s => new { s.RowLabel, s.SeatNumber, s.SeatTypeId })
+                );
+
+                var newSnapshot = JsonSerializer.Serialize(
+                    newSeats.Select(s => new { s.RowLabel, s.SeatNumber, s.SeatTypeId })
+                );
+
+                var auditLog = new AuditLog
+                {
+                    AuditLogId = "AUD_" + Guid.NewGuid().ToString("N"),
+                    UserId = adminId,
+                    Action = "UPDATE_SEAT_TEMPLATE",
+                    EntityName = "Room",
+                    EntityId = roomId,
+                    OldValue = serializedSnapshot,
+                    NewValue = newSnapshot,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _dbContext.AuditLogs.Add(auditLog);
+            }
+
+            // Bước 3: Xóa các ghế cũ
+            _dbContext.Seats.RemoveRange(oldSeats);
+
+            // Bước 4: Thêm các ghế mới tương ứng số lượng admin tạo ra khi tạo room
+            var seatsToAdd = newSeats.Select(s => new Seat
+            {
+                SeatId = "SET_" + Guid.NewGuid().ToString("N"),
+                RoomId = roomId,
+                RowLabel = s.RowLabel,
+                SeatNumber = s.SeatNumber,
+                SeatTypeId = s.SeatTypeId,
+                SeatCode = BuildSeatCode(s.RowLabel, s.SeatNumber),
+                IsActive = true
+            }).ToList();
+
+            await _dbContext.Seats.AddRangeAsync(seatsToAdd, cancellationToken);
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return ServiceResult<bool>.Ok(true, "Room seats updated with history successfully.");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ServiceResult<bool>.Fail(500, $"Internal error updating room seats template: {ex.Message}", "INTERNAL_ERROR");
+        }
     }
 
     // Record nội bộ dùng để map cấu trúc dữ liệu cho yêu cầu xóa

@@ -20,6 +20,12 @@ public interface IBookingService
         Guid clientRequestId,
         CancellationToken cancellationToken);
 
+    Task<ServiceResult<BookingDetailsResponse>> CreateCounterBookingAsync(
+        CreateCounterBookingRequest request,
+        string staffProfileId,
+        string currentStaffCinemaId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<BookingDetailsResponse>> GetBookingDetailsAsync(
         string bookingId,
         string userId,
@@ -38,5 +44,9 @@ public interface IBookingService
         string bookingId,
         bool accept,
         string token,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> ReassignBookingSeatAsync(
+        ReassignSeatRequest request,
         CancellationToken cancellationToken);
 }

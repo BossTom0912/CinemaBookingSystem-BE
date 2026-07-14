@@ -141,7 +141,7 @@ public sealed class SeatsController : ControllerBase
         StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSeats(
         [FromQuery] string? roomId,
-        [FromQuery] bool? isActive,
+        [FromQuery] string? seatStatus,
         [FromQuery] int pageIndex = PaginationDefaults.FirstPageIndex,
         [FromQuery] int pageSize = PaginationDefaults.DefaultPageSize,
         CancellationToken cancellationToken = default)
@@ -157,7 +157,7 @@ public sealed class SeatsController : ControllerBase
         var result = await _seatService.GetSeatsAsync(
             scope.CinemaId,
             roomId,
-            isActive,
+            seatStatus,
             pageIndex,
             pageSize,
             cancellationToken);
