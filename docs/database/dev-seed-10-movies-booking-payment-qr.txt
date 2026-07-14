@@ -140,18 +140,34 @@ BEGIN TRY
     FROM @Showtimes AS showtime
     WHERE NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = showtime.[showtimeId]);
 
+    IF EXISTS
+    (
+        SELECT 1
+        FROM @Showtimes AS expectedShowtime
+        LEFT JOIN dbo.[SHOWTIME] AS persistedShowtime
+            ON persistedShowtime.[showtimeId] = expectedShowtime.[showtimeId]
+        WHERE persistedShowtime.[showtimeId] IS NULL
+    )
+        THROW 53004, 'One or more test showtimes were not persisted. Check SHOWTIME triggers and constraints.', 1;
+
+    COMMIT TRANSACTION;
+
+    -- Keep seat creation retryable even if a later reference-data insert fails.
+    BEGIN TRANSACTION;
+
     INSERT INTO dbo.[SHOWTIME_SEAT]
         ([showtimeSeatId], [showtimeId], [seatId], [seatStatus], [lockedUntil], [lockedByUserId])
     SELECT
-        CONCAT('STS_', showtime.[showtimeId], '_', seat.[seatId]),
-        showtime.[showtimeId], seat.[seatId], 'AVAILABLE', NULL, NULL
-    FROM @Showtimes AS showtime
-    INNER JOIN dbo.[SEAT] AS seat ON seat.[roomId] = showtime.[roomId] AND seat.[isActive] = 1
+        CONCAT('STS_', persistedShowtime.[showtimeId], '_', seat.[seatId]),
+        persistedShowtime.[showtimeId], seat.[seatId], 'AVAILABLE', NULL, NULL
+    FROM dbo.[SHOWTIME] AS persistedShowtime
+    INNER JOIN @Showtimes AS showtime ON showtime.[showtimeId] = persistedShowtime.[showtimeId]
+    INNER JOIN dbo.[SEAT] AS seat ON seat.[roomId] = persistedShowtime.[roomId] AND seat.[isActive] = 1
     WHERE NOT EXISTS
     (
         SELECT 1
         FROM dbo.[SHOWTIME_SEAT] AS existing
-        WHERE existing.[showtimeId] = showtime.[showtimeId]
+        WHERE existing.[showtimeId] = persistedShowtime.[showtimeId]
           AND existing.[seatId] = seat.[seatId]
     );
 
