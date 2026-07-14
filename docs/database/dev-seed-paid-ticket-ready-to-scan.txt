@@ -1,0 +1,336 @@
+-- Development seed: one paid ticket ready for Staff/Manager scan.
+-- Run after the main schema/base seed. If you use the dev staff account script,
+-- run it after this script too when this script has to create CIN_DEV_SCAN.
+--
+-- Customer login:
+--   scan.customer@cinema.local / Password1
+--
+-- Scan API body printed at the end:
+--   POST /api/tickets/scan
+--   { "qrCode": "...", "roomId": "..." }
+--
+-- In SSMS/Azure Data Studio: open this file, press Ctrl+A, then Execute.
+-- Do not execute only a selected middle block because this script uses variables.
+
+USE [CinemaBookingDB];
+GO
+
+SET NOCOUNT ON;
+
+DECLARE @PasswordHash NVARCHAR(500) =
+    N'PBKDF2-SHA256.100000.AQIDBAUGBwgJCgsMDQ4PEA==.oA2tfdpk85oVNGhL7KlOtwvlkGWr0Id6feUHpwxbbjI=';
+
+DECLARE @CinemaId NVARCHAR(50);
+DECLARE @RoomId NVARCHAR(50) = N'ROOM_DEV_SCAN';
+DECLARE @SeatTypeId NVARCHAR(50) = N'SEAT_TYPE_DEV_STANDARD';
+DECLARE @SeatId NVARCHAR(50) = N'SEAT_DEV_SCAN_A1';
+DECLARE @MovieId NVARCHAR(50) = N'MOV_DEV_SCAN';
+DECLARE @ShowtimeId NVARCHAR(50) = N'SHW_DEV_SCAN_NOW';
+DECLARE @ShowtimeSeatId NVARCHAR(50) = N'STS_DEV_SCAN_A1';
+DECLARE @CustomerUserId NVARCHAR(50) = N'U_DEV_SCAN_CUSTOMER';
+DECLARE @CustomerProfileId NVARCHAR(50) = N'CUS_DEV_SCAN_CUSTOMER';
+DECLARE @BookingId NVARCHAR(50) = N'BOK_DEV_SCAN_PAID';
+DECLARE @BookingSeatId NVARCHAR(50) = N'BKS_DEV_SCAN_A1';
+DECLARE @TicketId NVARCHAR(50) = N'TCK_DEV_SCAN_A1';
+DECLARE @PaymentId NVARCHAR(50) = N'PAY_DEV_SCAN_SUCCESS';
+DECLARE @QrCode NVARCHAR(450) = N'G2C|BOK_DEV_SCAN_PAID|BKS_DEV_SCAN_A1';
+DECLARE @StartTime DATETIME2 = DATEADD(MINUTE, -10, SYSUTCDATETIME());
+DECLARE @EndTime DATETIME2 = DATEADD(MINUTE, 110, SYSUTCDATETIME());
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = N'ROLE_CUSTOMER')
+BEGIN
+    INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
+    VALUES (N'ROLE_CUSTOMER', N'CUSTOMER', N'Customer account');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT_PROVIDER] WHERE [paymentProviderId] = N'PP_SEPAY')
+BEGIN
+    INSERT INTO dbo.[PAYMENT_PROVIDER]
+        ([paymentProviderId], [providerName], [apiEndpoint], [providerStatus])
+    VALUES
+        (N'PP_SEPAY', N'SEPAY', NULL, N'ACTIVE');
+END;
+
+SELECT TOP (1) @CinemaId = [cinemaId]
+FROM dbo.[CINEMA]
+WHERE [cinemaStatus] = N'ACTIVE'
+ORDER BY [cinemaId];
+
+IF @CinemaId IS NULL
+BEGIN
+    SET @CinemaId = N'CIN_DEV_SCAN';
+
+    INSERT INTO dbo.[CINEMA]
+        ([cinemaId], [cinemaName], [address], [city], [phoneNumber], [cinemaStatus])
+    VALUES
+        (@CinemaId, N'Dev Scan Cinema', N'Dev Address', N'HCM', NULL, N'ACTIVE');
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = @SeatTypeId)
+BEGIN
+    INSERT INTO dbo.[SEAT_TYPE] ([seatTypeId], [typeName], [extraFee])
+    VALUES (@SeatTypeId, N'Dev Standard', 0);
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[ROOM] WHERE [roomId] = @RoomId)
+BEGIN
+    INSERT INTO dbo.[ROOM]
+        ([roomId], [cinemaId], [roomName], [capacity], [roomStatus])
+    VALUES
+        (@RoomId, @CinemaId, N'Dev Scan Room', 50, N'ACTIVE');
+END
+ELSE
+BEGIN
+    UPDATE dbo.[ROOM]
+    SET [cinemaId] = @CinemaId,
+        [roomName] = N'Dev Scan Room',
+        [capacity] = 50,
+        [roomStatus] = N'ACTIVE'
+    WHERE [roomId] = @RoomId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT] WHERE [seatId] = @SeatId)
+BEGIN
+    INSERT INTO dbo.[SEAT]
+        ([seatId], [roomId], [seatTypeId], [seatCode], [rowLabel], [seatNumber], [isActive])
+    VALUES
+        (@SeatId, @RoomId, @SeatTypeId, N'A1', N'A', 1, 1);
+END
+ELSE
+BEGIN
+    UPDATE dbo.[SEAT]
+    SET [roomId] = @RoomId,
+        [seatTypeId] = @SeatTypeId,
+        [seatCode] = N'A1',
+        [rowLabel] = N'A',
+        [seatNumber] = 1,
+        [isActive] = 1
+    WHERE [seatId] = @SeatId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = @MovieId)
+BEGIN
+    INSERT INTO dbo.[MOVIE]
+        ([movieId], [title], [durationMinutes], [languageId], [releaseDate],
+         [ageRating], [description], [posterUrl], [trailerUrl], [director],
+         [highlight], [movieStatus], [viewCount], [averageRating],
+         [totalReviews], [totalViews], [dailyViews])
+    VALUES
+        (@MovieId, N'Dev Scan Movie', 120, NULL, CAST(SYSUTCDATETIME() AS DATE),
+         N'T13', N'Development movie for ticket scan testing.', NULL, NULL, N'Dev',
+         NULL, N'NOW_SHOWING', 0, 0, 0, 0, 0);
+END
+ELSE
+BEGIN
+    UPDATE dbo.[MOVIE]
+    SET [title] = N'Dev Scan Movie',
+        [durationMinutes] = 120,
+        [movieStatus] = N'NOW_SHOWING'
+    WHERE [movieId] = @MovieId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME] WHERE [showtimeId] = @ShowtimeId)
+BEGIN
+    INSERT INTO dbo.[SHOWTIME]
+        ([showtimeId], [movieId], [roomId], [startTime], [endTime],
+         [basePrice], [status], [createdAt])
+    VALUES
+        (@ShowtimeId, @MovieId, @RoomId, @StartTime, @EndTime,
+         100000, N'OPEN', DATEADD(DAY, -1, SYSUTCDATETIME()));
+END
+ELSE
+BEGIN
+    UPDATE dbo.[SHOWTIME]
+    SET [movieId] = @MovieId,
+        [roomId] = @RoomId,
+        [startTime] = @StartTime,
+        [endTime] = @EndTime,
+        [basePrice] = 100000,
+        [status] = N'OPEN'
+    WHERE [showtimeId] = @ShowtimeId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[SHOWTIME_SEAT] WHERE [showtimeSeatId] = @ShowtimeSeatId)
+BEGIN
+    INSERT INTO dbo.[SHOWTIME_SEAT]
+        ([showtimeSeatId], [showtimeId], [seatId], [seatStatus], [lockedUntil], [lockedByUserId])
+    VALUES
+        (@ShowtimeSeatId, @ShowtimeId, @SeatId, N'BOOKED', NULL, NULL);
+END
+ELSE
+BEGIN
+    UPDATE dbo.[SHOWTIME_SEAT]
+    SET [showtimeId] = @ShowtimeId,
+        [seatId] = @SeatId,
+        [seatStatus] = N'BOOKED',
+        [lockedUntil] = NULL,
+        [lockedByUserId] = NULL
+    WHERE [showtimeSeatId] = @ShowtimeSeatId;
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM dbo.[USER]
+    WHERE [userId] = @CustomerUserId OR [email] = N'scan.customer@cinema.local'
+)
+BEGIN
+    INSERT INTO dbo.[USER]
+        ([userId], [roleId], [email], [passwordHash], [fullName],
+         [phoneNumber], [status], [emailVerified], [createdAt])
+    VALUES
+        (@CustomerUserId, N'ROLE_CUSTOMER', N'scan.customer@cinema.local',
+         @PasswordHash, N'Dev Scan Customer', N'0900000000', N'ACTIVE', 1,
+         SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    UPDATE dbo.[USER]
+    SET [roleId] = N'ROLE_CUSTOMER',
+        [passwordHash] = @PasswordHash,
+        [status] = N'ACTIVE',
+        [emailVerified] = 1,
+        [updatedAt] = SYSUTCDATETIME()
+    WHERE [userId] = @CustomerUserId OR [email] = N'scan.customer@cinema.local';
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM dbo.[CUSTOMER_PROFILE]
+    WHERE [customerProfileId] = @CustomerProfileId OR [userId] = @CustomerUserId
+)
+BEGIN
+    INSERT INTO dbo.[CUSTOMER_PROFILE]
+        ([customerProfileId], [userId], [memberLevel], [rewardPoints], [dateOfBirth])
+    VALUES
+        (@CustomerProfileId, @CustomerUserId, N'STANDARD', 0, '2000-01-01');
+END
+ELSE
+BEGIN
+    UPDATE dbo.[CUSTOMER_PROFILE]
+    SET [memberLevel] = N'STANDARD',
+        [rewardPoints] = 0
+    WHERE [customerProfileId] = @CustomerProfileId OR [userId] = @CustomerUserId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[BOOKING] WHERE [bookingId] = @BookingId)
+BEGIN
+    INSERT INTO dbo.[BOOKING]
+        ([bookingId], [customerProfileId], [showtimeId], [createdByStaffProfileId],
+         [bookingChannel], [guestName], [guestPhone], [guestEmail],
+         [bookingStatus], [totalAmount], [createdAt], [expiredAt])
+    VALUES
+        (@BookingId, @CustomerProfileId, @ShowtimeId, NULL,
+         N'ONLINE', NULL, NULL, NULL, N'PAID', 100000,
+         DATEADD(MINUTE, -30, SYSUTCDATETIME()), NULL);
+END
+ELSE
+BEGIN
+    UPDATE dbo.[BOOKING]
+    SET [customerProfileId] = @CustomerProfileId,
+        [showtimeId] = @ShowtimeId,
+        [createdByStaffProfileId] = NULL,
+        [bookingChannel] = N'ONLINE',
+        [bookingStatus] = N'PAID',
+        [totalAmount] = 100000,
+        [expiredAt] = NULL
+    WHERE [bookingId] = @BookingId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[BOOKING_SEAT] WHERE [bookingSeatId] = @BookingSeatId)
+BEGIN
+    INSERT INTO dbo.[BOOKING_SEAT]
+        ([bookingSeatId], [bookingId], [showtimeSeatId], [seatPrice])
+    VALUES
+        (@BookingSeatId, @BookingId, @ShowtimeSeatId, 100000);
+END
+ELSE
+BEGIN
+    UPDATE dbo.[BOOKING_SEAT]
+    SET [bookingId] = @BookingId,
+        [showtimeSeatId] = @ShowtimeSeatId,
+        [seatPrice] = 100000
+    WHERE [bookingSeatId] = @BookingSeatId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[TICKET] WHERE [ticketId] = @TicketId)
+BEGIN
+    INSERT INTO dbo.[TICKET]
+        ([ticketId], [bookingSeatId], [qrCode], [ticketStatus], [generatedAt])
+    VALUES
+        (@TicketId, @BookingSeatId, @QrCode, N'UNUSED', SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    UPDATE dbo.[TICKET]
+    SET [bookingSeatId] = @BookingSeatId,
+        [qrCode] = @QrCode,
+        [ticketStatus] = N'UNUSED',
+        [generatedAt] = SYSUTCDATETIME()
+    WHERE [ticketId] = @TicketId;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT] WHERE [paymentId] = @PaymentId)
+BEGIN
+    INSERT INTO dbo.[PAYMENT]
+        ([paymentId], [bookingId], [paymentProviderId], [amount], [paymentMethod],
+         [transactionCode], [providerTransactionCode], [paymentStatus],
+         [failureReason], [rawCallbackPayload], [createdAt], [updatedAt], [paidAt])
+    VALUES
+        (@PaymentId, @BookingId, N'PP_SEPAY', 100000, N'BANK_TRANSFER',
+         N'TDEVSCAN001', N'SEPAY_DEV_SCAN_001', N'SUCCESS',
+         NULL, N'{}', DATEADD(MINUTE, -25, SYSUTCDATETIME()),
+         SYSUTCDATETIME(), SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    UPDATE dbo.[PAYMENT]
+    SET [bookingId] = @BookingId,
+        [paymentProviderId] = N'PP_SEPAY',
+        [amount] = 100000,
+        [paymentMethod] = N'BANK_TRANSFER',
+        [transactionCode] = N'TDEVSCAN001',
+        [providerTransactionCode] = N'SEPAY_DEV_SCAN_001',
+        [paymentStatus] = N'SUCCESS',
+        [failureReason] = NULL,
+        [rawCallbackPayload] = N'{}',
+        [updatedAt] = SYSUTCDATETIME(),
+        [paidAt] = SYSUTCDATETIME()
+    WHERE [paymentId] = @PaymentId;
+END;
+
+SELECT
+    N'LOGIN CUSTOMER' AS [step],
+    N'scan.customer@cinema.local' AS [email],
+    N'Password1' AS [password],
+    @BookingId AS [bookingId];
+
+SELECT
+    N'SCAN BODY' AS [step],
+    @QrCode AS [qrCode],
+    @RoomId AS [roomId],
+    @ShowtimeId AS [showtimeId],
+    @TicketId AS [ticketId],
+    @CinemaId AS [cinemaId],
+    @StartTime AS [showtimeStartUtc],
+    @EndTime AS [showtimeEndUtc];
+
+SELECT
+    N'MATCHING STAFF/MANAGER IN SAME CINEMA' AS [step],
+    u.[email],
+    N'Password1' AS [password],
+    r.[roleName],
+    sp.[cinemaId],
+    c.[cinemaName]
+FROM dbo.[STAFF_PROFILE] AS sp
+INNER JOIN dbo.[USER] AS u
+    ON u.[userId] = sp.[userId]
+INNER JOIN dbo.[ROLE] AS r
+    ON r.[roleId] = u.[roleId]
+INNER JOIN dbo.[CINEMA] AS c
+    ON c.[cinemaId] = sp.[cinemaId]
+WHERE sp.[cinemaId] = @CinemaId
+  AND sp.[employmentStatus] = N'ACTIVE'
+  AND u.[status] = N'ACTIVE'
+  AND u.[emailVerified] = 1
+  AND r.[roleName] IN (N'STAFF', N'MANAGER')
+ORDER BY r.[roleName], u.[email];
