@@ -4,12 +4,10 @@ using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Tickets;
 using CinemaSystem.Domain.Entities;
-using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace CinemaSystem.Infrastructure.Tickets;
 
@@ -32,18 +30,15 @@ public sealed class TicketScanService : ITicketScanService
 
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
-    private readonly TicketScanSettings _settings;
     private readonly ILogger<TicketScanService> _logger;
 
     public TicketScanService(
         CinemaDbContext dbContext,
         IClock clock,
-        IOptions<TicketScanSettings> settings,
         ILogger<TicketScanService> logger)
     {
         _dbContext = dbContext;
         _clock = clock;
-        _settings = settings.Value;
         _logger = logger;
     }
 
@@ -167,7 +162,7 @@ public sealed class TicketScanService : ITicketScanService
         }
 
         var booking = ticket.BookingSeat.Booking;
-        var showtime = booking.Showtime;
+        var showtime = booking.Showtime!;
         var room = showtime.Room;
 
         if (staffCinemaId is not null
@@ -254,9 +249,11 @@ public sealed class TicketScanService : ITicketScanService
                 cancellationToken);
         }
 
-        var now = _clock.UtcNow;
-        var checkInOpensAt = EnsureUtc(showtime.StartTime)
-            .AddMinutes(-_settings.OpenBeforeStartMinutes!.Value);
+        var utcNow = _clock.UtcNow;
+        var now = utcNow.ToLocalTime();
+        var showtimeStartTime = ToLocalComparableTime(showtime.StartTime);
+        var checkInOpensAt = showtimeStartTime.Date;
+        var checkInClosesAt = showtimeStartTime.AddMinutes(30);
         if (now < checkInOpensAt)
         {
             return await FailAndCommitAsync(
@@ -272,8 +269,6 @@ public sealed class TicketScanService : ITicketScanService
                 cancellationToken);
         }
 
-        var checkInClosesAt = EnsureUtc(showtime.EndTime)
-            .AddMinutes(_settings.CloseAfterEndMinutes!.Value);
         if (now > checkInClosesAt)
         {
             return await FailAndCommitAsync(
@@ -314,7 +309,7 @@ public sealed class TicketScanService : ITicketScanService
             normalizedQrCode,
             BookingConstants.CheckInResult.Success,
             null,
-            now);
+            utcNow);
         _dbContext.CheckinLogs.Add(checkInLog);
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -335,19 +330,33 @@ public sealed class TicketScanService : ITicketScanService
         CancellationToken cancellationToken)
     {
         return await _dbContext.Tickets
-            .AsNoTracking()
+            .AsTracking()
             .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.Booking)
-                    .ThenInclude(booking => booking.Showtime)
+                    .ThenInclude(booking => booking.Showtime!)
                         .ThenInclude(showtime => showtime.Movie)
             .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.Booking)
-                    .ThenInclude(booking => booking.Showtime)
+                    .ThenInclude(booking => booking.Showtime!)
                         .ThenInclude(showtime => showtime.Room)
                             .ThenInclude(room => room.Cinema)
             .Include(ticket => ticket.BookingSeat)
+                .ThenInclude(bookingSeat => bookingSeat.Booking)
+                    .ThenInclude(booking => booking.CustomerProfile)
+                        .ThenInclude(customerProfile => customerProfile!.User)
+            .Include(ticket => ticket.BookingSeat)
+                .ThenInclude(bookingSeat => bookingSeat.Booking)
+                    .ThenInclude(booking => booking.BookingFbItems)
+                        .ThenInclude(bookingFbItem => bookingFbItem.FbItem)
+            .Include(ticket => ticket.BookingSeat)
+                .ThenInclude(bookingSeat => bookingSeat.Booking)
+                    .ThenInclude(booking => booking.BookingSeats)
+                        .ThenInclude(bookingSeat => bookingSeat.ShowtimeSeat)
+                            .ThenInclude(showtimeSeat => showtimeSeat.Seat)
+            .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.ShowtimeSeat)
                     .ThenInclude(showtimeSeat => showtimeSeat.Seat)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(
                 ticket => ticket.QrCode == qrCode,
                 cancellationToken);
@@ -466,8 +475,27 @@ public sealed class TicketScanService : ITicketScanService
     {
         var bookingSeat = ticket.BookingSeat;
         var booking = bookingSeat.Booking;
-        var showtime = booking.Showtime;
+        var showtime = booking.Showtime!;
         var room = showtime.Room;
+        var customerUser = booking.CustomerProfile?.User;
+        var seatCodes = booking.BookingSeats
+            .Select(item => item.ShowtimeSeat?.Seat?.SeatCode)
+            .Where(seatCode => !string.IsNullOrWhiteSpace(seatCode))
+            .Select(seatCode => seatCode!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(seatCode => seatCode)
+            .ToArray();
+        var foodAndBeverageItems = booking.BookingFbItems
+            .OrderBy(item => item.FbItem.ItemName)
+            .Select(item => new ScanTicketFoodAndBeverageItemResponse
+            {
+                FbItemId = item.FbItemId,
+                ItemName = item.FbItem.ItemName,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice,
+                Subtotal = item.Subtotal
+            })
+            .ToArray();
 
         return new ScanTicketResponse
         {
@@ -476,6 +504,8 @@ public sealed class TicketScanService : ITicketScanService
             CheckInLogId = checkInLog.CheckInLogId,
             ScanTime = checkInLog.ScanTime,
             BookingId = booking.BookingId,
+            CustomerName = customerUser?.FullName ?? booking.GuestName ?? "Khach vang lai",
+            CustomerPhone = customerUser?.PhoneNumber ?? booking.GuestPhone,
             CinemaId = room.CinemaId,
             CinemaName = room.Cinema.CinemaName,
             RoomId = room.RoomId,
@@ -484,17 +514,19 @@ public sealed class TicketScanService : ITicketScanService
             ShowtimeStartTime = showtime.StartTime,
             ShowtimeEndTime = showtime.EndTime,
             MovieTitle = showtime.Movie.Title,
-            SeatCode = bookingSeat.ShowtimeSeat.Seat.SeatCode
+            SeatCode = bookingSeat.ShowtimeSeat.Seat.SeatCode,
+            SeatCodes = seatCodes,
+            FoodAndBeverageItems = foodAndBeverageItems
         };
     }
 
-    private static DateTime EnsureUtc(DateTime value)
+    private static DateTime ToLocalComparableTime(DateTime value)
     {
         return value.Kind switch
         {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+            DateTimeKind.Utc => value.ToLocalTime(),
+            DateTimeKind.Local => value,
+            _ => value
         };
     }
 

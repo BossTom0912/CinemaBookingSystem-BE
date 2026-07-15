@@ -241,7 +241,7 @@ public sealed class TicketScanApiIntegrationTests
     }
 
     [Fact]
-    public async Task Scan_BeforeConfiguredWindow_ReturnsConflictAndWritesFailedLog()
+    public async Task Scan_BeforeShowtimeDate_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);
@@ -263,7 +263,7 @@ public sealed class TicketScanApiIntegrationTests
     }
 
     [Fact]
-    public async Task Scan_AfterConfiguredWindow_ReturnsConflictAndWritesFailedLog()
+    public async Task Scan_AfterStartPlusThirtyMinutes_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);
@@ -434,8 +434,8 @@ public sealed class TicketScanApiIntegrationTests
                 TicketEarly,
                 RoomA.Id,
                 SeatEarly.Id,
-                now.AddMinutes(ScanWindow.EarlyShowtimeStartOffsetMinutes),
-                now.AddMinutes(ScanWindow.EarlyShowtimeEndOffsetMinutes));
+                now.AddMinutes(ScanWindow.FutureDateShowtimeStartOffsetMinutes),
+                now.AddMinutes(ScanWindow.FutureDateShowtimeEndOffsetMinutes));
             AddTicketGraph(
                 db,
                 TicketLate,
@@ -576,8 +576,8 @@ public sealed class TicketScanApiIntegrationTests
     {
         public const int CurrentShowtimeStartOffsetMinutes = 10;
         public const int CurrentShowtimeEndOffsetMinutes = 120;
-        public const int EarlyShowtimeStartOffsetMinutes = 120;
-        public const int EarlyShowtimeEndOffsetMinutes = 240;
+        public const int FutureDateShowtimeStartOffsetMinutes = 1_560;
+        public const int FutureDateShowtimeEndOffsetMinutes = 1_680;
         public const int LateShowtimeStartOffsetMinutes = -180;
         public const int LateShowtimeEndOffsetMinutes = -60;
     }

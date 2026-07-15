@@ -3,7 +3,7 @@
 ## Purpose
 
 Implement `POST /api/tickets/scan` for Staff, Manager, and Admin while enforcing
-cinema scope, ticket state, screening room, showtime state, and the configured
+cinema scope, ticket state, screening room, showtime state, and the fixed
 check-in window.
 
 ## Authoritative rules
@@ -53,7 +53,8 @@ The service:
 2. Loads Ticket, BookingSeat, ShowtimeSeat, Seat, Booking, Showtime, Room,
    Cinema, and Movie.
 3. Validates cinema, room, ticket status, booking status, showtime status, and
-   configured UTC time window.
+   the check-in window: from the local showtime date until 30 minutes after the
+   showtime starts.
 4. Atomically updates only a row whose status is still `UNUSED`.
 5. Writes a `CHECKIN_LOG` row for every accepted or rejected scan.
 6. Commits the ticket update and success log in one serializable transaction.
@@ -67,12 +68,12 @@ scans cannot both change the same ticket from `UNUSED` to `CHECKED_IN`.
   `DomainConstants`.
 - Application compatibility aliases are in `BookingConstants`.
 - QR and ID validation bounds are in `TicketContractConstants`.
-- Check-in time windows are mandatory `TicketScanSettings` values.
+- Ticket scan opens on the local date of the showtime and closes 30 minutes
+  after the showtime start time.
 - Role names and policy names remain in `AuthConstants`.
 - EF table, column, constraint, and index literals remain schema metadata.
 
-There is no fallback check-in window in code. Deployment must configure values
-approved by PM/BA.
+The scan window is no longer configured through `TicketScanSettings`.
 
 ## Database changes
 
@@ -86,10 +87,9 @@ and preserves the exact authenticated actor for Admin scans.
 
 ## Verification
 
-- `dotnet build CinemaSystem.sln --no-restore`: passed with 0 warnings and
-  0 errors.
-- `dotnet test CinemaSystem.sln --no-build --no-restore`: passed 244/244 tests.
-- Focused `TicketScanApiIntegrationTests`: passed 13/13 tests.
+- `dotnet build CinemaSystem.sln`: passed.
+- `dotnet test CinemaSystem.sln`: passed 283/283 tests.
+- Focused `TicketScanApiIntegrationTests`: passed 14/14 tests.
 
 Focused integration coverage includes:
 
@@ -104,4 +104,5 @@ Focused integration coverage includes:
 - Cancelled and refunded ticket.
 - Cancelled showtime.
 - Unknown QR with failed log.
-- Scan before the configured opening window.
+- Scan before the showtime date.
+- Scan after 30 minutes from showtime start.

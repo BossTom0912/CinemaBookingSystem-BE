@@ -155,8 +155,6 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("SepaySettings:BankAccount", "0000000000");
         builder.UseSetting("RefundSettings:FrontendBaseUrl", "https://frontend.test");
         builder.UseSetting("RefundSettings:ClaimTokenMinutes", "5");
-        builder.UseSetting("TicketScanSettings:OpenBeforeStartMinutes", "30");
-        builder.UseSetting("TicketScanSettings:CloseAfterEndMinutes", "0");
         builder.UseSetting("Redis:ConnectionString", string.Empty);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
@@ -176,8 +174,6 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["SepaySettings:BankAccount"] = "0000000000",
                 ["RefundSettings:FrontendBaseUrl"] = "https://frontend.test",
                 ["RefundSettings:ClaimTokenMinutes"] = "5",
-                ["TicketScanSettings:OpenBeforeStartMinutes"] = "30",
-                ["TicketScanSettings:CloseAfterEndMinutes"] = "0",
                 ["Redis:ConnectionString"] = string.Empty,
                 ["SecuritySettings:ConfirmationTokenSecret"] =
                     "test-confirmation-token-secret-32-characters",

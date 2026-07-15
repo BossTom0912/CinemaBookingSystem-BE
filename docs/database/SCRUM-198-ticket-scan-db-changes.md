@@ -27,21 +27,11 @@ database reset script. For an existing database, use
 `docs/database/cinema-booking-schema-upgrade.sql`; it rolls back rather than
 inventing an actor for an unmappable historic scan.
 
-## Application configuration
+## Application time rule
 
-The deployment environment must provide:
-
-```json
-{
-  "TicketScanSettings": {
-    "OpenBeforeStartMinutes": "<PM/BA-approved value>",
-    "CloseAfterEndMinutes": "<PM/BA-approved value>"
-  }
-}
-```
-
-The application validates these values at startup. The code contains no
-fallback business window.
+Ticket check-in now opens at the start of the local showtime date and closes
+30 minutes after the showtime starts. The application no longer requires
+`TicketScanSettings` at startup.
 
 ## Role behavior
 
