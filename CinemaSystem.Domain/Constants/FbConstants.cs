@@ -11,7 +11,7 @@ public static class FbConstants
 
     public static class FulfillmentStatus
     {
-        public const string NotApplicable = "NOT_APPLICABLE";
+        public const string NotRequired = "NOT_REQUIRED";
         public const string Pending = "PENDING";
         public const string Preparing = "PREPARING";
         public const string Fulfilled = "FULFILLED";

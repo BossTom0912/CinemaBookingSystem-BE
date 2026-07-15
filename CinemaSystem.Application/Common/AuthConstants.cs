@@ -59,6 +59,7 @@ public static class AuthConstants
         public const string CanManageVoucher = "CanManageVoucher";
         public const string CanCancelShowtimeAndRefund = "CanCancelShowtimeAndRefund";
         public const string CanViewBranchDashboard = "CanViewBranchDashboard";
+        public const string CanViewStaffShiftReport = "CanViewStaffShiftReport";
         public const string CanViewSystemDashboard = "CanViewSystemDashboard";
         public const string CanManageUserAndRole = "CanManageUserAndRole";
         public const string CanManageSystem = "CanManageSystem";

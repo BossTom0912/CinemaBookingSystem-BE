@@ -122,7 +122,7 @@ Phương án sửa:
 Đã triển khai trong repository:
 
 - tạo patch idempotent
-  `docs/database/SCRUM-193-customer-assisted-refund-patch.sql`;
+  `docs/database/cinema-booking-schema.sql` (canonical reset schema);
 - cập nhật `docs/database/cinema-booking-schema.sql`;
 - bổ sung `BANK_DIRECTORY`, `REFUND_CLAIM`, `REFUND_CLAIM_TOKEN`,
   `CUSTOMER_REFUND_REQUEST`, `MANUAL_REFUND_PROCESS`;

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
@@ -9,7 +11,9 @@ using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Configuration;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using CinemaSystem.Domain.Constants;
 using Hangfire;
@@ -21,6 +25,7 @@ public sealed class BookingService : IBookingService
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
     private readonly ISeatLockStore _seatLockStore;
+    private readonly ILogger<BookingService> _logger;
     private readonly CinemaSystem.Application.Settings.SecuritySettings _securitySettings;
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly IAiEmailService _aiEmailService;
@@ -33,11 +38,13 @@ public sealed class BookingService : IBookingService
         IOptions<BookingSettings> bookingOptions,
         ISeatLockStore seatLockStore,
         IAiEmailService aiEmailService,
+        ILogger<BookingService> logger,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
         _clock = clock;
         _seatLockStore = seatLockStore;
+        _logger = logger;
         _securitySettings = securityOptions.Value;
         _bookingSettings = bookingOptions.Value;
         _aiEmailService = aiEmailService;
@@ -47,6 +54,7 @@ public sealed class BookingService : IBookingService
     public async Task<ServiceResult<BookingResponse>> CreateBookingAsync(
         CreateBookingRequest request,
         string userId,
+        Guid? clientRequestId,
         CancellationToken cancellationToken)
     {
         var customerProfile = await _dbContext.CustomerProfiles
@@ -55,6 +63,31 @@ public sealed class BookingService : IBookingService
         if (customerProfile == null)
         {
             return ServiceResult<BookingResponse>.Fail(403, "Only customers can book tickets.", "CUSTOMER_PROFILE_NOT_FOUND");
+        }
+
+        var requestFingerprint = clientRequestId.HasValue
+            ? CreateRequestFingerprint(request)
+            : null;
+        var existingBooking = clientRequestId.HasValue
+            ? await FindBookingByClientRequestAsync(
+                customerProfile.CustomerProfileId,
+                clientRequestId.Value,
+                cancellationToken)
+            : null;
+
+        if (existingBooking != null)
+        {
+            if (!string.Equals(existingBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    409,
+                    "This Idempotency-Key was already used for a different checkout request.",
+                    "IDEMPOTENCY_KEY_REUSED");
+            }
+
+            return ServiceResult<BookingResponse>.Ok(
+                ToBookingResponse(existingBooking),
+                "Existing checkout returned successfully.");
         }
 
         var showtime = await _dbContext.Showtimes
@@ -207,7 +240,7 @@ public sealed class BookingService : IBookingService
 
             // 4. Check Global Usage Limit (count active usages: APPLIED & CONFIRMED)
             var activeUsagesCount = await _dbContext.VoucherUsages
-                .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                .CountAsync(vu => vu.VoucherId == voucher.VoucherId
                     && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
 
             if (activeUsagesCount >= voucher.UsageLimit)
@@ -217,8 +250,8 @@ public sealed class BookingService : IBookingService
 
             // 5. Check Customer Limit (count active customer usages)
             var customerUsagesCount = await _dbContext.VoucherUsages
-                .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
-                    && vu.CustomerProfileId == customerProfile.CustomerProfileId 
+                .CountAsync(vu => vu.VoucherId == voucher.VoucherId
+                    && vu.CustomerProfileId == customerProfile.CustomerProfileId
                     && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
 
             if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
@@ -262,8 +295,8 @@ public sealed class BookingService : IBookingService
 
             // Mark the customer's claimed voucher as used if it exists in their wallet
             var claimedVoucher = await _dbContext.CustomerVouchers
-                .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId 
-                    && cv.CustomerProfileId == customerProfile.CustomerProfileId 
+                .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId
+                    && cv.CustomerProfileId == customerProfile.CustomerProfileId
                     && !cv.IsUsed, cancellationToken);
             if (claimedVoucher != null)
             {
@@ -283,7 +316,12 @@ public sealed class BookingService : IBookingService
             TotalAmount = totalAmount,
             CreatedAt = now,
             ExpiredAt = totalAmount == 0 ? null : now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
+            ClientRequestId = clientRequestId,
+            RequestFingerprint = requestFingerprint,
             BookingChannel = DomainConstants.BookingChannel.Online,
+            FbFulfillmentStatus = bookingFbItems.Count == 0
+                ? FbConstants.FulfillmentStatus.NotRequired
+                : FbConstants.FulfillmentStatus.Pending,
             BookingSeats = bookingSeats,
             BookingFbItems = bookingFbItems
         };
@@ -332,7 +370,55 @@ public sealed class BookingService : IBookingService
         {
             _dbContext.VoucherUsages.Add(voucherUsage);
         }
-        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            if (!IsCheckoutConflict(exception))
+            {
+                _logger.LogError(
+                    exception,
+                    "Checkout persistence failed for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
+                    bookingId,
+                    request.ShowtimeId,
+                    clientRequestId);
+                throw;
+            }
+
+            _logger.LogWarning(
+                exception,
+                "Checkout concurrency conflict for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
+                bookingId,
+                request.ShowtimeId,
+                clientRequestId);
+
+            // SQL Server's filtered unique index is the final guard when two
+            // requests with the same key arrive at the same time. A fresh query
+            // returns the winner's response; other seat conflicts stay a 409.
+            _dbContext.ChangeTracker.Clear();
+            var recoveredBooking = clientRequestId.HasValue
+                ? await FindBookingByClientRequestAsync(
+                    customerProfile.CustomerProfileId,
+                    clientRequestId.Value,
+                    cancellationToken)
+                : null;
+
+            if (recoveredBooking != null
+                && string.Equals(recoveredBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+            {
+                return ServiceResult<BookingResponse>.Ok(
+                    ToBookingResponse(recoveredBooking),
+                    "Existing checkout returned successfully.");
+            }
+
+            return ServiceResult<BookingResponse>.Fail(
+                409,
+                "The selected seats were changed by another checkout. Please refresh the seat map.",
+                "CHECKOUT_CONFLICT");
+        }
 
         return ServiceResult<BookingResponse>.Ok(new BookingResponse
         {
@@ -347,6 +433,45 @@ public sealed class BookingService : IBookingService
             CreatedAt = booking.CreatedAt,
             ExpiredAt = booking.ExpiredAt
         }, totalAmount == 0 ? "Booking created and confirmed successfully (Free order)." : "Booking created successfully.");
+    }
+
+    private static bool IsCheckoutConflict(DbUpdateException exception)
+    {
+        return exception is DbUpdateConcurrencyException
+            || exception.InnerException is SqlException { Number: 2601 or 2627 };
+    }
+
+    public async Task<ServiceResult<CheckoutRecoveryResponse>> GetCheckoutRecoveryAsync(
+        string userId,
+        Guid clientRequestId,
+        CancellationToken cancellationToken)
+    {
+        var recovery = await _dbContext.Bookings
+            .AsNoTracking()
+            .Where(booking => booking.CustomerProfile != null
+                && booking.CustomerProfile.UserId == userId
+                && booking.ClientRequestId == clientRequestId)
+            .Select(booking => new CheckoutRecoveryResponse
+            {
+                BookingId = booking.BookingId,
+                ShowtimeId = booking.ShowtimeId,
+                BookingStatus = booking.BookingStatus,
+                PaymentStatus = booking.Payments
+                    .OrderByDescending(payment => payment.CreatedAt)
+                    .Select(payment => payment.PaymentStatus)
+                    .FirstOrDefault(),
+                ExpiredAt = booking.ExpiredAt
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return recovery == null
+            ? ServiceResult<CheckoutRecoveryResponse>.Fail(
+                404,
+                "No checkout was found for this Idempotency-Key.",
+                "CHECKOUT_NOT_FOUND")
+            : ServiceResult<CheckoutRecoveryResponse>.Ok(
+                recovery,
+                "Checkout recovery state retrieved successfully.");
     }
 
     public async Task<ServiceResult<BookingDetailsResponse>> GetBookingDetailsAsync(
@@ -596,6 +721,60 @@ public sealed class BookingService : IBookingService
         }
     }
 
+    private async Task<Booking?> FindBookingByClientRequestAsync(
+        string customerProfileId,
+        Guid clientRequestId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.Bookings
+            .Include(booking => booking.Showtime)
+                .ThenInclude(showtime => showtime!.Movie)
+            .Include(booking => booking.Showtime)
+                .ThenInclude(showtime => showtime!.Room)
+                    .ThenInclude(room => room!.Cinema)
+            .FirstOrDefaultAsync(
+                booking => booking.CustomerProfileId == customerProfileId
+                    && booking.ClientRequestId == clientRequestId,
+                cancellationToken);
+    }
+
+    private static BookingResponse ToBookingResponse(Booking booking)
+    {
+        return new BookingResponse
+        {
+            BookingId = booking.BookingId,
+            ShowtimeId = booking.ShowtimeId ?? string.Empty,
+            MovieTitle = booking.Showtime?.Movie?.Title ?? string.Empty,
+            CinemaName = booking.Showtime?.Room?.Cinema?.CinemaName ?? string.Empty,
+            RoomName = booking.Showtime?.Room?.RoomName ?? string.Empty,
+            StartTime = booking.Showtime?.StartTime,
+            TotalAmount = booking.TotalAmount,
+            Status = booking.BookingStatus,
+            CreatedAt = booking.CreatedAt,
+            ExpiredAt = booking.ExpiredAt
+        };
+    }
+
+    private static string CreateRequestFingerprint(CreateBookingRequest request)
+    {
+        var seatIds = request.ShowtimeSeatIds
+            .Select(item => item.Trim())
+            .OrderBy(item => item, StringComparer.Ordinal);
+        var foodItems = (request.FoodAndBeverages ?? [])
+            .OrderBy(item => item.FbItemId, StringComparer.Ordinal)
+            .ThenBy(item => item.Quantity)
+            .Select(item => $"{item.FbItemId.Trim()}:{item.Quantity}");
+        var canonicalRequest = string.Join(
+            "|",
+            request.ShowtimeId.Trim(),
+            string.Join(",", seatIds),
+            (request.VoucherCode ?? string.Empty).Trim(),
+            string.Join(",", foodItems));
+
+        return Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRequest)));
+    }
+
     private async Task ReleaseStaleBookingSeatsForShowtimeAsync(
         string showtimeId,
         IEnumerable<string> showtimeSeatIds,
@@ -809,12 +988,12 @@ public sealed class BookingService : IBookingService
             if (!string.IsNullOrEmpty(customerEmail) && _backgroundJobClient != null)
             {
                 string subject = "Thông báo thay đổi ghế ngồi / Showtime Seat Change Notice";
-                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                _backgroundJobClient.Enqueue<IAiEmailService>(ai =>
                     ai.SendAiApologyEmailAsync(
-                        customerEmail, 
-                        subject, 
-                        "Thay đổi ghế ngồi do yêu cầu kỹ thuật rạp", 
-                        $"Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được điều chỉnh đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu vận hành kỹ thuật phòng chiếu.", 
+                        customerEmail,
+                        subject,
+                        "Thay đổi ghế ngồi do yêu cầu kỹ thuật rạp",
+                        $"Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được điều chỉnh đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu vận hành kỹ thuật phòng chiếu.",
                         CancellationToken.None));
             }
 
@@ -994,7 +1173,7 @@ public sealed class BookingService : IBookingService
                 }
 
                 var activeUsagesCount = await _dbContext.VoucherUsages
-                    .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                    .CountAsync(vu => vu.VoucherId == voucher.VoucherId
                         && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
 
                 if (activeUsagesCount >= voucher.UsageLimit)
@@ -1006,8 +1185,8 @@ public sealed class BookingService : IBookingService
                 if (!string.IsNullOrEmpty(request.CustomerProfileId))
                 {
                     var customerUsagesCount = await _dbContext.VoucherUsages
-                        .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
-                            && vu.CustomerProfileId == request.CustomerProfileId 
+                        .CountAsync(vu => vu.VoucherId == voucher.VoucherId
+                            && vu.CustomerProfileId == request.CustomerProfileId
                             && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
 
                     if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
@@ -1053,8 +1232,8 @@ public sealed class BookingService : IBookingService
                 if (!string.IsNullOrEmpty(request.CustomerProfileId))
                 {
                     var claimedVoucher = await _dbContext.CustomerVouchers
-                        .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId 
-                            && cv.CustomerProfileId == request.CustomerProfileId 
+                        .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId
+                            && cv.CustomerProfileId == request.CustomerProfileId
                             && !cv.IsUsed, cancellationToken);
                     if (claimedVoucher != null)
                     {

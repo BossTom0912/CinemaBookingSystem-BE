@@ -19,24 +19,13 @@ Table: `CHECKIN_LOG`
 `staffProfileId` remains populated for Staff/Manager when an active profile is
 available, but may be null for Admin.
 
-## Existing-data migration
+## Database setup
 
-The patch backfills `scannedByUserId` from
-`CHECKIN_LOG.staffProfileId -> STAFF_PROFILE.userId`.
-
-The migration stops and rolls back if any existing row cannot be mapped to a
-user. It does not invent or assign a fallback administrator.
-
-## Deployment
-
-Run:
-
-```text
-docs/database/SCRUM-198-ticket-scan-patch.sql
-```
-
-The script is idempotent and safe to rerun. Apply it before deploying the API
-version that writes `scannedByUserId`.
+The schema is consolidated into `docs/database/cinema-booking-schema.sql`.
+It creates `CHECKIN_LOG` with `scannedByUserId` from the outset and is a full
+database reset script. For an existing database, use
+`docs/database/cinema-booking-schema-upgrade.sql`; it rolls back rather than
+inventing an actor for an unmappable historic scan.
 
 ## Application configuration
 

@@ -22,6 +22,7 @@ namespace CinemaSystem.Controllers;
 [Authorize(Policy = AuthConstants.Policies.CanBookTicket)]
 public sealed class BookingsController : ControllerBase
 {
+    private const string IdempotencyKeyHeaderName = "Idempotency-Key";
     private readonly IBookingService _bookingService;
     public BookingsController(IBookingService bookingService)
     {
@@ -31,6 +32,7 @@ public sealed class BookingsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> CreateBooking(
         CreateBookingRequest request,
+        [FromHeader(Name = IdempotencyKeyHeaderName)] string? idempotencyKey,
         CancellationToken cancellationToken)
     {
         var userId = GetUserId();
@@ -39,14 +41,56 @@ public sealed class BookingsController : ControllerBase
             return Unauthorized();
         }
 
+        if (!string.IsNullOrWhiteSpace(idempotencyKey)
+            && !Guid.TryParse(idempotencyKey, out _))
+        {
+            return BadRequest(ApiResponse<BookingResponse>.Fail(
+                "Idempotency-Key must be a valid UUID.",
+                "INVALID_IDEMPOTENCY_KEY"));
+        }
+
         var result = await _bookingService.CreateBookingAsync(
             request,
             userId,
+            Guid.TryParse(idempotencyKey, out var clientRequestId) ? clientRequestId : null,
             cancellationToken);
 
         var response = result.Success
             ? ApiResponse<BookingResponse>.Ok(result.Data, result.Message)
             : ApiResponse<BookingResponse>.Fail(
+                result.Message,
+                result.ErrorCode,
+                result.Errors);
+
+        return StatusCode(result.StatusCode, response);
+    }
+
+    [HttpGet("checkout-recovery")]
+    public async Task<IActionResult> GetCheckoutRecovery(
+        [FromHeader(Name = IdempotencyKeyHeaderName)] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return Unauthorized();
+        }
+
+        if (!Guid.TryParse(idempotencyKey, out var clientRequestId))
+        {
+            return BadRequest(ApiResponse<CheckoutRecoveryResponse>.Fail(
+                "Idempotency-Key must be a valid UUID.",
+                "INVALID_IDEMPOTENCY_KEY"));
+        }
+
+        var result = await _bookingService.GetCheckoutRecoveryAsync(
+            userId,
+            clientRequestId,
+            cancellationToken);
+
+        var response = result.Success
+            ? ApiResponse<CheckoutRecoveryResponse>.Ok(result.Data, result.Message)
+            : ApiResponse<CheckoutRecoveryResponse>.Fail(
                 result.Message,
                 result.ErrorCode,
                 result.Errors);

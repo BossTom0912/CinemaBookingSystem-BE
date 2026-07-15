@@ -241,6 +241,8 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanViewBranchDashboard, policy =>
         policy.RequireRole(AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
+    options.AddPolicy(AuthConstants.Policies.CanViewStaffShiftReport, policy =>
+        policy.RequireRole(AuthConstants.Roles.Staff, AuthConstants.Roles.Manager, AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanViewSystemDashboard, policy =>
         policy.RequireRole(AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageUserAndRole, policy =>

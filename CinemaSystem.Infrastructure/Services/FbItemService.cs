@@ -285,6 +285,7 @@ public sealed class FbItemService : IFbItemService
                 TotalAmount = totalFbAmount,
                 FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled, // Handed directly over at counter POS
                 FbFulfilledAt = DateTime.UtcNow,
+                FbFulfilledByStaffProfileId = staffProfileId,
                 CreatedAt = DateTime.UtcNow,
                 BookingFbItems = bookingFbItems
             };
@@ -340,7 +341,7 @@ public sealed class FbItemService : IFbItemService
                 FbConstants.ErrorCodes.WrongCinemaBranch);
         }
 
-        if (booking.FbFulfillmentStatus == FbConstants.FulfillmentStatus.NotApplicable || !booking.BookingFbItems.Any())
+        if (booking.FbFulfillmentStatus == FbConstants.FulfillmentStatus.NotRequired || !booking.BookingFbItems.Any())
         {
             return ServiceResult<FbFulfillmentResponse>.Fail(400, FbConstants.Messages.NoFbItemsError, FbConstants.ErrorCodes.NoFbItems);
         }
@@ -365,6 +366,7 @@ public sealed class FbItemService : IFbItemService
 
         booking.FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled;
         booking.FbFulfilledAt = DateTime.UtcNow;
+        booking.FbFulfilledByStaffProfileId = staffProfileId;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 

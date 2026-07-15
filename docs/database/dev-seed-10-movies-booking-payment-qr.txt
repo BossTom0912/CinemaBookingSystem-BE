@@ -1,0 +1,220 @@
+/*
+DEV ONLY - 10 movies + showtimes for booking, payment and staff QR scan tests.
+
+Run against CinemaBookingDB. The script is idempotent: it only inserts missing
+rows and never changes/deletes an existing booking, payment, ticket or seat.
+
+ST_TEST_QR_01 starts 10 minutes after execution (UTC). Complete a real booking
+and payment through the API, then scan the generated QR with an active Staff
+account whose STAFF_PROFILE.cinemaId is CIN_ND_Q1 and roomId is RM01.
+*/
+
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+GO
+
+IF OBJECT_ID(N'dbo.MOVIE', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SHOWTIME', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SHOWTIME_SEAT', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SEAT', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.ROOM', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.LANGUAGE', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.GENRE', N'U') IS NULL
+BEGIN
+    THROW 53001, 'Required movie/showtime base tables are missing.', 1;
+END;
+GO
+
+DECLARE @LanguageId NVARCHAR(50) =
+(
+    SELECT TOP (1) [languageId]
+    FROM dbo.[LANGUAGE]
+    WHERE [languageId] IN ('EN_SUB_VN', 'VN')
+    ORDER BY CASE [languageId] WHEN 'EN_SUB_VN' THEN 0 ELSE 1 END
+);
+
+IF @LanguageId IS NULL
+    THROW 53002, 'No supported language was found. Seed LANGUAGE before running this script.', 1;
+
+IF EXISTS
+(
+    SELECT 1
+    FROM (VALUES ('RM01'), ('RM02'), ('RM03'), ('RM04')) AS requiredRoom([roomId])
+    WHERE NOT EXISTS (SELECT 1 FROM dbo.[ROOM] WHERE [roomId] = requiredRoom.[roomId] AND [roomStatus] = 'ACTIVE')
+)
+    THROW 53003, 'RM01, RM02, RM03 and RM04 must exist and be ACTIVE.', 1;
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    DECLARE @Movies TABLE
+    (
+        [movieId] NVARCHAR(50) PRIMARY KEY,
+        [title] NVARCHAR(255) NOT NULL,
+        [durationMinutes] INT NOT NULL,
+        [releaseDate] DATE NOT NULL,
+        [ageRating] NVARCHAR(30) NOT NULL,
+        [description] NVARCHAR(MAX) NOT NULL,
+        [posterUrl] NVARCHAR(1000) NOT NULL,
+        [trailerUrl] NVARCHAR(1000) NOT NULL,
+        [director] NVARCHAR(200) NOT NULL,
+        [highlight] NVARCHAR(30) NULL,
+        [viewCount] INT NOT NULL,
+        [averageRating] DECIMAL(3,2) NOT NULL,
+        [totalReviews] INT NOT NULL,
+        [totalViews] INT NOT NULL,
+        [dailyViews] INT NOT NULL
+    );
+
+    INSERT INTO @Movies
+    VALUES
+    ('MOV_TEST_01', N'Đường Chân Trời Rực Lửa', 118, '2026-06-20', 'T13', N'Một phi công trẻ phải đưa đoàn người vượt qua vùng bão để trở về nhà.', 'https://images.example.test/mov-test-01.jpg', 'https://www.youtube.com/watch?v=mov-test-01', N'Nguyễn Minh Khang', 'HOT', 1280, 4.35, 215, 1280, 76),
+    ('MOV_TEST_02', N'Vũ Trụ Song Song', 126, '2026-06-25', 'T13', N'Nhà vật lý phát hiện cánh cổng kết nối hai dòng thời gian đối nghịch.', 'https://images.example.test/mov-test-02.jpg', 'https://www.youtube.com/watch?v=mov-test-02', N'Trần Anh Dũng', 'TRENDING', 970, 4.20, 168, 970, 52),
+    ('MOV_TEST_03', N'Bí Ẩn Đêm Mưa', 108, '2026-06-28', 'T16', N'Một thám tử lần theo dấu vết vụ mất tích giữa thành phố mưa không dứt.', 'https://images.example.test/mov-test-03.jpg', 'https://www.youtube.com/watch?v=mov-test-03', N'Lê Quang Huy', 'NEW', 760, 4.10, 112, 760, 45),
+    ('MOV_TEST_04', N'Nhật Ký Rừng Xanh', 96, '2026-07-01', 'P', N'Nhóm bạn nhỏ bảo vệ khu rừng quê hương khỏi dự án khai thác trái phép.', 'https://images.example.test/mov-test-04.jpg', 'https://www.youtube.com/watch?v=mov-test-04', N'Phạm Ngọc Lan', 'NEW', 540, 4.00, 86, 540, 31),
+    ('MOV_TEST_05', N'Chiến Binh Bóng Tối', 132, '2026-07-03', 'T16', N'Một cựu binh buộc phải đối đầu với tổ chức từng hủy hoại gia đình mình.', 'https://images.example.test/mov-test-05.jpg', 'https://www.youtube.com/watch?v=mov-test-05', N'Hoàng Nam', 'HOT', 1520, 4.45, 288, 1520, 91),
+    ('MOV_TEST_06', N'Tiệm Bánh Ký Ức', 102, '2026-07-05', 'P', N'Một tiệm bánh cũ giúp những vị khách tìm lại mảnh ký ức bị đánh mất.', 'https://images.example.test/mov-test-06.jpg', 'https://www.youtube.com/watch?v=mov-test-06', N'Võ Thanh Hà', NULL, 610, 4.15, 94, 610, 29),
+    ('MOV_TEST_07', N'Ga Cuối Cùng', 114, '2026-07-06', 'T13', N'Chuyến tàu đêm đưa năm hành khách đến những lựa chọn không thể quay lại.', 'https://images.example.test/mov-test-07.jpg', 'https://www.youtube.com/watch?v=mov-test-07', N'Đặng Quốc Bảo', 'TRENDING', 890, 4.25, 143, 890, 48),
+    ('MOV_TEST_08', N'Hành Tinh Cát Trắng', 140, '2026-07-08', 'T13', N'Đội thám hiểm tìm nguồn nước cuối cùng trên hành tinh đang chết dần.', 'https://images.example.test/mov-test-08.jpg', 'https://www.youtube.com/watch?v=mov-test-08', N'Bùi Đức Thắng', 'HOT', 1360, 4.40, 240, 1360, 80),
+    ('MOV_TEST_09', N'Ngày Không Mặt Trời', 110, '2026-07-10', 'T16', N'Một thị trấn phải sống sót khi bầu trời đột ngột chìm vào bóng tối.', 'https://images.example.test/mov-test-09.jpg', 'https://www.youtube.com/watch?v=mov-test-09', N'Đỗ Mỹ Linh', 'NEW', 690, 4.05, 101, 690, 36),
+    ('MOV_TEST_10', N'Bản Nhạc Mùa Hè', 100, '2026-07-12', 'P', N'Ban nhạc học đường tìm lại tình bạn trước đêm diễn quan trọng nhất.', 'https://images.example.test/mov-test-10.jpg', 'https://www.youtube.com/watch?v=mov-test-10', N'Nguyễn Thu Phương', NULL, 470, 3.95, 72, 470, 22);
+
+    INSERT INTO dbo.[MOVIE]
+    (
+        [movieId], [title], [durationMinutes], [languageId], [releaseDate],
+        [ageRating], [description], [posterUrl], [trailerUrl], [director],
+        [highlight], [movieStatus], [viewCount], [averageRating],
+        [totalReviews], [totalViews], [dailyViews]
+    )
+    SELECT
+        movie.[movieId], movie.[title], movie.[durationMinutes], @LanguageId, movie.[releaseDate],
+        movie.[ageRating], movie.[description], movie.[posterUrl], movie.[trailerUrl], movie.[director],
+        movie.[highlight], 'NOW_SHOWING', movie.[viewCount], movie.[averageRating],
+        movie.[totalReviews], movie.[totalViews], movie.[dailyViews]
+    FROM @Movies AS movie
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[MOVIE] AS persistedMovie
+        WHERE persistedMovie.[movieId] = movie.[movieId]
+    );
+
+    INSERT INTO dbo.[MOVIE_GENRE] ([movieId], [genreId])
+    SELECT persistedMovie.[movieId], genre.[genreId]
+    FROM dbo.[MOVIE] AS persistedMovie
+    INNER JOIN @Movies AS movie ON movie.[movieId] = persistedMovie.[movieId]
+    CROSS APPLY (SELECT TOP (1) [genreId] FROM dbo.[GENRE] ORDER BY [genreId]) AS genre
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[MOVIE_GENRE] AS existing
+        WHERE existing.[movieId] = persistedMovie.[movieId]
+          AND existing.[genreId] = genre.[genreId]
+    );
+
+    DECLARE @NowUtc DATETIME2 = SYSUTCDATETIME();
+    DECLARE @Showtimes TABLE
+    (
+        [showtimeId] NVARCHAR(50) PRIMARY KEY,
+        [movieId] NVARCHAR(50) NOT NULL,
+        [roomId] NVARCHAR(50) NOT NULL,
+        [startTime] DATETIME2 NOT NULL,
+        [durationMinutes] INT NOT NULL,
+        [basePrice] DECIMAL(18,2) NOT NULL
+    );
+
+    INSERT INTO @Showtimes
+    VALUES
+    ('ST_TEST_QR_01', 'MOV_TEST_01', 'RM01', DATEADD(MINUTE, 10, @NowUtc), 118, 85000.00),
+    ('ST_TEST_QR_02', 'MOV_TEST_02', 'RM02', DATEADD(HOUR, 3, @NowUtc), 126, 95000.00),
+    ('ST_TEST_QR_03', 'MOV_TEST_03', 'RM03', DATEADD(HOUR, 5, @NowUtc), 108, 80000.00),
+    ('ST_TEST_QR_04', 'MOV_TEST_04', 'RM04', DATEADD(HOUR, 7, @NowUtc), 96, 75000.00),
+    ('ST_TEST_QR_05', 'MOV_TEST_05', 'RM01', DATEADD(DAY, 1, @NowUtc), 132, 105000.00),
+    ('ST_TEST_QR_06', 'MOV_TEST_06', 'RM02', DATEADD(DAY, 1, DATEADD(HOUR, 3, @NowUtc)), 102, 90000.00),
+    ('ST_TEST_QR_07', 'MOV_TEST_07', 'RM03', DATEADD(DAY, 1, DATEADD(HOUR, 5, @NowUtc)), 114, 85000.00),
+    ('ST_TEST_QR_08', 'MOV_TEST_08', 'RM04', DATEADD(DAY, 2, @NowUtc), 140, 110000.00),
+    ('ST_TEST_QR_09', 'MOV_TEST_09', 'RM01', DATEADD(DAY, 2, DATEADD(HOUR, 4, @NowUtc)), 110, 95000.00),
+    ('ST_TEST_QR_10', 'MOV_TEST_10', 'RM02', DATEADD(DAY, 3, @NowUtc), 100, 80000.00);
+
+    INSERT INTO dbo.[SHOWTIME]
+        ([showtimeId], [movieId], [roomId], [startTime], [endTime], [basePrice], [status])
+    SELECT
+        showtime.[showtimeId], showtime.[movieId], showtime.[roomId], showtime.[startTime],
+        DATEADD(MINUTE, showtime.[durationMinutes], showtime.[startTime]),
+        showtime.[basePrice], 'OPEN'
+    FROM @Showtimes AS showtime
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME] AS persistedShowtime
+        WHERE persistedShowtime.[showtimeId] = showtime.[showtimeId]
+    );
+
+    IF EXISTS
+    (
+        SELECT 1
+        FROM @Showtimes AS expectedShowtime
+        LEFT JOIN dbo.[SHOWTIME] AS persistedShowtime
+            ON persistedShowtime.[showtimeId] = expectedShowtime.[showtimeId]
+        WHERE persistedShowtime.[showtimeId] IS NULL
+    )
+        THROW 53004, 'One or more test showtimes were not persisted. Check SHOWTIME triggers and constraints.', 1;
+
+    COMMIT TRANSACTION;
+
+    -- Keep seat creation retryable even if a later reference-data insert fails.
+    BEGIN TRANSACTION;
+
+    INSERT INTO dbo.[SHOWTIME_SEAT]
+        ([showtimeSeatId], [showtimeId], [seatId], [seatStatus], [lockedUntil], [lockedByUserId])
+    SELECT
+        CONCAT('STS_', persistedShowtime.[showtimeId], '_', seat.[seatId]),
+        persistedShowtime.[showtimeId], seat.[seatId], 'AVAILABLE', NULL, NULL
+    FROM dbo.[SHOWTIME] AS persistedShowtime
+    INNER JOIN @Showtimes AS showtime ON showtime.[showtimeId] = persistedShowtime.[showtimeId]
+    INNER JOIN dbo.[SEAT] AS seat ON seat.[roomId] = persistedShowtime.[roomId] AND seat.[isActive] = 1
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME_SEAT] AS existing
+        WHERE existing.[showtimeId] = persistedShowtime.[showtimeId]
+          AND existing.[seatId] = seat.[seatId]
+    );
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.[PAYMENT_PROVIDER] WHERE [paymentProviderId] = 'PP_SEPAY')
+        INSERT dbo.[PAYMENT_PROVIDER] ([paymentProviderId], [providerName], [apiEndpoint], [providerStatus])
+        VALUES ('PP_SEPAY', 'SEPAY', 'https://my.sepay.vn', 'ACTIVE');
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+-- Pick ST_TEST_QR_01 for the immediate booking/payment/QR test.
+SELECT
+    showtime.[showtimeId], movie.[title], showtime.[roomId], room.[cinemaId],
+    showtime.[startTime], showtime.[endTime], showtime.[basePrice],
+    COUNT(seat.[showtimeSeatId]) AS [availableSeatCount]
+FROM dbo.[SHOWTIME] AS showtime
+INNER JOIN dbo.[MOVIE] AS movie ON movie.[movieId] = showtime.[movieId]
+INNER JOIN dbo.[ROOM] AS room ON room.[roomId] = showtime.[roomId]
+LEFT JOIN dbo.[SHOWTIME_SEAT] AS seat
+    ON seat.[showtimeId] = showtime.[showtimeId] AND seat.[seatStatus] = 'AVAILABLE'
+WHERE showtime.[showtimeId] LIKE 'ST_TEST_QR_%'
+GROUP BY showtime.[showtimeId], movie.[title], showtime.[roomId], room.[cinemaId],
+         showtime.[startTime], showtime.[endTime], showtime.[basePrice]
+ORDER BY showtime.[startTime];
+
+-- Find a Staff account allowed to scan the immediate test ticket.
+SELECT userAccount.[email], userAccount.[fullName], staff.[staffProfileId], staff.[cinemaId]
+FROM dbo.[USER] AS userAccount
+INNER JOIN dbo.[ROLE] AS role ON role.[roleId] = userAccount.[roleId]
+INNER JOIN dbo.[STAFF_PROFILE] AS staff ON staff.[userId] = userAccount.[userId]
+WHERE role.[roleName] = 'STAFF'
+  AND userAccount.[status] = 'ACTIVE'
+  AND staff.[employmentStatus] = 'ACTIVE'
+  AND staff.[cinemaId] = 'CIN_ND_Q1';
+GO

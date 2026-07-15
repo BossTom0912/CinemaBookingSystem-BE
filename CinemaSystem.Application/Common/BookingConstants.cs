@@ -82,6 +82,18 @@ public static class BookingConstants
         public const string CinemaNotFound = DomainConstants.ManagerDashboardErrorCode.CinemaNotFound;
     }
 
+    public static class StaffShiftReportErrorCode
+    {
+        public const string DateRangeRequired = DomainConstants.StaffShiftReportErrorCode.DateRangeRequired;
+        public const string InvalidDateRange = DomainConstants.StaffShiftReportErrorCode.InvalidDateRange;
+        public const string RoleForbidden = DomainConstants.StaffShiftReportErrorCode.RoleForbidden;
+        public const string StaffScopeForbidden = DomainConstants.StaffShiftReportErrorCode.StaffScopeForbidden;
+        public const string CinemaScopeForbidden = DomainConstants.StaffShiftReportErrorCode.CinemaScopeForbidden;
+        public const string StaffProfileNotFound = DomainConstants.StaffShiftReportErrorCode.StaffProfileNotFound;
+        public const string CinemaNotFound = DomainConstants.StaffShiftReportErrorCode.CinemaNotFound;
+        public const string StaffCinemaMismatch = DomainConstants.StaffShiftReportErrorCode.StaffCinemaMismatch;
+    }
+
     public static class EntityIdPrefix
     {
         public const string RefundClaim = DomainConstants.EntityIdPrefix.RefundClaim;
