@@ -175,7 +175,7 @@ public sealed class BookingService : IBookingService
         decimal discountAmount = 0;
         VoucherUsage? voucherUsage = null;
         Voucher? voucher = null;
-
+        var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
         if (!string.IsNullOrWhiteSpace(request.VoucherCode))
         {
             var normalizedCode = request.VoucherCode.Trim().ToUpperInvariant();
@@ -254,7 +254,7 @@ public sealed class BookingService : IBookingService
                 VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
                 VoucherId = voucher.VoucherId,
                 CustomerProfileId = customerProfile.CustomerProfileId,
-                BookingId = string.Empty, // Set below
+                BookingId = bookingId, // Đã có ID chuẩn, không sợ lỗi Khóa ngoại nữa
                 DiscountAmount = discountAmount,
                 UsageStatus = totalAmount == 0 ? DomainConstants.VoucherUsageStatus.Confirmed : DomainConstants.VoucherUsageStatus.Applied,
                 UsedAt = totalAmount == 0 ? now : null
@@ -272,11 +272,7 @@ public sealed class BookingService : IBookingService
             }
         }
 
-        var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
-        if (voucherUsage != null)
-        {
-            voucherUsage.BookingId = bookingId;
-        }
+       
 
         var booking = new Booking
         {
