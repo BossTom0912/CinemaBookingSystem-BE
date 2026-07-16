@@ -36,6 +36,12 @@ public interface IVoucherService
         string userId,
         CancellationToken cancellationToken);
 
+    Task<ServiceResult<VoucherValidationResult>> ValidateAndGetVoucherAsync(
+        string voucherCode,
+        decimal bookingAmount,
+        string customerProfileId,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetActiveVouchersForCustomerAsync(
         CancellationToken cancellationToken);
 

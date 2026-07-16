@@ -408,3 +408,41 @@ Hệ thống Cinema Booking tự động kích hoạt gửi email cho khách hà
 *   **Hủy suất chiếu hàng loạt:** Khi Admin quyết định hủy một suất chiếu (do phòng chiếu hỏng thiết bị, cúp điện...), hệ thống gửi **thư xin lỗi song ngữ Anh - Việt tự động do Gemini AI soạn thảo** thông báo suất chiếu bị hủy, xác nhận vé của họ đã được tự động hoàn tiền 100% và tặng voucher đền bù cho lần xem phim kế tiếp.
 *   **Hủy vé tự động do quá hạn xác nhận (Timeout Cancellation):** Khi khách hàng có vé bị ảnh hưởng đổi suất chiếu (`ProcessingUnstable`) nhưng không thực hiện xác nhận trước giờ chiếu 2 tiếng, hệ thống tự động hủy vé, hoàn tiền và gửi email thông báo đơn đặt vé đã bị hủy tự động.
 *   **Di dời ghế ngồi thủ công (Manual Seat Reassignment):** Khi Admin thực hiện dịch chuyển ghế của khách hàng sang vị trí trống khác (để đóng ghế cũ bảo trì sửa chữa), hệ thống sẽ gửi email thông báo chi tiết vị trí ghế ngồi mới cho khách hàng để tránh bỡ ngỡ khi vào phòng chiếu.
+
+### 12. Nghiệp vụ Voucher, Bán vé tại quầy & Báo cáo ca làm việc (Vouchers, Counter Booking & Staff Shift Report)
+
+#### 12.1 Nghiệp vụ Ví Voucher & Xác thực Voucher (Voucher Wallet & Validation Rules)
+Hệ thống quản lý voucher được thiết kế chặt chẽ và tập trung logic để chống gian lận và tối ưu hóa trải nghiệm khách hàng:
+*   **Ví Voucher (Customer Voucher Wallet):** Khách hàng có thể lưu/thu thập các voucher vào ví cá nhân (`CUSTOMER_VOUCHER`). Khi đặt vé, nếu voucher trong ví được sử dụng, hệ thống tự động đánh dấu đã dùng (`IsUsed = true`) và ghi lại thời gian dùng.
+*   **Xác thực tập trung (Unified Validation):** Mọi thao tác kiểm tra voucher (qua API validation, đặt vé online, hoặc đặt vé tại quầy) đều đi qua phương thức tập trung `ValidateAndGetVoucherAsync` để đảm bảo tính nhất quán (DRY):
+    *   **Trạng thái & Thời gian:** Voucher phải ở trạng thái `ACTIVE` và nằm trong khoảng thời gian hiệu lực (`StartDate <= UtcNow <= EndDate`).
+    *   **Giá trị đơn hàng tối thiểu:** Kiểm tra số tiền đơn hàng phải lớn hơn hoặc bằng mức tối thiểu (`MinOrderAmount`).
+    *   **Giới hạn số lượng (Usage Limit):** Tổng số lượt áp dụng thực tế (trạng thái khác `Cancelled`) không vượt quá giới hạn tổng của voucher (`UsageLimit`).
+    *   **Giới hạn mỗi khách hàng (Per-Customer Limit):** Số lần khách hàng đã sử dụng voucher (trạng thái khác `Cancelled` trong `VoucherUsages`) không được vượt quá hạn mức cá nhân (`PerCustomerLimit`).
+*   **Tính toán chiết khấu (Discount Calculation):** Hỗ trợ giảm giá theo số tiền cố định (`AMOUNT`) hoặc phần trăm (`PERCENT`) kèm theo hạn mức trần tối đa (`MaxDiscountAmount`). Nếu số tiền thanh toán sau giảm giá dưới 1,000 VND, hệ thống tự động làm tròn về 0 VND (miễn phí hoàn toàn).
+*   **Thu hồi quota khi hết hạn/hủy đơn:** Nếu đặt vé bị hết hạn thanh toán (timeout) hoặc bị hủy ở trạng thái không ổn định (`ProcessingUnstable`), hệ thống tự động hủy lượt dùng voucher, hoàn trả lượt dùng (`UsedCount`) và hoàn voucher lại ví cá nhân (`IsUsed = false`).
+
+#### 12.2 Nghiệp vụ Bán vé tại quầy (Staff Counter Booking)
+Cho phép nhân viên (`Staff`, `Manager`, `Admin`) bán vé và đồ ăn nước uống (F&B) trực tiếp cho khách tại quầy bán vé:
+*   **Giới hạn khu vực (Cinema Scoping):** Nhân viên rạp chỉ được phép bán vé cho các suất chiếu thuộc rạp mình đang được phân công làm việc (`currentStaffCinemaId` khớp với `Room.CinemaId`).
+*   **Trừ kho F&B tự động và nguyên tử (Atomic Inventory Deduction):** Đồ ăn nước uống được bán trực tiếp tại quầy sẽ tự động thực hiện trừ số lượng trong kho của rạp (`CINEMA_FB_INVENTORY`) thông qua câu lệnh SQL Update nguyên tử nhằm chống tranh chấp tài nguyên kho (Concurrency/Race Condition).
+*   **Tự động bàn giao:** F&B được mua tại quầy mặc định có trạng thái hoàn tất bàn giao (`FbFulfillmentStatus = Fulfilled`) ngay lập tức mà không cần qua quy trình quét mã nhận đồ ăn.
+
+#### 12.3 Nghiệp vụ Quét mã & Bàn giao đồ ăn nước uống (F&B Order Fulfillment)
+Hỗ trợ quy trình nhận đồ ăn nước uống đã đặt trước trực tuyến thông qua mã QR:
+*   **Kiểm tra chéo chi nhánh (Cross-Branch Scan Protection):** Hệ thống chặn nhân viên rạp này quét mã bàn giao đồ ăn của đơn hàng được đặt ở rạp khác.
+*   **Chống gian lận nhận nhiều lần (Anti-Fraud Control):** Kiểm tra trạng thái đơn hàng. Nếu đơn F&B đã được bàn giao (`Fulfilled`), hệ thống sẽ chặn và đưa ra cảnh báo thời gian đã nhận đồ ăn trước đó để chống gian lận.
+*   **Bảo vệ dữ liệu phân quyền:** Trong trường hợp thông tin rạp của nhân viên bị thiếu trong token (claims), hệ thống sẽ truy vấn ngược CSDL để lấy thông tin rạp từ `StaffProfile` hoạt động, đảm bảo an toàn tuyệt đối.
+
+#### 12.4 Nghiệp vụ Báo cáo ca làm việc của Nhân viên (Staff Shift Report)
+Cung cấp báo cáo minh bạch cho nhân viên và quản lý rạp về doanh thu và hoạt động vận hành trong ca:
+*   **Phân quyền truy cập (Role-Based Scoping):**
+    *   **Staff:** Chỉ được phép xem báo cáo ca làm việc của chính mình tại rạp được chỉ định.
+    *   **Manager:** Xem được báo cáo của bất kỳ nhân viên nào hoặc toàn bộ nhân viên thuộc rạp mình quản lý.
+    *   **Admin:** Có toàn quyền xem báo cáo của mọi nhân viên ở tất cả các rạp trong hệ thống.
+*   **Thống kê chi tiết hoạt động:** Báo cáo tổng hợp số lượng vé đã quét kiểm tra (`CheckedInTicketCount`), số lượng đơn F&B tại quầy và trực tuyến đã xử lý, tổng doanh thu bán đồ ăn tại quầy, chi tiết doanh thu theo phương thức thanh toán (Tiền mặt - Cash, Chuyển khoản - Transfer), và bảng nhật ký chi tiết tất cả giao dịch được sắp xếp theo thời gian thực.
+
+#### 12.5 Nghiệp vụ Cập nhật Sơ đồ Ghế kèm Lưu Lịch sử (Room Seats Template Update with History)
+Cho phép quản trị viên thay đổi thiết kế sơ đồ ghế ngồi của phòng chiếu:
+*   **Lưu vết lịch sử thay đổi (Audit Log History):** Trước khi cập nhật sơ đồ ghế mới, hệ thống tự động tuần tự hóa (serialize) sơ đồ ghế cũ và sơ đồ ghế mới dưới dạng JSON để lưu vào bảng nhật ký thay đổi (`AuditLog`), giúp dễ dàng theo dõi vết hoạt động nâng cấp phòng chiếu.
+*   **Bảo toàn dữ liệu Suất chiếu:** Hệ thống kiểm tra xem phòng chiếu đó đã có suất chiếu nào được lên lịch (`ShowtimeSeat`) hay chưa. Nếu đã có suất chiếu được tạo, hệ thống chặn hành động cập nhật và yêu cầu xử lý suất chiếu trước nhằm tránh crash API do ràng buộc khóa ngoại (Foreign Key Violation) hoặc phá hỏng dữ liệu đặt vé lịch sử.

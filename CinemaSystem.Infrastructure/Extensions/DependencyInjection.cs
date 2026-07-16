@@ -234,6 +234,7 @@ public static class DependencyInjection
         services.AddScoped<IMovieService, MovieService>();
         services.AddScoped<IGenreService, GenreService>();
         services.AddScoped<IBookingService, BookingService>();
+        services.AddScoped<INotificationService, NotificationService>();
         var redisConnectionString = configuration["Redis:ConnectionString"];
         if (string.IsNullOrWhiteSpace(redisConnectionString))
         {

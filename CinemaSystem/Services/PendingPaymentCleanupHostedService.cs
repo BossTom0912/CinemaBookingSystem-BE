@@ -104,6 +104,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
             .Include(item => item.Showtime)
                 .ThenInclude(s => s.Movie)
             .Include(item => item.Payments)
+            .Include(item => item.VoucherUsage)
             .Include(item => item.CustomerProfile)
                 .ThenInclude(cp => cp.User)
             .Where(item =>
@@ -142,6 +143,30 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                     RequestedAt = now
                 };
                 dbContext.Refunds.Add(refund);
+            }
+
+            if (booking.VoucherUsage is not null)
+            {
+                if (string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Confirmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    var voucher = await dbContext.Vouchers.FirstOrDefaultAsync(v => v.VoucherId == booking.VoucherUsage.VoucherId, cancellationToken);
+                    if (voucher != null)
+                    {
+                        voucher.UsedCount = Math.Max(0, voucher.UsedCount - 1);
+                    }
+                }
+
+                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
+
+                var claimedVoucher = await dbContext.CustomerVouchers
+                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId 
+                        && cv.CustomerProfileId == booking.CustomerProfileId 
+                        && cv.IsUsed, cancellationToken);
+                if (claimedVoucher != null)
+                {
+                    claimedVoucher.IsUsed = false;
+                    claimedVoucher.UsedAt = null;
+                }
             }
 
             booking.BookingStatus = "CANCELLED";

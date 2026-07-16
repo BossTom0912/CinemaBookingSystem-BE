@@ -186,31 +186,55 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<ValidateVoucherResponse>.Fail(403, "Only customers can validate vouchers.", "CUSTOMER_PROFILE_NOT_FOUND");
         }
 
+        var validationResult = await ValidateAndGetVoucherAsync(
+            voucherCode,
+            bookingAmount,
+            customerProfile.CustomerProfileId,
+            cancellationToken);
+
+        if (!validationResult.Success)
+        {
+            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
+            {
+                IsValid = false,
+                DiscountAmount = 0,
+                Message = validationResult.Message,
+                ErrorCode = validationResult.ErrorCode
+            }, "Validation completed.");
+        }
+
+        return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
+        {
+            IsValid = true,
+            DiscountAmount = validationResult.Data.DiscountAmount,
+            Message = "Voucher is valid."
+        }, "Voucher validated successfully.");
+    }
+
+    public async Task<ServiceResult<VoucherValidationResult>> ValidateAndGetVoucherAsync(
+        string voucherCode,
+        decimal bookingAmount,
+        string customerProfileId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(voucherCode))
+        {
+            return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher code cannot be empty.", BookingConstants.ErrorCodes.VoucherNotFound);
+        }
+
         var normalizedCode = voucherCode.Trim().ToUpperInvariant();
         var voucher = await _dbContext.Vouchers
             .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
 
         if (voucher == null)
         {
-            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
-            {
-                IsValid = false,
-                DiscountAmount = 0,
-                Message = "Voucher code not found.",
-                ErrorCode = BookingConstants.ErrorCodes.VoucherNotFound
-            }, "Validation completed.");
+            return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher code not found.", BookingConstants.ErrorCodes.VoucherNotFound);
         }
 
         // 1. Check Status
         if (!string.Equals(voucher.VoucherStatus, DomainConstants.VoucherStatus.Active, StringComparison.OrdinalIgnoreCase))
         {
-            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
-            {
-                IsValid = false,
-                DiscountAmount = 0,
-                Message = "Voucher is not active.",
-                ErrorCode = BookingConstants.ErrorCodes.VoucherExpired
-            }, "Validation completed.");
+            return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher is not active.", BookingConstants.ErrorCodes.VoucherExpired);
         }
 
         var now = _clock.UtcNow;
@@ -218,25 +242,13 @@ public sealed class VoucherService : IVoucherService
         // 2. Check Dates
         if (now < voucher.StartDate || now > voucher.EndDate)
         {
-            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
-            {
-                IsValid = false,
-                DiscountAmount = 0,
-                Message = "Voucher is out of active date range.",
-                ErrorCode = BookingConstants.ErrorCodes.VoucherExpired
-            }, "Validation completed.");
+            return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher is out of active date range.", BookingConstants.ErrorCodes.VoucherExpired);
         }
 
         // 3. Check Minimum Order Amount
         if (voucher.MinOrderAmount.HasValue && bookingAmount < voucher.MinOrderAmount.Value)
         {
-            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
-            {
-                IsValid = false,
-                DiscountAmount = 0,
-                Message = $"Minimum order amount of {voucher.MinOrderAmount.Value} VND is not met.",
-                ErrorCode = BookingConstants.ErrorCodes.VoucherMinOrderNotMet
-            }, "Validation completed.");
+            return ServiceResult<VoucherValidationResult>.Fail(400, $"Minimum order amount of {voucher.MinOrderAmount.Value} VND is not met.", BookingConstants.ErrorCodes.VoucherMinOrderNotMet);
         }
 
         // 4. Check Global Usage Limit (count active usages: APPLIED & CONFIRMED)
@@ -246,30 +258,21 @@ public sealed class VoucherService : IVoucherService
 
         if (activeUsagesCount >= voucher.UsageLimit)
         {
-            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
-            {
-                IsValid = false,
-                DiscountAmount = 0,
-                Message = "Voucher global usage limit has been reached.",
-                ErrorCode = BookingConstants.ErrorCodes.VoucherUsageLimitReached
-            }, "Validation completed.");
+            return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
         }
 
         // 5. Check Customer Limit (count active customer usages)
-        var customerUsagesCount = await _dbContext.VoucherUsages
-            .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
-                && vu.CustomerProfileId == customerProfile.CustomerProfileId 
-                && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
-
-        if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
+        if (!string.IsNullOrEmpty(customerProfileId))
         {
-            return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
+            var customerUsagesCount = await _dbContext.VoucherUsages
+                .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
+                    && vu.CustomerProfileId == customerProfileId 
+                    && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
+
+            if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
             {
-                IsValid = false,
-                DiscountAmount = 0,
-                Message = "You have reached your limit for this voucher.",
-                ErrorCode = BookingConstants.ErrorCodes.VoucherCustomerLimitReached
-            }, "Validation completed.");
+                return ServiceResult<VoucherValidationResult>.Fail(400, "You have reached your limit for this voucher.", BookingConstants.ErrorCodes.VoucherCustomerLimitReached);
+            }
         }
 
         // Calculate discount
@@ -289,12 +292,7 @@ public sealed class VoucherService : IVoucherService
 
         discount = Math.Min(discount, bookingAmount);
 
-        return ServiceResult<ValidateVoucherResponse>.Ok(new ValidateVoucherResponse
-        {
-            IsValid = true,
-            DiscountAmount = discount,
-            Message = "Voucher is valid."
-        }, "Voucher validated successfully.");
+        return ServiceResult<VoucherValidationResult>.Ok(new VoucherValidationResult(voucher, discount), "Voucher is valid.");
     }
 
     public async Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetActiveVouchersForCustomerAsync(

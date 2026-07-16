@@ -30,6 +30,7 @@ public sealed class BookingService : IBookingService
     private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly IAiEmailService _aiEmailService;
     private readonly BookingSettings _bookingSettings;
+    private readonly IVoucherService _voucherService;
 
     public BookingService(
         CinemaDbContext dbContext,
@@ -39,6 +40,7 @@ public sealed class BookingService : IBookingService
         ISeatLockStore seatLockStore,
         IAiEmailService aiEmailService,
         ILogger<BookingService> logger,
+        IVoucherService voucherService,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
@@ -48,6 +50,7 @@ public sealed class BookingService : IBookingService
         _securitySettings = securityOptions.Value;
         _bookingSettings = bookingOptions.Value;
         _aiEmailService = aiEmailService;
+        _voucherService = voucherService;
         _backgroundJobClient = backgroundJobClient!;
     }
 
@@ -211,69 +214,19 @@ public sealed class BookingService : IBookingService
         var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
         if (!string.IsNullOrWhiteSpace(request.VoucherCode))
         {
-            var normalizedCode = request.VoucherCode.Trim().ToUpperInvariant();
-            voucher = await _dbContext.Vouchers
-                .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
+            var validationResult = await _voucherService.ValidateAndGetVoucherAsync(
+                request.VoucherCode,
+                bookingSubtotal,
+                customerProfile.CustomerProfileId,
+                cancellationToken);
 
-            if (voucher == null)
+            if (!validationResult.Success)
             {
-                return ServiceResult<BookingResponse>.Fail(400, "Voucher code not found.", BookingConstants.ErrorCodes.VoucherNotFound);
+                return ServiceResult<BookingResponse>.Fail(validationResult.StatusCode, validationResult.Message, validationResult.ErrorCode ?? "VOUCHER_ERROR");
             }
 
-            // 1. Check Status
-            if (!string.Equals(voucher.VoucherStatus, DomainConstants.VoucherStatus.Active, StringComparison.OrdinalIgnoreCase))
-            {
-                return ServiceResult<BookingResponse>.Fail(400, "Voucher is not active or has expired.", BookingConstants.ErrorCodes.VoucherExpired);
-            }
-
-            // 2. Check Dates
-            if (now < voucher.StartDate || now > voucher.EndDate)
-            {
-                return ServiceResult<BookingResponse>.Fail(400, "Voucher is out of active date range.", BookingConstants.ErrorCodes.VoucherExpired);
-            }
-
-            // 3. Check Minimum Order Amount
-            if (voucher.MinOrderAmount.HasValue && bookingSubtotal < voucher.MinOrderAmount.Value)
-            {
-                return ServiceResult<BookingResponse>.Fail(400, $"Minimum order amount of {voucher.MinOrderAmount.Value} VND is not met.", BookingConstants.ErrorCodes.VoucherMinOrderNotMet);
-            }
-
-            // 4. Check Global Usage Limit (count active usages: APPLIED & CONFIRMED)
-            var activeUsagesCount = await _dbContext.VoucherUsages
-                .CountAsync(vu => vu.VoucherId == voucher.VoucherId
-                    && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
-
-            if (activeUsagesCount >= voucher.UsageLimit)
-            {
-                return ServiceResult<BookingResponse>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
-            }
-
-            // 5. Check Customer Limit (count active customer usages)
-            var customerUsagesCount = await _dbContext.VoucherUsages
-                .CountAsync(vu => vu.VoucherId == voucher.VoucherId
-                    && vu.CustomerProfileId == customerProfile.CustomerProfileId
-                    && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
-
-            if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
-            {
-                return ServiceResult<BookingResponse>.Fail(400, "You have reached your limit for this voucher.", BookingConstants.ErrorCodes.VoucherCustomerLimitReached);
-            }
-
-            // Calculate discount
-            if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Amount, StringComparison.OrdinalIgnoreCase))
-            {
-                discountAmount = voucher.DiscountValue;
-            }
-            else if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
-            {
-                discountAmount = bookingSubtotal * (voucher.DiscountValue / 100m);
-                if (voucher.MaxDiscountAmount.HasValue && discountAmount > voucher.MaxDiscountAmount.Value)
-                {
-                    discountAmount = voucher.MaxDiscountAmount.Value;
-                }
-            }
-
-            discountAmount = Math.Min(discountAmount, bookingSubtotal);
+            voucher = validationResult.Data.Voucher;
+            discountAmount = validationResult.Data.DiscountAmount;
             totalAmount = bookingSubtotal - discountAmount;
 
             // Rule: If total amount after discount is less than 1,000 VND, convert to 0 VND (completely free)
@@ -1144,72 +1097,20 @@ public sealed class BookingService : IBookingService
 
             if (!string.IsNullOrWhiteSpace(request.VoucherCode))
             {
-                var normalizedCode = request.VoucherCode.Trim().ToUpperInvariant();
-                voucher = await _dbContext.Vouchers
-                    .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
+                var validationResult = await _voucherService.ValidateAndGetVoucherAsync(
+                    request.VoucherCode,
+                    bookingSubtotal,
+                    request.CustomerProfileId ?? string.Empty,
+                    cancellationToken);
 
-                if (voucher == null)
+                if (!validationResult.Success)
                 {
                     await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher code not found.", BookingConstants.ErrorCodes.VoucherNotFound);
+                    return ServiceResult<BookingDetailsResponse>.Fail(validationResult.StatusCode, validationResult.Message, validationResult.ErrorCode ?? "VOUCHER_ERROR");
                 }
 
-                if (!string.Equals(voucher.VoucherStatus, DomainConstants.VoucherStatus.Active, StringComparison.OrdinalIgnoreCase))
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher is not active.", BookingConstants.ErrorCodes.VoucherExpired);
-                }
-
-                if (now < voucher.StartDate || now > voucher.EndDate)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher has expired.", BookingConstants.ErrorCodes.VoucherExpired);
-                }
-
-                if (voucher.MinOrderAmount.HasValue && bookingSubtotal < voucher.MinOrderAmount.Value)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<BookingDetailsResponse>.Fail(400, $"Minimum order amount of {voucher.MinOrderAmount.Value} VND is not met.", BookingConstants.ErrorCodes.VoucherMinOrderNotMet);
-                }
-
-                var activeUsagesCount = await _dbContext.VoucherUsages
-                    .CountAsync(vu => vu.VoucherId == voucher.VoucherId
-                        && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
-
-                if (activeUsagesCount >= voucher.UsageLimit)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<BookingDetailsResponse>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
-                }
-
-                if (!string.IsNullOrEmpty(request.CustomerProfileId))
-                {
-                    var customerUsagesCount = await _dbContext.VoucherUsages
-                        .CountAsync(vu => vu.VoucherId == voucher.VoucherId
-                            && vu.CustomerProfileId == request.CustomerProfileId
-                            && vu.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled, cancellationToken);
-
-                    if (voucher.PerCustomerLimit.HasValue && customerUsagesCount >= voucher.PerCustomerLimit.Value)
-                    {
-                        await transaction.RollbackAsync(cancellationToken);
-                        return ServiceResult<BookingDetailsResponse>.Fail(400, "Customer limit reached for this voucher.", BookingConstants.ErrorCodes.VoucherCustomerLimitReached);
-                    }
-                }
-
-                if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Amount, StringComparison.OrdinalIgnoreCase))
-                {
-                    discountAmount = voucher.DiscountValue;
-                }
-                else if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
-                {
-                    discountAmount = bookingSubtotal * (voucher.DiscountValue / 100m);
-                    if (voucher.MaxDiscountAmount.HasValue && discountAmount > voucher.MaxDiscountAmount.Value)
-                    {
-                        discountAmount = voucher.MaxDiscountAmount.Value;
-                    }
-                }
-
-                discountAmount = Math.Min(discountAmount, bookingSubtotal);
+                voucher = validationResult.Data.Voucher;
+                discountAmount = validationResult.Data.DiscountAmount;
                 totalAmount = bookingSubtotal - discountAmount;
 
                 if (totalAmount < 1000m)

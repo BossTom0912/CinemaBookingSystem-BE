@@ -329,15 +329,29 @@ public sealed class FbItemService : IFbItemService
             return ServiceResult<FbFulfillmentResponse>.Fail(404, FbConstants.Messages.BookingNotFound, FbConstants.ErrorCodes.NotFound);
         }
 
-        // Cross-Branch Scan Protection
+        // Cross-Branch Scan Protection: Resolve cinema scope from database if missing in claims
+        var resolvedStaffCinemaId = currentStaffCinemaId;
+        if (string.IsNullOrEmpty(resolvedStaffCinemaId))
+        {
+            var staffProfile = await _dbContext.StaffProfiles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(profile =>
+                    (profile.StaffProfileId == staffProfileId || profile.UserId == staffProfileId)
+                    && profile.EmploymentStatus == BookingConstants.ResourceStatus.Active, cancellationToken);
+            if (staffProfile != null)
+            {
+                resolvedStaffCinemaId = staffProfile.CinemaId;
+            }
+        }
+
         var bookingCinemaId = booking.Showtime?.Room?.CinemaId;
         if (!string.IsNullOrEmpty(bookingCinemaId) &&
-            !string.IsNullOrEmpty(currentStaffCinemaId) &&
-            !string.Equals(bookingCinemaId, currentStaffCinemaId, StringComparison.OrdinalIgnoreCase))
+            !string.IsNullOrEmpty(resolvedStaffCinemaId) &&
+            !string.Equals(bookingCinemaId, resolvedStaffCinemaId, StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<FbFulfillmentResponse>.Fail(
                 403,
-                $"F&B order belongs to cinema branch '{bookingCinemaId}'. Cannot fulfill at branch '{currentStaffCinemaId}'.",
+                $"F&B order belongs to cinema branch '{bookingCinemaId}'. Cannot fulfill at branch '{resolvedStaffCinemaId}'.",
                 FbConstants.ErrorCodes.WrongCinemaBranch);
         }
 
