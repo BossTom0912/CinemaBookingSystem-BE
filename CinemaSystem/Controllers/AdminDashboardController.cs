@@ -15,7 +15,7 @@ namespace CinemaSystem.Controllers;
 /// </summary>
 [Route("api/v1/admin/dashboard")]
 [ApiController]
-[Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
+[Authorize(Policy = AuthConstants.Policies.CanViewSystemDashboard)]
 public class AdminDashboardController : ControllerBase
 {
     private readonly IDashboardService _dashboardService;
