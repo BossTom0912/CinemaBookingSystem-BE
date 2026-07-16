@@ -475,6 +475,7 @@ public sealed class SeatService : ISeatService
         var showtimeSeat = await _dbContext.ShowtimeSeats
             // Nạp thông tin đặt vé của ghế đó
             .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
             // Tìm ghế theo mã suất chiếu và mã ghế
             .FirstOrDefaultAsync(
                 item =>
@@ -493,14 +494,21 @@ public sealed class SeatService : ISeatService
 
         // Lấy thời điểm hiện tại theo chuẩn UTC
         var now = DateTime.UtcNow;
-        // Nếu ghế này đã được liên kết với một đơn đặt vé hoặc đã ở trạng thái Đã bán
-        if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+        if (IsSoldBookingSeat(showtimeSeat.BookingSeat) || showtimeSeat.SeatStatus == SeatBooked)
         {
             // Trả về lỗi ghế đã bị bán
             return ServiceResult<LockSeatResponse>.Fail(
                 409,
                 "Seat has already been sold.",
                 "SEAT_SOLD");
+        }
+
+        if (IsActivePendingBookingSeat(showtimeSeat.BookingSeat, now))
+        {
+            return ServiceResult<LockSeatResponse>.Fail(
+                409,
+                "Seat is waiting for payment.",
+                "SEAT_LOCKED");
         }
 
         // Nếu ghế đang bị khóa và thời hạn khóa vẫn còn hiệu lực
@@ -592,6 +600,7 @@ public sealed class SeatService : ISeatService
         var showtimeSeat = await _dbContext.ShowtimeSeats
             // Nạp thông tin vé đặt kèm ghế
             .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
             // Tìm theo mã suất chiếu và mã ghế
             .FirstOrDefaultAsync(
                 item =>
@@ -608,8 +617,7 @@ public sealed class SeatService : ISeatService
                 "SHOWTIME_SEAT_NOT_FOUND");
         }
 
-        // Nếu ghế đã liên kết với đơn đặt vé hoặc đã ở trạng thái Đã bán
-        if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+        if (IsSoldBookingSeat(showtimeSeat.BookingSeat) || showtimeSeat.SeatStatus == SeatBooked)
         {
             // Trả về lỗi ghế đã bán, không thể mở khóa
             return ServiceResult<UnlockSeatResponse>.Fail(
@@ -620,6 +628,14 @@ public sealed class SeatService : ISeatService
 
         // Lấy thời điểm hiện tại theo chuẩn UTC
         var now = DateTime.UtcNow;
+        if (IsActivePendingBookingSeat(showtimeSeat.BookingSeat, now))
+        {
+            return ServiceResult<UnlockSeatResponse>.Fail(
+                409,
+                "Seat is reserved for pending payment.",
+                "SEAT_LOCKED");
+        }
+
         // Nếu ghế không bị khóa, hoặc không có thời hạn khóa, hoặc thời hạn khóa đã hết
         if (showtimeSeat.SeatStatus != SeatLocked
             || !showtimeSeat.LockedUntil.HasValue
@@ -705,6 +721,7 @@ public sealed class SeatService : ISeatService
             .AsNoTracking()
             // Nạp thông tin vé của từng ghế
             .Include(item => item.BookingSeat)
+                .ThenInclude(item => item!.Booking)
             // Nạp thông tin chi tiết về ghế
             .Include(item => item.Seat)
                 // Nạp chi tiết về loại ghế
@@ -730,12 +747,17 @@ public sealed class SeatService : ISeatService
         // Phân loại từng ghế trong danh sách
         foreach (var showtimeSeat in seats)
         {
-            // Nếu ghế đã có thông tin đặt vé hoặc trạng thái là Đã bán
-            if (showtimeSeat.BookingSeat != null || showtimeSeat.SeatStatus == SeatBooked)
+            if (IsSoldBookingSeat(showtimeSeat.BookingSeat) || showtimeSeat.SeatStatus == SeatBooked)
             {
                 // Thêm vào danh sách ghế đã bán
                 soldSeats.Add(ToSeatMapItem(showtimeSeat, SeatBooked, showtime.BasePrice));
                 // Bỏ qua các bước sau, chuyển sang ghế tiếp theo
+                continue;
+            }
+
+            if (IsActivePendingBookingSeat(showtimeSeat.BookingSeat, now))
+            {
+                lockedSeats.Add(ToSeatMapItem(showtimeSeat, SeatLocked, showtime.BasePrice));
                 continue;
             }
 
@@ -1026,6 +1048,29 @@ public sealed class SeatService : ISeatService
 
         // Cập nhật tất cả vào cơ sở dữ liệu
         await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool IsActivePendingBookingSeat(BookingSeat? bookingSeat, DateTime now)
+    {
+        var booking = bookingSeat?.Booking;
+        return booking != null
+            && string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase)
+            && (!booking.ExpiredAt.HasValue || booking.ExpiredAt > now);
+    }
+
+    private static bool IsSoldBookingSeat(BookingSeat? bookingSeat)
+    {
+        if (bookingSeat == null)
+        {
+            return false;
+        }
+
+        var status = bookingSeat.Booking?.BookingStatus;
+        return status == null
+            || string.Equals(status, DomainConstants.EntityStatus.Paid, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, DomainConstants.EntityStatus.Completed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, DomainConstants.EntityStatus.ProcessingUnstable, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, DomainConstants.EntityStatus.PendingRefund, StringComparison.OrdinalIgnoreCase);
     }
 
     // Hàm chuyển đổi từ Entity Ghế sang DTO phản hồi API

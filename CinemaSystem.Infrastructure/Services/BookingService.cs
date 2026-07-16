@@ -597,18 +597,18 @@ public sealed class BookingService : IBookingService
             return ServiceResult<bool>.Fail(403, "You do not have permission to cancel this booking.", "FORBIDDEN");
         }
 
-        if (IsFinalPaidStatus(booking.BookingStatus))
+        var hasSuccessfulPayment = booking.Payments.Any(payment =>
+            string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Success, StringComparison.OrdinalIgnoreCase));
+
+        if (IsFinalPaidStatus(booking.BookingStatus) || hasSuccessfulPayment)
         {
             return ServiceResult<bool>.Fail(409, "Paid booking cannot be cancelled from checkout.", "BOOKING_ALREADY_PAID");
         }
 
-        if (!string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+        if (!CanCancelCheckoutBookingStatus(booking.BookingStatus))
         {
-            return ServiceResult<bool>.Fail(400, "Only pending payment bookings can be cancelled.", "INVALID_BOOKING_STATUS");
+            return ServiceResult<bool>.Fail(400, "Only unpaid checkout bookings can be cancelled.", "INVALID_BOOKING_STATUS");
         }
-
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var now = _clock.UtcNow;
         await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
@@ -632,7 +632,6 @@ public sealed class BookingService : IBookingService
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
 
         return ServiceResult<bool>.Ok(true, "Pending booking cancelled and seats released successfully.");
     }
@@ -897,6 +896,14 @@ public sealed class BookingService : IBookingService
             || string.Equals(status, DomainConstants.EntityStatus.Completed, StringComparison.OrdinalIgnoreCase)
             || string.Equals(status, DomainConstants.EntityStatus.ProcessingUnstable, StringComparison.OrdinalIgnoreCase)
             || string.Equals(status, DomainConstants.EntityStatus.PendingRefund, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanCancelCheckoutBookingStatus(string? status)
+    {
+        return string.Equals(status, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, DomainConstants.BookingStatus.Created, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, DomainConstants.EntityStatus.Failed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, DomainConstants.EntityStatus.Cancelled, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildSeatLockKey(string showtimeId, string seatId)
