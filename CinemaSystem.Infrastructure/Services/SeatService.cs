@@ -1133,6 +1133,18 @@ public sealed class SeatService : ISeatService
                 .Where(s => s.RoomId == roomId)
                 .ToListAsync(cancellationToken);
 
+            if (oldSeats.Any())
+            {
+                var oldSeatIds = oldSeats.Select(s => s.SeatId).ToList();
+                var hasShowtimeSeats = await _dbContext.ShowtimeSeats
+                    .AnyAsync(ss => oldSeatIds.Contains(ss.SeatId), cancellationToken);
+
+                if (hasShowtimeSeats)
+                {
+                    return ServiceResult<bool>.Fail(400, "Cannot modify room seats because this room already has scheduled showtimes. Please adjust the showtimes or disable/maintenance individual seats instead.", "ROOM_HAS_ACTIVE_SHOWTIMES");
+                }
+            }
+
             // Bước 2 (Lưu Lịch Sử): Nếu phòng đã có ghế cũ, serialize lưu vào AuditLog
             if (oldSeats.Any())
             {
