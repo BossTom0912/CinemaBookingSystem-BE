@@ -236,225 +236,232 @@ public class PaymentService : IPaymentService
         var transactionCode = match.Value.ToUpperInvariant();
 
         // Tìm kiếm giao dịch trong cơ sở dữ liệu dựa trên mã giao dịch vừa trích xuất
-        var payment = await _db.Payments
-            .Include(p => p.Refunds)
-            // Bao gồm thông tin Đặt vé (Booking)
-            .Include(p => p.Booking)
-                // Bao gồm thông tin Suất chiếu (Showtime) của Booking đó
-                .ThenInclude(b => b.Showtime)
-            .Include(p => p.Booking)
-                .ThenInclude(b => b.VoucherUsage)
-                    .ThenInclude(vu => vu!.Voucher)
-            .Include(p => p.Booking)
-                .ThenInclude(b => b.CustomerProfile)
-                    .ThenInclude(c => c!.User)
-            // Bao gồm nhánh BookingSeats (các ghế đã đặt)
-            .Include(p => p.Booking)
-                // Bao gồm danh sách BookingSeats
-                .ThenInclude(b => b.BookingSeats)
-                    // Bao gồm thông tin ShowtimeSeat (ghế của suất chiếu)
-                    .ThenInclude(bs => bs.ShowtimeSeat)
-            // Bao gồm nhánh Ticket (vé xem phim)
-            .Include(p => p.Booking)
-                // Bao gồm danh sách BookingSeats
-                .ThenInclude(b => b.BookingSeats)
-                    // Bao gồm thông tin vé (Ticket) được sinh ra cho ghế đó
-                    .ThenInclude(bs => bs.Ticket)
-            .AsSplitQuery()
-            // Lấy ra bản ghi duy nhất khớp mã giao dịch
-            .SingleOrDefaultAsync(
-                p => p.TransactionCode != null
-                    && p.TransactionCode.ToUpper() == transactionCode,
-                cancellationToken);
-
-        // Nếu không tìm thấy giao dịch tương ứng
-        if (payment == null)
-            throw new InvalidOperationException($"Payment with transaction code {transactionCode} not found.");
-
-        // Xác thực số tiền gửi về có khớp với số tiền yêu cầu trong database hay không
-        if (payment.Amount != amount)
-            throw new InvalidOperationException($"Payment amount mismatch. Expected {payment.Amount} got {amount}.");
-
-        // Nếu thanh toán này đã được xác nhận thành công từ trước thì kết thúc sớm (Idempotent)
-        if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Success, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        // Bắt đầu một Transaction mới để đảm bảo tính toàn vẹn dữ liệu
-        await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
-        try
+        // SQL Server retry is enabled for transient connection failures. An explicit
+        // transaction must therefore be created inside the execution strategy; this
+        // makes the complete callback state transition retryable as one unit.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            var now = _clock.UtcNow;
-            // Cập nhật trạng thái thanh toán thành "Thành công" (Success)
-            payment.PaymentStatus = DomainConstants.PaymentStatus.Success;
-            // Cập nhật thời điểm thanh toán thành công
-            payment.PaidAt = now;
-            // Cập nhật thời gian chỉnh sửa mới nhất
-            payment.UpdatedAt = now;
-            // Ghi nhận mã giao dịch từ phía nhà cung cấp (nếu có)
-            payment.ProviderTransactionCode = string.IsNullOrWhiteSpace(providerTransactionCode)
-                ? payment.ProviderTransactionCode
-                : providerTransactionCode.Trim();
-            // Ghi nhận dữ liệu callback gốc để debug/kiểm tra sau này (nếu có)
-            payment.RawCallbackPayload = string.IsNullOrWhiteSpace(rawCallbackPayload)
-                ? payment.RawCallbackPayload
-                : rawCallbackPayload;
+            var payment = await _db.Payments
+                .Include(p => p.Refunds)
+                // Bao gồm thông tin Đặt vé (Booking)
+                .Include(p => p.Booking)
+                    // Bao gồm thông tin Suất chiếu (Showtime) của Booking đó
+                    .ThenInclude(b => b.Showtime)
+                .Include(p => p.Booking)
+                    .ThenInclude(b => b.VoucherUsage)
+                        .ThenInclude(vu => vu!.Voucher)
+                .Include(p => p.Booking)
+                    .ThenInclude(b => b.CustomerProfile)
+                        .ThenInclude(c => c!.User)
+                // Bao gồm nhánh BookingSeats (các ghế đã đặt)
+                .Include(p => p.Booking)
+                    // Bao gồm danh sách BookingSeats
+                    .ThenInclude(b => b.BookingSeats)
+                        // Bao gồm thông tin ShowtimeSeat (ghế của suất chiếu)
+                        .ThenInclude(bs => bs.ShowtimeSeat)
+                // Bao gồm nhánh Ticket (vé xem phim)
+                .Include(p => p.Booking)
+                    // Bao gồm danh sách BookingSeats
+                    .ThenInclude(b => b.BookingSeats)
+                        // Bao gồm thông tin vé (Ticket) được sinh ra cho ghế đó
+                        .ThenInclude(bs => bs.Ticket)
+                .AsSplitQuery()
+                // Lấy ra bản ghi duy nhất khớp mã giao dịch
+                .SingleOrDefaultAsync(
+                    p => p.TransactionCode != null
+                        && p.TransactionCode.ToUpper() == transactionCode,
+                    cancellationToken);
 
-            // Lấy thông tin Booking liên kết với Payment này
-            var booking = payment.Booking ?? await _db.Bookings.SingleOrDefaultAsync(b => b.BookingId == payment.BookingId, cancellationToken);
-            // Nếu không tìm thấy Booking, ném ra ngoại lệ
-            if (booking == null)
-                throw new InvalidOperationException($"Booking {payment.BookingId} not found.");
+            // Nếu không tìm thấy giao dịch tương ứng
+            if (payment == null)
+                throw new InvalidOperationException($"Payment with transaction code {transactionCode} not found.");
 
-            // Cập nhật trạng thái Booking thành "Đã thanh toán" (Paid) nếu đang ở trạng thái "Chờ thanh toán"
-            if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase))
+            // Xác thực số tiền gửi về có khớp với số tiền yêu cầu trong database hay không
+            if (payment.Amount != amount)
+                throw new InvalidOperationException($"Payment amount mismatch. Expected {payment.Amount} got {amount}.");
+
+            // Nếu thanh toán này đã được xác nhận thành công từ trước thì kết thúc sớm (Idempotent)
+            if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Success, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Bắt đầu một Transaction mới để đảm bảo tính toàn vẹn dữ liệu
+            await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
             {
-                booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+                var now = _clock.UtcNow;
+                // Cập nhật trạng thái thanh toán thành "Thành công" (Success)
+                payment.PaymentStatus = DomainConstants.PaymentStatus.Success;
+                // Cập nhật thời điểm thanh toán thành công
+                payment.PaidAt = now;
+                // Cập nhật thời gian chỉnh sửa mới nhất
+                payment.UpdatedAt = now;
+                // Ghi nhận mã giao dịch từ phía nhà cung cấp (nếu có)
+                payment.ProviderTransactionCode = string.IsNullOrWhiteSpace(providerTransactionCode)
+                    ? payment.ProviderTransactionCode
+                    : providerTransactionCode.Trim();
+                // Ghi nhận dữ liệu callback gốc để debug/kiểm tra sau này (nếu có)
+                payment.RawCallbackPayload = string.IsNullOrWhiteSpace(rawCallbackPayload)
+                    ? payment.RawCallbackPayload
+                    : rawCallbackPayload;
 
-                // Xác nhận sử dụng Voucher
-                if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+                // Lấy thông tin Booking liên kết với Payment này
+                var booking = payment.Booking ?? await _db.Bookings.SingleOrDefaultAsync(b => b.BookingId == payment.BookingId, cancellationToken);
+                // Nếu không tìm thấy Booking, ném ra ngoại lệ
+                if (booking == null)
+                    throw new InvalidOperationException($"Booking {payment.BookingId} not found.");
+
+                // Cập nhật trạng thái Booking thành "Đã thanh toán" (Paid) nếu đang ở trạng thái "Chờ thanh toán"
+                if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.PendingPayment, StringComparison.OrdinalIgnoreCase))
                 {
-                    booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Confirmed;
-                    booking.VoucherUsage.UsedAt = now;
-                    if (booking.VoucherUsage.Voucher != null)
+                    booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+
+                    // Xác nhận sử dụng Voucher
+                    if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
                     {
-                        booking.VoucherUsage.Voucher.UsedCount += 1;
+                        booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Confirmed;
+                        booking.VoucherUsage.UsedAt = now;
+                        if (booking.VoucherUsage.Voucher != null)
+                        {
+                            booking.VoucherUsage.Voucher.UsedCount += 1;
+                        }
                     }
                 }
-            }
 
-            // Kiểm tra trường hợp suất chiếu đã bị hủy trong lúc người dùng đang chuyển khoản
-            if (booking.Showtime != null && booking.Showtime.Status == DomainConstants.EntityStatus.Cancelled)
-            {
-                await _db.Entry(booking.Showtime)
-                    .Reference(showtime => showtime.Movie)
-                    .LoadAsync(cancellationToken);
-                await _db.Entry(booking.Showtime)
-                    .Reference(showtime => showtime.ShowtimeCancellation)
-                    .LoadAsync(cancellationToken);
-
-                // Chuyển trạng thái Booking sang "Chờ hoàn tiền" (PendingRefund) thay vì hoàn tất vé
-                booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
-                
-                // Khởi tạo một đối tượng Hoàn tiền (Refund) mới
-                var refund = new Refund
+                // Kiểm tra trường hợp suất chiếu đã bị hủy trong lúc người dùng đang chuyển khoản
+                if (booking.Showtime != null && booking.Showtime.Status == DomainConstants.EntityStatus.Cancelled)
                 {
-                    // Tạo ID tự động cho giao dịch hoàn tiền
-                    RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
-                    // Gán ID đặt vé
-                    BookingId = booking.BookingId,
-                    // Gán ID thanh toán gốc
-                    PaymentId = payment.PaymentId,
-                    // Gán ID nhà cung cấp dịch vụ thanh toán
-                    PaymentProviderId = payment.PaymentProviderId,
-                    // Gán số tiền cần hoàn trả
-                    RefundAmount = payment.Amount,
-                    // Đặt trạng thái hoàn tiền là "Đang chờ" (Pending)
-                    RefundStatus = DomainConstants.RefundStatus.Pending,
-                    // Ghi nhận thời điểm yêu cầu hoàn tiền
-                    RequestedAt = now,
-                    // Ghi nhận lý do hoàn tiền (Thanh toán chậm cho một suất chiếu đã bị hủy)
-                    RefundReason = "Late payment received for a cancelled showtime.",
-                    ShowtimeCancellationId =
-                        booking.Showtime.ShowtimeCancellation?.ShowtimeCancellationId
-                };
-                _db.Refunds.Add(refund);
-                var claimIssue = CreateRefundClaim(refund, booking, now);
+                    await _db.Entry(booking.Showtime)
+                        .Reference(showtime => showtime.Movie)
+                        .LoadAsync(cancellationToken);
+                    await _db.Entry(booking.Showtime)
+                        .Reference(showtime => showtime.ShowtimeCancellation)
+                        .LoadAsync(cancellationToken);
 
-                // Lưu các thay đổi vào cơ sở dữ liệu
-                await _db.SaveChangesAsync(cancellationToken);
-                // Xác nhận lưu transaction
-                await tx.CommitAsync(cancellationToken);
-                await TrySendLatePaymentClaimEmailAsync(
-                    booking,
-                    claimIssue,
-                    cancellationToken);
-                // Thoát sớm để không sinh ra vé
-                return;
-            }
+                    // Chuyển trạng thái Booking sang "Chờ hoàn tiền" (PendingRefund) thay vì hoàn tất vé
+                    booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
 
-            // Kiểm tra trường hợp đặt vé đã bị hủy (ví dụ: hết hạn time-out) nhưng tiền lại đến chậm
-            if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
-            {
-                // Chuyển trạng thái Booking sang "Chờ hoàn tiền" (PendingRefund) để admin xử lý
-                booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
-                
-                // Khởi tạo một yêu cầu hoàn tiền mới
-                var refund = new Refund
-                {
-                    // Tạo ID hoàn tiền
-                    RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
-                    // Map với ID đặt vé
-                    BookingId = booking.BookingId,
-                    // Map với ID thanh toán
-                    PaymentId = payment.PaymentId,
-                    // Map với ID nhà cung cấp
-                    PaymentProviderId = payment.PaymentProviderId,
-                    // Set số tiền cần hoàn
-                    RefundAmount = payment.Amount,
-                    // Trạng thái chờ hoàn tiền
-                    RefundStatus = DomainConstants.RefundStatus.Pending,
-                    // Thời điểm tạo yêu cầu hoàn tiền
-                    RequestedAt = now,
-                    // Lý do: Thanh toán trễ cho một đơn vé đã hết hạn/bị hủy
-                    RefundReason = "Late payment received for an expired booking."
-                };
-                _db.Refunds.Add(refund);
-                var claimIssue = CreateRefundClaim(refund, booking, now);
-
-                // Lưu các thay đổi
-                await _db.SaveChangesAsync(cancellationToken);
-                // Xác nhận transaction
-                await tx.CommitAsync(cancellationToken);
-                await TrySendLatePaymentClaimEmailAsync(
-                    booking,
-                    claimIssue,
-                    cancellationToken);
-                // Thoát sớm
-                return;
-            }
-
-            // Duyệt qua từng ghế đã đặt trong đơn hàng để cập nhật trạng thái và sinh vé
-            foreach (var bookingSeat in booking.BookingSeats)
-            {
-                // Chuyển trạng thái ghế của suất chiếu sang "Đã đặt" (Booked)
-                bookingSeat.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Booked;
-                // Gỡ bỏ thời gian khóa ghế (LockedUntil)
-                bookingSeat.ShowtimeSeat.LockedUntil = null;
-                // Gỡ bỏ thông tin người đang khóa ghế
-                bookingSeat.ShowtimeSeat.LockedByUserId = null;
-
-                // Kiểm tra nếu chưa tồn tại vé cho ghế này
-                if (bookingSeat.Ticket == null)
-                {
-                    // Khởi tạo một đối tượng Vé (Ticket) mới
-                    _db.Tickets.Add(new Ticket
+                    // Khởi tạo một đối tượng Hoàn tiền (Refund) mới
+                    var refund = new Refund
                     {
-                        // Sinh ID vé tự động
-                        TicketId = GenerateId(DomainConstants.EntityIdPrefix.Ticket),
-                        // Liên kết với bản ghi BookingSeat
-                        BookingSeatId = bookingSeat.BookingSeatId,
-                        // Sinh mã QR Code dùng để quét vé
-                        QrCode = GenerateTicketQrCode(booking.BookingId, bookingSeat.BookingSeatId),
-                        // Đặt trạng thái ban đầu của vé là "Chưa sử dụng" (Unused)
-                        TicketStatus = DomainConstants.TicketStatus.Unused,
-                        // Ghi nhận thời điểm phát hành vé
-                        GeneratedAt = now
-                    });
-                }
-            }
+                        // Tạo ID tự động cho giao dịch hoàn tiền
+                        RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
+                        // Gán ID đặt vé
+                        BookingId = booking.BookingId,
+                        // Gán ID thanh toán gốc
+                        PaymentId = payment.PaymentId,
+                        // Gán ID nhà cung cấp dịch vụ thanh toán
+                        PaymentProviderId = payment.PaymentProviderId,
+                        // Gán số tiền cần hoàn trả
+                        RefundAmount = payment.Amount,
+                        // Đặt trạng thái hoàn tiền là "Đang chờ" (Pending)
+                        RefundStatus = DomainConstants.RefundStatus.Pending,
+                        // Ghi nhận thời điểm yêu cầu hoàn tiền
+                        RequestedAt = now,
+                        // Ghi nhận lý do hoàn tiền (Thanh toán chậm cho một suất chiếu đã bị hủy)
+                        RefundReason = "Late payment received for a cancelled showtime.",
+                        ShowtimeCancellationId =
+                            booking.Showtime.ShowtimeCancellation?.ShowtimeCancellationId
+                    };
+                    _db.Refunds.Add(refund);
+                    var claimIssue = CreateRefundClaim(refund, booking, now);
 
-            // Lưu tất cả các thay đổi vào DB
-            await _db.SaveChangesAsync(cancellationToken);
-            // Xác nhận thành công (Commit) transaction
-            await tx.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            // Nếu có bất kỳ lỗi nào xảy ra, hoàn tác lại toàn bộ thay đổi (Rollback)
-            await tx.RollbackAsync(cancellationToken);
-            // Ném lại ngoại lệ để cấp trên xử lý
-            throw;
-        }
+                    // Lưu các thay đổi vào cơ sở dữ liệu
+                    await _db.SaveChangesAsync(cancellationToken);
+                    // Xác nhận lưu transaction
+                    await tx.CommitAsync(cancellationToken);
+                    await TrySendLatePaymentClaimEmailAsync(
+                        booking,
+                        claimIssue,
+                        cancellationToken);
+                    // Thoát sớm để không sinh ra vé
+                    return;
+                }
+
+                // Kiểm tra trường hợp đặt vé đã bị hủy (ví dụ: hết hạn time-out) nhưng tiền lại đến chậm
+                if (string.Equals(booking.BookingStatus, DomainConstants.EntityStatus.Cancelled, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Chuyển trạng thái Booking sang "Chờ hoàn tiền" (PendingRefund) để admin xử lý
+                    booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
+
+                    // Khởi tạo một yêu cầu hoàn tiền mới
+                    var refund = new Refund
+                    {
+                        // Tạo ID hoàn tiền
+                        RefundId = GenerateId(DomainConstants.EntityIdPrefix.Refund),
+                        // Map với ID đặt vé
+                        BookingId = booking.BookingId,
+                        // Map với ID thanh toán
+                        PaymentId = payment.PaymentId,
+                        // Map với ID nhà cung cấp
+                        PaymentProviderId = payment.PaymentProviderId,
+                        // Set số tiền cần hoàn
+                        RefundAmount = payment.Amount,
+                        // Trạng thái chờ hoàn tiền
+                        RefundStatus = DomainConstants.RefundStatus.Pending,
+                        // Thời điểm tạo yêu cầu hoàn tiền
+                        RequestedAt = now,
+                        // Lý do: Thanh toán trễ cho một đơn vé đã hết hạn/bị hủy
+                        RefundReason = "Late payment received for an expired booking."
+                    };
+                    _db.Refunds.Add(refund);
+                    var claimIssue = CreateRefundClaim(refund, booking, now);
+
+                    // Lưu các thay đổi
+                    await _db.SaveChangesAsync(cancellationToken);
+                    // Xác nhận transaction
+                    await tx.CommitAsync(cancellationToken);
+                    await TrySendLatePaymentClaimEmailAsync(
+                        booking,
+                        claimIssue,
+                        cancellationToken);
+                    // Thoát sớm
+                    return;
+                }
+
+                // Duyệt qua từng ghế đã đặt trong đơn hàng để cập nhật trạng thái và sinh vé
+                foreach (var bookingSeat in booking.BookingSeats)
+                {
+                    // Chuyển trạng thái ghế của suất chiếu sang "Đã đặt" (Booked)
+                    bookingSeat.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Booked;
+                    // Gỡ bỏ thời gian khóa ghế (LockedUntil)
+                    bookingSeat.ShowtimeSeat.LockedUntil = null;
+                    // Gỡ bỏ thông tin người đang khóa ghế
+                    bookingSeat.ShowtimeSeat.LockedByUserId = null;
+
+                    // Kiểm tra nếu chưa tồn tại vé cho ghế này
+                    if (bookingSeat.Ticket == null)
+                    {
+                        // Khởi tạo một đối tượng Vé (Ticket) mới
+                        _db.Tickets.Add(new Ticket
+                        {
+                            // Sinh ID vé tự động
+                            TicketId = GenerateId(DomainConstants.EntityIdPrefix.Ticket),
+                            // Liên kết với bản ghi BookingSeat
+                            BookingSeatId = bookingSeat.BookingSeatId,
+                            // Sinh mã QR Code dùng để quét vé
+                            QrCode = GenerateTicketQrCode(booking.BookingId, bookingSeat.BookingSeatId),
+                            // Đặt trạng thái ban đầu của vé là "Chưa sử dụng" (Unused)
+                            TicketStatus = DomainConstants.TicketStatus.Unused,
+                            // Ghi nhận thời điểm phát hành vé
+                            GeneratedAt = now
+                        });
+                    }
+                }
+
+                // Lưu tất cả các thay đổi vào DB
+                await _db.SaveChangesAsync(cancellationToken);
+                // Xác nhận thành công (Commit) transaction
+                await tx.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                // Nếu có bất kỳ lỗi nào xảy ra, hoàn tác lại toàn bộ thay đổi (Rollback)
+                await tx.RollbackAsync(cancellationToken);
+                // Ném lại ngoại lệ để cấp trên xử lý
+                throw;
+            }
+        });
     }
 
     // Phương thức tiện ích để sinh ID duy nhất có tiền tố

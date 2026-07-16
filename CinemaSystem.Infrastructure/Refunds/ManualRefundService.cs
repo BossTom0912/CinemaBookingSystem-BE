@@ -69,60 +69,64 @@ public sealed class ManualRefundService : IManualRefundService
         string adminUserId,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await _db.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-        try
+        var executionStrategy = _db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
         {
-            var process = await _db.ManualRefundProcesses
-                .FirstOrDefaultAsync(item => item.RefundId == refundId, cancellationToken);
-            if (process is null)
+            await using var transaction = await _db.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+            try
             {
-                await transaction.RollbackAsync(cancellationToken);
-                return ServiceResult<AssignManualRefundResponse>.Fail(
-                    (int)HttpStatusCode.NotFound,
-                    "Manual refund was not found.",
-                    BookingConstants.RefundErrorCodes.ManualRefundNotFound);
-            }
-            if (process.ProcessStatus == BookingConstants.ManualRefundProcessStatus.Confirmed)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return ServiceResult<AssignManualRefundResponse>.Fail(
-                    (int)HttpStatusCode.Conflict,
-                    "Manual refund has already been confirmed.",
-                    BookingConstants.RefundErrorCodes.RefundAlreadyCompleted);
-            }
-            if (!string.IsNullOrWhiteSpace(process.AssignedToUserId)
-                && !string.Equals(process.AssignedToUserId, adminUserId, StringComparison.OrdinalIgnoreCase))
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return ServiceResult<AssignManualRefundResponse>.Fail(
-                    (int)HttpStatusCode.Conflict,
-                    "Manual refund is assigned to another administrator.",
-                    BookingConstants.RefundErrorCodes.ManualRefundAlreadyAssigned);
-            }
+                var process = await _db.ManualRefundProcesses
+                    .FirstOrDefaultAsync(item => item.RefundId == refundId, cancellationToken);
+                if (process is null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<AssignManualRefundResponse>.Fail(
+                        (int)HttpStatusCode.NotFound,
+                        "Manual refund was not found.",
+                        BookingConstants.RefundErrorCodes.ManualRefundNotFound);
+                }
+                if (process.ProcessStatus == BookingConstants.ManualRefundProcessStatus.Confirmed)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<AssignManualRefundResponse>.Fail(
+                        (int)HttpStatusCode.Conflict,
+                        "Manual refund has already been confirmed.",
+                        BookingConstants.RefundErrorCodes.RefundAlreadyCompleted);
+                }
+                if (!string.IsNullOrWhiteSpace(process.AssignedToUserId)
+                    && !string.Equals(process.AssignedToUserId, adminUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<AssignManualRefundResponse>.Fail(
+                        (int)HttpStatusCode.Conflict,
+                        "Manual refund is assigned to another administrator.",
+                        BookingConstants.RefundErrorCodes.ManualRefundAlreadyAssigned);
+                }
 
-            var now = _clock.UtcNow;
-            process.AssignedToUserId = adminUserId;
-            process.AssignedAt ??= now;
-            process.ProcessStatus = BookingConstants.ManualRefundProcessStatus.InProgress;
-            AddAudit(adminUserId, DomainConstants.AuditAction.AssignManualRefund, process.RefundId, now);
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-            return ServiceResult<AssignManualRefundResponse>.Ok(new AssignManualRefundResponse
+                var now = _clock.UtcNow;
+                process.AssignedToUserId = adminUserId;
+                process.AssignedAt ??= now;
+                process.ProcessStatus = BookingConstants.ManualRefundProcessStatus.InProgress;
+                AddAudit(adminUserId, DomainConstants.AuditAction.AssignManualRefund, process.RefundId, now);
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return ServiceResult<AssignManualRefundResponse>.Ok(new AssignManualRefundResponse
+                {
+                    RefundId = process.RefundId,
+                    ManualRefundProcessId = process.ManualRefundProcessId,
+                    ProcessStatus = process.ProcessStatus,
+                    AssignedToUserId = adminUserId,
+                    AssignedAt = process.AssignedAt.Value
+                });
+            }
+            catch
             {
-                RefundId = process.RefundId,
-                ManualRefundProcessId = process.ManualRefundProcessId,
-                ProcessStatus = process.ProcessStatus,
-                AssignedToUserId = adminUserId,
-                AssignedAt = process.AssignedAt.Value
-            });
-        }
-        catch
-        {
-            await transaction.RollbackAsync(CancellationToken.None);
-            throw;
-        }
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+        });
     }
 
     public async Task<ServiceResult<RefundProcessingResponse>> ConfirmAsync(
@@ -131,182 +135,186 @@ public sealed class ManualRefundService : IManualRefundService
         ManualRefundConfirmationRequest request,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await _db.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-        try
+        var executionStrategy = _db.Database.CreateExecutionStrategy();
+        return await executionStrategy.ExecuteAsync(async () =>
         {
-            var process = await _db.ManualRefundProcesses
-                .Include(item => item.RefundClaim)
-                .Include(item => item.Refund)
-                    .ThenInclude(item => item.Payment)
-                        .ThenInclude(item => item.Refunds)
-                .Include(item => item.Refund)
-                    .ThenInclude(item => item.Booking)
-                        .ThenInclude(item => item.BookingSeats)
-                            .ThenInclude(item => item.Ticket)
-                .Include(item => item.Refund)
-                    .ThenInclude(item => item.Booking)
-                        .ThenInclude(item => item.CustomerProfile)
-                            .ThenInclude(item => item!.User)
-                .Include(item => item.Refund)
-                    .ThenInclude(item => item.Booking)
-                        .ThenInclude(item => item.RewardPointTransactions)
-                .Include(item => item.Refund)
-                    .ThenInclude(item => item.Booking)
-                        .ThenInclude(item => item.Showtime)
-                            .ThenInclude(item => item.Movie)
-                .FirstOrDefaultAsync(item => item.RefundId == refundId, cancellationToken);
-            if (process is null)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.NotFound,
-                    "Manual refund was not found.",
-                    BookingConstants.RefundErrorCodes.ManualRefundNotFound);
-            }
-            if (process.ProcessStatus == BookingConstants.ManualRefundProcessStatus.Confirmed
-                && process.Refund.RefundStatus == BookingConstants.RefundStatus.Success)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return ServiceResult<RefundProcessingResponse>.Ok(
-                    ToProcessingResponse(process.Refund, true),
-                    "Manual refund was already confirmed.");
-            }
-            if (!string.Equals(process.AssignedToUserId, adminUserId, StringComparison.OrdinalIgnoreCase))
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.Conflict,
-                    "Assign this refund before confirming it.",
-                    BookingConstants.RefundErrorCodes.ManualRefundNotAssignedToUser);
-            }
-            if (process.Refund.RefundStatus != BookingConstants.RefundStatus.ManualRequired)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.Conflict,
-                    "Refund is not awaiting manual processing.",
-                    BookingConstants.RefundErrorCodes.RefundNotManualRequired);
-            }
-            if (request.TransferredAmount != process.Refund.RefundAmount)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.BadRequest,
-                    "Transferred amount must match the refund amount.",
-                    BookingConstants.RefundErrorCodes.RefundAmountMismatch);
-            }
-            if (!Uri.TryCreate(request.ProofUrl.Trim(), UriKind.Absolute, out var proofUri)
-                || proofUri.Scheme != Uri.UriSchemeHttps)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.BadRequest,
-                    "Proof URL must be an absolute HTTPS URL.",
-                    BookingConstants.RefundErrorCodes.InvalidRefundProofUrl);
-            }
-
-            var transactionCode = request.BankTransactionCode.Trim();
-            var duplicateCode = await _db.ManualRefundProcesses.AnyAsync(
-                item => item.ManualRefundProcessId != process.ManualRefundProcessId
-                    && item.BankTransactionCode == transactionCode,
+            await using var transaction = await _db.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
                 cancellationToken);
-            if (duplicateCode)
+            try
             {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.Conflict,
-                    "Bank transaction code has already been used.",
-                    BookingConstants.RefundErrorCodes.RefundTransactionCodeDuplicate);
-            }
-
-            var otherSuccessfulAmount = process.Refund.Payment.Refunds
-                .Where(item => item.RefundId != process.RefundId
-                    && item.RefundStatus == BookingConstants.RefundStatus.Success)
-                .Sum(item => item.RefundAmount);
-            if (otherSuccessfulAmount + process.Refund.RefundAmount > process.Refund.Payment.Amount)
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return FailConfirm(
-                    (int)HttpStatusCode.Conflict,
-                    "Successful refund total would exceed the payment amount.",
-                    BookingConstants.RefundErrorCodes.RefundTotalExceedsPayment);
-            }
-
-            var now = _clock.UtcNow;
-            process.BankTransactionCode = transactionCode;
-            process.TransferredAmount = request.TransferredAmount;
-            process.ProofUrl = proofUri.AbsoluteUri;
-            process.AdminNote = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
-            process.ConfirmedAt = now;
-            process.ProcessStatus = BookingConstants.ManualRefundProcessStatus.Confirmed;
-
-            process.Refund.RefundStatus = BookingConstants.RefundStatus.Success;
-            process.Refund.ProviderRefundCode = transactionCode;
-            process.Refund.FailureReason = null;
-            process.Refund.RefundedAt = now;
-            process.RefundClaim.ClaimStatus = BookingConstants.RefundClaimStatus.Completed;
-            process.RefundClaim.CompletedAt = now;
-            process.RefundClaim.UpdatedAt = now;
-
-            var totalSuccessful = otherSuccessfulAmount + process.Refund.RefundAmount;
-            var revertedPoints = 0;
-            if (totalSuccessful >= process.Refund.Payment.Amount)
-            {
-                process.Refund.Booking.BookingStatus = BookingConstants.BookingStatus.Refunded;
-                foreach (var bookingSeat in process.Refund.Booking.BookingSeats)
+                var process = await _db.ManualRefundProcesses
+                    .Include(item => item.RefundClaim)
+                    .Include(item => item.Refund)
+                        .ThenInclude(item => item.Payment)
+                            .ThenInclude(item => item.Refunds)
+                    .Include(item => item.Refund)
+                        .ThenInclude(item => item.Booking)
+                            .ThenInclude(item => item.BookingSeats)
+                                .ThenInclude(item => item.Ticket)
+                    .Include(item => item.Refund)
+                        .ThenInclude(item => item.Booking)
+                            .ThenInclude(item => item.CustomerProfile)
+                                .ThenInclude(item => item!.User)
+                    .Include(item => item.Refund)
+                        .ThenInclude(item => item.Booking)
+                            .ThenInclude(item => item.RewardPointTransactions)
+                    .Include(item => item.Refund)
+                        .ThenInclude(item => item.Booking)
+                            .ThenInclude(item => item.Showtime)
+                                .ThenInclude(item => item.Movie)
+                    .FirstOrDefaultAsync(item => item.RefundId == refundId, cancellationToken);
+                if (process is null)
                 {
-                    if (bookingSeat.Ticket is not null)
-                    {
-                        bookingSeat.Ticket.TicketStatus = BookingConstants.TicketStatus.Refunded;
-                    }
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.NotFound,
+                        "Manual refund was not found.",
+                        BookingConstants.RefundErrorCodes.ManualRefundNotFound);
                 }
-                revertedPoints = RevertRewardPoints(process.Refund.Booking, now);
-            }
-
-            var customerUserId = process.Refund.Booking.CustomerProfile?.UserId;
-            if (!string.IsNullOrWhiteSpace(customerUserId))
-            {
-                _db.Notifications.Add(new Notification
+                if (process.ProcessStatus == BookingConstants.ManualRefundProcessStatus.Confirmed
+                    && process.Refund.RefundStatus == BookingConstants.RefundStatus.Success)
                 {
-                    NotificationId = NewId(BookingConstants.EntityIdPrefix.Notification),
-                    UserId = customerUserId,
-                    BookingId = process.Refund.BookingId,
-                    Title = "Refund completed",
-                    Message = $"Refund {process.Refund.RefundAmount:N0} was completed.",
-                    IsRead = false,
-                    CreatedAt = now
-                });
-            }
-            AddAudit(
-                adminUserId,
-                DomainConstants.AuditAction.ConfirmManualRefund,
-                process.RefundId,
-                now,
-                new { transactionCode, request.TransferredAmount, revertedPoints });
-            await _db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<RefundProcessingResponse>.Ok(
+                        ToProcessingResponse(process.Refund, true),
+                        "Manual refund was already confirmed.");
+                }
+                if (!string.Equals(process.AssignedToUserId, adminUserId, StringComparison.OrdinalIgnoreCase))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.Conflict,
+                        "Assign this refund before confirming it.",
+                        BookingConstants.RefundErrorCodes.ManualRefundNotAssignedToUser);
+                }
+                if (process.Refund.RefundStatus != BookingConstants.RefundStatus.ManualRequired)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.Conflict,
+                        "Refund is not awaiting manual processing.",
+                        BookingConstants.RefundErrorCodes.RefundNotManualRequired);
+                }
+                if (request.TransferredAmount != process.Refund.RefundAmount)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.BadRequest,
+                        "Transferred amount must match the refund amount.",
+                        BookingConstants.RefundErrorCodes.RefundAmountMismatch);
+                }
+                if (!Uri.TryCreate(request.ProofUrl.Trim(), UriKind.Absolute, out var proofUri)
+                    || proofUri.Scheme != Uri.UriSchemeHttps)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.BadRequest,
+                        "Proof URL must be an absolute HTTPS URL.",
+                        BookingConstants.RefundErrorCodes.InvalidRefundProofUrl);
+                }
 
-            var email = process.Refund.Booking.CustomerProfile?.User.Email
-                ?? process.Refund.Booking.GuestEmail;
-            if (!string.IsNullOrWhiteSpace(email))
-            {
-                await TrySendCompletedEmailAsync(
-                    email,
-                    process.Refund.Booking.Showtime.Movie.Title,
-                    process.Refund.RefundAmount,
+                var transactionCode = request.BankTransactionCode.Trim();
+                var duplicateCode = await _db.ManualRefundProcesses.AnyAsync(
+                    item => item.ManualRefundProcessId != process.ManualRefundProcessId
+                        && item.BankTransactionCode == transactionCode,
                     cancellationToken);
+                if (duplicateCode)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.Conflict,
+                        "Bank transaction code has already been used.",
+                        BookingConstants.RefundErrorCodes.RefundTransactionCodeDuplicate);
+                }
+
+                var otherSuccessfulAmount = process.Refund.Payment.Refunds
+                    .Where(item => item.RefundId != process.RefundId
+                        && item.RefundStatus == BookingConstants.RefundStatus.Success)
+                    .Sum(item => item.RefundAmount);
+                if (otherSuccessfulAmount + process.Refund.RefundAmount > process.Refund.Payment.Amount)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.Conflict,
+                        "Successful refund total would exceed the payment amount.",
+                        BookingConstants.RefundErrorCodes.RefundTotalExceedsPayment);
+                }
+
+                var now = _clock.UtcNow;
+                process.BankTransactionCode = transactionCode;
+                process.TransferredAmount = request.TransferredAmount;
+                process.ProofUrl = proofUri.AbsoluteUri;
+                process.AdminNote = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+                process.ConfirmedAt = now;
+                process.ProcessStatus = BookingConstants.ManualRefundProcessStatus.Confirmed;
+
+                process.Refund.RefundStatus = BookingConstants.RefundStatus.Success;
+                process.Refund.ProviderRefundCode = transactionCode;
+                process.Refund.FailureReason = null;
+                process.Refund.RefundedAt = now;
+                process.RefundClaim.ClaimStatus = BookingConstants.RefundClaimStatus.Completed;
+                process.RefundClaim.CompletedAt = now;
+                process.RefundClaim.UpdatedAt = now;
+
+                var totalSuccessful = otherSuccessfulAmount + process.Refund.RefundAmount;
+                var revertedPoints = 0;
+                if (totalSuccessful >= process.Refund.Payment.Amount)
+                {
+                    process.Refund.Booking.BookingStatus = BookingConstants.BookingStatus.Refunded;
+                    foreach (var bookingSeat in process.Refund.Booking.BookingSeats)
+                    {
+                        if (bookingSeat.Ticket is not null)
+                        {
+                            bookingSeat.Ticket.TicketStatus = BookingConstants.TicketStatus.Refunded;
+                        }
+                    }
+                    revertedPoints = RevertRewardPoints(process.Refund.Booking, now);
+                }
+
+                var customerUserId = process.Refund.Booking.CustomerProfile?.UserId;
+                if (!string.IsNullOrWhiteSpace(customerUserId))
+                {
+                    _db.Notifications.Add(new Notification
+                    {
+                        NotificationId = NewId(BookingConstants.EntityIdPrefix.Notification),
+                        UserId = customerUserId,
+                        BookingId = process.Refund.BookingId,
+                        Title = "Refund completed",
+                        Message = $"Refund {process.Refund.RefundAmount:N0} was completed.",
+                        IsRead = false,
+                        CreatedAt = now
+                    });
+                }
+                AddAudit(
+                    adminUserId,
+                    DomainConstants.AuditAction.ConfirmManualRefund,
+                    process.RefundId,
+                    now,
+                    new { transactionCode, request.TransferredAmount, revertedPoints });
+                await _db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+
+                var email = process.Refund.Booking.CustomerProfile?.User.Email
+                    ?? process.Refund.Booking.GuestEmail;
+                if (!string.IsNullOrWhiteSpace(email))
+                {
+                    await TrySendCompletedEmailAsync(
+                        email,
+                        process.Refund.Booking.Showtime.Movie.Title,
+                        process.Refund.RefundAmount,
+                        cancellationToken);
+                }
+                return ServiceResult<RefundProcessingResponse>.Ok(
+                    ToProcessingResponse(process.Refund, false, revertedPoints),
+                    "Manual refund confirmed successfully.");
             }
-            return ServiceResult<RefundProcessingResponse>.Ok(
-                ToProcessingResponse(process.Refund, false, revertedPoints),
-                "Manual refund confirmed successfully.");
-        }
-        catch
-        {
-            await transaction.RollbackAsync(CancellationToken.None);
-            throw;
-        }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+        });
     }
 
     private ManualRefundResponse ToResponse(ManualRefundProcess process)
