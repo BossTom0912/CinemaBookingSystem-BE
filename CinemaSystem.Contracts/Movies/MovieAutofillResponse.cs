@@ -14,4 +14,5 @@ public class MovieAutofillResponse
     public string? Director { get; set; }
     public string? TrailerUrl { get; set; }
     public string? PosterUrl { get; set; }
+    public string? BannerUrl { get; set; }
 }

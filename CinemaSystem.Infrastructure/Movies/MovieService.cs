@@ -113,6 +113,8 @@ public sealed class MovieService : IMovieService
                 Duration = movie.DurationMinutes,
                 // Gán đường dẫn ảnh poster phim
                 ImagePoster = movie.PosterUrl,
+                // Gán đường dẫn ảnh banner phim
+                ImageBanner = movie.BannerUrl,
                 // Gán điểm đánh giá trung bình
                 AvgRating = movie.AverageRating,
                 // Gán độ nổi bật của phim (Hot, Trending, Popular...)
@@ -261,6 +263,8 @@ public sealed class MovieService : IMovieService
             PosterUrl = movie.PosterUrl,
             // Gán đường dẫn video trailer
             TrailerUrl = movie.TrailerUrl,
+            // Gán đường dẫn ảnh banner
+            BannerUrl = movie.BannerUrl,
             // Gán trạng thái bộ phim
             MovieStatus = movie.MovieStatus,
             // Gán số lượt xem
@@ -420,6 +424,7 @@ public sealed class MovieService : IMovieService
             TrailerUrl = request.TrailerUrl,
             Highlight = request.Highlight,
             PosterUrl = posterUrl,
+            BannerUrl = request.BannerUrl,
             Director = request.Director,
             MovieStatus = status
         };
@@ -583,6 +588,7 @@ public sealed class MovieService : IMovieService
         movie.AgeRating = request.AgeRating;
         movie.Description = request.Description;
         movie.TrailerUrl = request.TrailerUrl;
+        movie.BannerUrl = request.BannerUrl;
         movie.Highlight = request.Highlight;
         movie.Director = request.Director;
         movie.MovieStatus = request.MovieStatus;
@@ -741,7 +747,7 @@ public sealed class MovieService : IMovieService
                     {
                         parts = new[]
                         {
-                            new { text = $"Read the following HTML/text from a movie website and extract the movie details, including the poster image URL and trailer video URL if available. Translate movie title, description to Vietnamese if appropriate, but keep the original title as title if it is international. Populate the fields. Website Content:\n\n{cleanContent}" }
+                            new { text = $"Read the following HTML/text from a movie website and extract the movie details, including the poster image URL, trailer video URL, and a banner/landscape/backdrop image URL suitable for a website home page slider if available. Translate movie title, description to Vietnamese if appropriate, but keep the original title as title if it is international. Populate the fields. Website Content:\n\n{cleanContent}" }
                         }
                     }
                 },
@@ -762,7 +768,8 @@ public sealed class MovieService : IMovieService
                             description = new { type = "STRING", description = "Plot summary of the movie in Vietnamese" },
                             director = new { type = "STRING", description = "Director name" },
                             trailerUrl = new { type = "STRING", description = "Official trailer URL if present (from meta tags like og:video, JSON-LD, or links)" },
-                            posterUrl = new { type = "STRING", description = "Movie poster image URL (from meta tags like og:image, JSON-LD, or links)" }
+                            posterUrl = new { type = "STRING", description = "Movie poster image URL (from meta tags like og:image, JSON-LD, or links)" },
+                            bannerUrl = new { type = "STRING", description = "Movie banner/landscape/backdrop image URL suitable for website home page slider (from meta tags like og:image:secure_url, twitter:image, backdrop images, background images, or high resolution landscape images)" }
                         },
                         required = new[] { "title", "durationMinutes" }
                     }
@@ -831,6 +838,106 @@ public sealed class MovieService : IMovieService
         catch (Exception ex)
         {
             return ServiceResult<MovieAutofillResponse>.Fail(500, $"An error occurred: {ex.Message}", "INTERNAL_ERROR");
+        }
+    }
+
+    public async Task<ServiceResult<string>> UploadMovieBannerAsync(
+        string movieId,
+        Stream? bannerStream,
+        string? bannerFileName,
+        string? bannerUrl,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var movie = await _dbContext.Movies
+                .FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
+
+            if (movie == null)
+            {
+                return ServiceResult<string>.Fail(404, $"Movie with ID '{movieId}' not found.", "MOVIE_NOT_FOUND");
+            }
+
+            string? finalBannerUrl = null;
+
+            if (bannerStream != null && !string.IsNullOrWhiteSpace(bannerFileName))
+            {
+                // Nếu phim đã có banner cũ lưu local thì xóa đi
+                if (!string.IsNullOrWhiteSpace(movie.BannerUrl) && !movie.BannerUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        await _fileStorageService.DeleteFileAsync(movie.BannerUrl, cancellationToken);
+                    }
+                    catch
+                    {
+                        // Bỏ qua lỗi xóa file cũ để tránh gián đoạn
+                    }
+                }
+
+                // Lưu banner mới
+                finalBannerUrl = await _fileStorageService.SaveFileAsync(
+                    bannerStream,
+                    bannerFileName,
+                    _fileStorageSettings.GeneralImageFolder,
+                    cancellationToken);
+            }
+            else if (!string.IsNullOrWhiteSpace(bannerUrl))
+            {
+                finalBannerUrl = bannerUrl;
+            }
+
+            if (string.IsNullOrEmpty(finalBannerUrl))
+            {
+                return ServiceResult<string>.Fail(400, "Banner file or banner URL is required.", "BAD_REQUEST");
+            }
+
+            movie.BannerUrl = finalBannerUrl;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<string>.Ok(finalBannerUrl, "Movie banner updated successfully.");
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<string>.Fail(500, $"An error occurred while uploading banner: {ex.Message}", "INTERNAL_ERROR");
+        }
+    }
+
+    public async Task<ServiceResult<object>> DeleteMovieBannerAsync(
+        string movieId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var movie = await _dbContext.Movies
+                .FirstOrDefaultAsync(m => m.MovieId == movieId, cancellationToken);
+
+            if (movie == null)
+            {
+                return ServiceResult<object>.Fail(404, $"Movie with ID '{movieId}' not found.", "MOVIE_NOT_FOUND");
+            }
+
+            // Nếu banner được lưu cục bộ (không phải link web bên ngoài) thì xóa file vật lý
+            if (!string.IsNullOrWhiteSpace(movie.BannerUrl) && !movie.BannerUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await _fileStorageService.DeleteFileAsync(movie.BannerUrl, cancellationToken);
+                }
+                catch
+                {
+                    // Bỏ qua lỗi xóa file cũ
+                }
+            }
+
+            movie.BannerUrl = "none";
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<object>.Ok(new object(), "Movie banner deleted successfully.");
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<object>.Fail(500, $"An error occurred while deleting banner: {ex.Message}", "INTERNAL_ERROR");
         }
     }
 }

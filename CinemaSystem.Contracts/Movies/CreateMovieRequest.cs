@@ -39,6 +39,9 @@ public class CreateMovieRequest
     [MaxLength(1000)]
     public string? PosterUrl { get; set; }
 
+    [MaxLength(1000)]
+    public string? BannerUrl { get; set; }
+
     [MaxLength(30)]
     public string? MovieStatus { get; set; }
 }

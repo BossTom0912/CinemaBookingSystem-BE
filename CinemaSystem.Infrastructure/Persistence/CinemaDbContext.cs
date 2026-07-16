@@ -39,6 +39,8 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<Movie> Movies { get; set; }
 
+    public virtual DbSet<Banner> Banners { get; set; }
+
     public virtual DbSet<MovieViewLog> MovieViewLogs { get; set; }
 
     public virtual DbSet<MovieDailyView> MovieDailyViews { get; set; }
@@ -118,6 +120,20 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.SupportsPayout).HasColumnName("supportsPayout");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("createdAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
+        });
+
+        modelBuilder.Entity<Banner>(entity =>
+        {
+            entity.HasKey(e => e.BannerId);
+            entity.ToTable("BANNER");
+            entity.Property(e => e.BannerId).HasMaxLength(50).HasColumnName("bannerId");
+            entity.Property(e => e.Title).HasMaxLength(200).HasColumnName("title");
+            entity.Property(e => e.ImageUrl).HasMaxLength(1000).HasColumnName("imageUrl");
+            entity.Property(e => e.LinkUrl).HasMaxLength(1000).HasColumnName("linkUrl");
+            entity.Property(e => e.BannerType).HasMaxLength(50).HasColumnName("bannerType");
+            entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("displayOrder");
+            entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("isActive");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())").HasColumnName("createdAt");
         });
 
         modelBuilder.Entity<AuditLog>(entity =>
@@ -564,6 +580,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.TrailerUrl)
                 .HasMaxLength(1000)
                 .HasColumnName("trailerUrl");
+            entity.Property(e => e.BannerUrl)
+                .HasMaxLength(1000)
+                .HasColumnName("bannerUrl");
             entity.Property(e => e.ViewCount)
                 .HasDefaultValue(0)
                 .HasColumnName("viewCount");

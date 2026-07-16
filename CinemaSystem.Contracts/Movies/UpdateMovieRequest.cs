@@ -32,6 +32,9 @@ public class UpdateMovieRequest
     public string? PosterUrl { get; set; }
 
     [MaxLength(1000)]
+    public string? BannerUrl { get; set; }
+
+    [MaxLength(1000)]
     public string? TrailerUrl { get; set; }
 
     [MaxLength(30)]
