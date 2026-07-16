@@ -45,6 +45,10 @@ public interface IMovieService
         string actionUserId,
         CancellationToken cancellationToken);
 
+    Task<ServiceResult<MovieAutofillResponse>> AutofillMovieFromUrlAsync(
+        MovieAutofillRequest request,
+        CancellationToken cancellationToken);
+
     Task UpdateMovieRatingAsync(
         string movieId,
         int ratingDiff,

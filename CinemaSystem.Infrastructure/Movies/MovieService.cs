@@ -11,8 +11,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using YoutubeExplode;
 
 namespace CinemaSystem.Infrastructure.Movies;
 
@@ -23,6 +27,7 @@ public sealed class MovieService : IMovieService
     private readonly IFileStorageService _fileStorageService;
     private readonly CinemaSystem.Application.Settings.CinemaProcessingSettings _settings;
     private readonly FileStorageSettings _fileStorageSettings;
+    private readonly Configuration.GeminiSettings _geminiSettings;
 
     public MovieService(
         CinemaDbContext dbContext,
@@ -30,12 +35,24 @@ public sealed class MovieService : IMovieService
         IFileStorageService fileStorageService,
         Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options,
         Microsoft.Extensions.Options.IOptions<FileStorageSettings> fileStorageOptions)
+        : this(dbContext, refundService, fileStorageService, options, fileStorageOptions, Microsoft.Extensions.Options.Options.Create(new Configuration.GeminiSettings()))
+    {
+    }
+
+    public MovieService(
+        CinemaDbContext dbContext,
+        IAdminRefundService refundService,
+        IFileStorageService fileStorageService,
+        Microsoft.Extensions.Options.IOptions<CinemaSystem.Application.Settings.CinemaProcessingSettings> options,
+        Microsoft.Extensions.Options.IOptions<FileStorageSettings> fileStorageOptions,
+        Microsoft.Extensions.Options.IOptions<Configuration.GeminiSettings> geminiOptions)
     {
         _dbContext = dbContext;
         _refundService = refundService;
         _fileStorageService = fileStorageService;
         _settings = options.Value;
         _fileStorageSettings = fileStorageOptions.Value;
+        _geminiSettings = geminiOptions.Value;
     }
 
     public async Task<ServiceResult<PagedList<MovieResponse>>> GetMoviesAsync(
@@ -384,6 +401,11 @@ public sealed class MovieService : IMovieService
                 _fileStorageSettings.PosterFolder,
                 cancellationToken);
         }
+        else if (!string.IsNullOrWhiteSpace(request.PosterUrl))
+        {
+            // Sử dụng URL poster bên ngoài (ví dụ được Gemini trích xuất)
+            posterUrl = request.PosterUrl;
+        }
 
         // Tạo mới đối tượng Movie Entity với các thông tin đã chuẩn bị
         var movie = new Movie
@@ -645,5 +667,170 @@ public sealed class MovieService : IMovieService
 
         // Lưu thay đổi điểm đánh giá vào CSDL
         await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static readonly HttpClient _httpClient = new HttpClient();
+
+    private static string CleanHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+
+        // Preserve JSON-LD tags (IMDb/TMDB/Wikipedia metadata is kept here)
+        var jsonLdBuilder = new System.Text.StringBuilder();
+        try
+        {
+            var jsonLdMatches = System.Text.RegularExpressions.Regex.Matches(
+                html,
+                @"<script[^>]*type=[""']application/ld\+json[""'][^>]*>([\s\S]*?)</script>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            foreach (System.Text.RegularExpressions.Match match in jsonLdMatches)
+            {
+                jsonLdBuilder.AppendLine(match.Value);
+            }
+        }
+        catch { }
+
+        // Strip scripts
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<script[^>]*>[\s\S]*?</script>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Strip styles
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<style[^>]*>[\s\S]*?</style>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Strip svg
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<svg[^>]*>[\s\S]*?</svg>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // Strip comments
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"<!--[\s\S]*?-->", "");
+        // Clean multiple spaces/newlines
+        html = System.Text.RegularExpressions.Regex.Replace(html, @"\s+", " ");
+
+        if (jsonLdBuilder.Length > 0)
+        {
+            html = jsonLdBuilder.ToString() + "\n" + html;
+        }
+
+        return html.Length > 50000 ? html.Substring(0, 50000) : html;
+    }
+
+    public async Task<ServiceResult<MovieAutofillResponse>> AutofillMovieFromUrlAsync(
+        MovieAutofillRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_geminiSettings.ApiKey))
+        {
+            return ServiceResult<MovieAutofillResponse>.Fail(500, "Gemini API key is not configured.", "MISSING_API_KEY");
+        }
+
+        try
+        {
+            var httpRequestMessage = new HttpRequestMessage(HttpMethod.Get, request.Url);
+            httpRequestMessage.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+            using var httpResponse = await _httpClient.SendAsync(httpRequestMessage, cancellationToken);
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                return ServiceResult<MovieAutofillResponse>.Fail(400, $"Failed to fetch URL: {httpResponse.StatusCode}", "URL_FETCH_ERROR");
+            }
+
+            var html = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
+            var cleanContent = CleanHtml(html);
+
+            var payload = new
+            {
+                contents = new[]
+                {
+                    new
+                    {
+                        parts = new[]
+                        {
+                            new { text = $"Read the following HTML/text from a movie website and extract the movie details, including the poster image URL and trailer video URL if available. Translate movie title, description to Vietnamese if appropriate, but keep the original title as title if it is international. Populate the fields. Website Content:\n\n{cleanContent}" }
+                        }
+                    }
+                },
+                generationConfig = new
+                {
+                    responseMimeType = "application/json",
+                    responseSchema = new
+                    {
+                        type = "OBJECT",
+                        properties = new
+                        {
+                            title = new { type = "STRING", description = "The movie title (in Vietnamese or English/Original)" },
+                            durationMinutes = new { type = "INTEGER", description = "Duration of movie in minutes" },
+                            genres = new { type = "ARRAY", items = new { type = "STRING" }, description = "List of movie genres (e.g. Action, Comedy, Drama, Horror, Sci-Fi)" },
+                            language = new { type = "STRING", description = "Primary language of the movie" },
+                            releaseDate = new { type = "STRING", description = "Release date of the movie in YYYY-MM-DD format" },
+                            ageRating = new { type = "STRING", description = "Age rating of the movie (e.g. P, T13, T16, T18, K)" },
+                            description = new { type = "STRING", description = "Plot summary of the movie in Vietnamese" },
+                            director = new { type = "STRING", description = "Director name" },
+                            trailerUrl = new { type = "STRING", description = "Official trailer URL if present (from meta tags like og:video, JSON-LD, or links)" },
+                            posterUrl = new { type = "STRING", description = "Movie poster image URL (from meta tags like og:image, JSON-LD, or links)" }
+                        },
+                        required = new[] { "title", "durationMinutes" }
+                    }
+                }
+            };
+
+            var url = $"{_geminiSettings.ApiBaseUrl.TrimEnd('/')}/{Uri.EscapeDataString(_geminiSettings.Model)}:generateContent";
+            using var geminiRequest = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = JsonContent.Create(payload)
+            };
+            geminiRequest.Headers.TryAddWithoutValidation(Configuration.GeminiSettings.ApiKeyHeaderName, _geminiSettings.ApiKey);
+
+            using var geminiResponse = await _httpClient.SendAsync(geminiRequest, cancellationToken);
+            if (!geminiResponse.IsSuccessStatusCode)
+            {
+                var error = await geminiResponse.Content.ReadAsStringAsync(cancellationToken);
+                return ServiceResult<MovieAutofillResponse>.Fail(500, $"Gemini API error: {geminiResponse.StatusCode} - {error}", "GEMINI_API_ERROR");
+            }
+
+            var jsonDoc = await geminiResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+            var replyText = jsonDoc.GetProperty("candidates")[0]
+                                   .GetProperty("content")
+                                   .GetProperty("parts")[0]
+                                   .GetProperty("text").GetString();
+
+            if (string.IsNullOrWhiteSpace(replyText))
+            {
+                return ServiceResult<MovieAutofillResponse>.Fail(500, "Gemini returned empty response.", "EMPTY_RESPONSE");
+            }
+
+            var autofillData = JsonSerializer.Deserialize<MovieAutofillResponse>(replyText, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (autofillData == null)
+            {
+                return ServiceResult<MovieAutofillResponse>.Fail(500, "Failed to parse movie details from Gemini response.", "PARSE_ERROR");
+            }
+
+            // Fallback: If Gemini could not extract a trailer URL, search YouTube for the official trailer
+            if (string.IsNullOrWhiteSpace(autofillData.TrailerUrl) && !string.IsNullOrWhiteSpace(autofillData.Title))
+            {
+                try
+                {
+                    var youtube = new YoutubeClient();
+                    var searchQuery = $"{autofillData.Title} official trailer";
+                    await foreach (var searchResult in youtube.Search.GetResultsAsync(searchQuery, cancellationToken))
+                    {
+                        if (searchResult != null)
+                        {
+                            autofillData.TrailerUrl = searchResult.Url;
+                            break;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fail silently so it doesn't block the whole autofill if YouTube search fails
+                }
+            }
+
+            return ServiceResult<MovieAutofillResponse>.Ok(autofillData, "Movie details extracted successfully.");
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<MovieAutofillResponse>.Fail(500, $"An error occurred: {ex.Message}", "INTERNAL_ERROR");
+        }
     }
 }

@@ -72,6 +72,17 @@ public sealed class MoviesController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpPost("autofill")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
+    [ProducesResponseType(typeof(ApiResponse<MovieAutofillResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> AutofillMovie(
+        [FromBody] MovieAutofillRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _movieService.AutofillMovieFromUrlAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [HttpPost]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     [Consumes("multipart/form-data")]
