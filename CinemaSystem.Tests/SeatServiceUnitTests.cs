@@ -521,6 +521,85 @@ public sealed class SeatServiceUnitTests
     Assert.NotNull(lockedSeat.LockedUntil);
   }
 
+  [Fact]
+  public async Task GetSeatMapAsync_PendingPaymentBookingSeat_AppearsInLockedList()
+  {
+    var fixture = await UnitTestFixture.CreateAsync();
+    var lockedUntil = DateTime.UtcNow.AddMinutes(8);
+    var showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+    showtimeSeat.SeatStatus = "LOCKED";
+    showtimeSeat.LockedUntil = lockedUntil;
+    showtimeSeat.LockedByUserId = UserId;
+
+    fixture.DbContext.Bookings.Add(new Booking
+    {
+      BookingId = "BKG_PENDING_PAYMENT_001",
+      ShowtimeId = ShowtimeId,
+      BookingStatus = "PENDING_PAYMENT",
+      TotalAmount = 90000,
+      CreatedAt = DateTime.UtcNow,
+      ExpiredAt = lockedUntil,
+      BookingChannel = "ONLINE"
+    });
+    fixture.DbContext.BookingSeats.Add(new BookingSeat
+    {
+      BookingSeatId = "BKS_PENDING_PAYMENT_001",
+      BookingId = "BKG_PENDING_PAYMENT_001",
+      ShowtimeSeatId = ShowtimeSeatId,
+      SeatPrice = 90000
+    });
+    await fixture.DbContext.SaveChangesAsync();
+
+    var result = await fixture.Service.GetSeatMapAsync(ShowtimeId, CancellationToken.None);
+
+    Assert.True(result.Success);
+    Assert.Empty(result.Data!.AvailableSeats);
+    Assert.Empty(result.Data.SoldSeats);
+    var lockedSeat = Assert.Single(result.Data.LockedSeats);
+    Assert.Equal("LOCKED", lockedSeat.SeatStatus);
+    Assert.Equal(SeatId, lockedSeat.SeatId);
+    Assert.NotNull(lockedSeat.LockedUntil);
+  }
+
+  [Fact]
+  public async Task LockSeatAsync_PendingPaymentBookingSeat_ReturnsLockedConflict()
+  {
+    var fixture = await UnitTestFixture.CreateAsync();
+    var lockedUntil = DateTime.UtcNow.AddMinutes(8);
+    var showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+    showtimeSeat.SeatStatus = "LOCKED";
+    showtimeSeat.LockedUntil = lockedUntil;
+    showtimeSeat.LockedByUserId = "USR_WAITING_PAYMENT";
+
+    fixture.DbContext.Bookings.Add(new Booking
+    {
+      BookingId = "BKG_PENDING_PAYMENT_LOCK_001",
+      ShowtimeId = ShowtimeId,
+      BookingStatus = "PENDING_PAYMENT",
+      TotalAmount = 90000,
+      CreatedAt = DateTime.UtcNow,
+      ExpiredAt = lockedUntil,
+      BookingChannel = "ONLINE"
+    });
+    fixture.DbContext.BookingSeats.Add(new BookingSeat
+    {
+      BookingSeatId = "BKS_PENDING_PAYMENT_LOCK_001",
+      BookingId = "BKG_PENDING_PAYMENT_LOCK_001",
+      ShowtimeSeatId = ShowtimeSeatId,
+      SeatPrice = 90000
+    });
+    await fixture.DbContext.SaveChangesAsync();
+
+    var result = await fixture.Service.LockSeatAsync(
+      new LockSeatRequest { ShowtimeId = ShowtimeId, SeatId = SeatId },
+      UserId,
+      CancellationToken.None);
+
+    Assert.False(result.Success);
+    Assert.Equal(409, result.StatusCode);
+    Assert.Equal("SEAT_LOCKED", result.ErrorCode);
+  }
+
   private sealed class SaveChangesThrowingDbContext : CinemaDbContext
   {
     public SaveChangesThrowingDbContext(DbContextOptions<CinemaDbContext> options)

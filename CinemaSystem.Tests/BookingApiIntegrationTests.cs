@@ -181,6 +181,65 @@ public sealed class BookingApiIntegrationTests
     }
 
     [Fact]
+    public async Task CancelBooking_CreatedCheckoutWithPendingPayment_CancelsAndReleasesSeat()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var (showtimeId, showtimeSeatIds) = await SeedBookingDataAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/bookings",
+            new CreateBookingRequest
+            {
+                ShowtimeId = showtimeId,
+                ShowtimeSeatIds = showtimeSeatIds
+            });
+        var createBody = await createResponse.Content.ReadFromJsonAsync<ApiResponse<BookingResponse>>(JsonOptions);
+        var bookingId = createBody!.Data!.BookingId;
+
+        var paymentResponse = await client.PostAsJsonAsync(
+            "/api/payment",
+            new { BookingId = bookingId, PaymentProviderId = "PAYPROV_TEST" });
+        Assert.Equal(HttpStatusCode.OK, paymentResponse.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            var booking = await db.Bookings.SingleAsync(item => item.BookingId == bookingId);
+            booking.BookingStatus = DomainConstants.BookingStatus.Created;
+            await db.SaveChangesAsync();
+        }
+
+        var cancelResponse = await client.PostAsync($"/api/bookings/{bookingId}/cancel", null);
+
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+        var cancelBody = await cancelResponse.Content.ReadFromJsonAsync<ApiResponse<bool>>(JsonOptions);
+        Assert.True(cancelBody!.Success);
+        Assert.True(cancelBody.Data);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            var booking = await db.Bookings
+                .Include(item => item.Payments)
+                .Include(item => item.BookingSeats)
+                .SingleAsync(item => item.BookingId == bookingId);
+            var showtimeSeat = await db.ShowtimeSeats.SingleAsync(item => item.ShowtimeSeatId == showtimeSeatIds[0]);
+
+            Assert.Equal(DomainConstants.BookingStatus.Cancelled, booking.BookingStatus);
+            Assert.Empty(booking.BookingSeats);
+            Assert.All(booking.Payments, payment =>
+                Assert.Equal(DomainConstants.PaymentStatus.Cancelled, payment.PaymentStatus));
+            Assert.Equal(DomainConstants.ShowtimeSeatStatus.Available, showtimeSeat.SeatStatus);
+            Assert.Null(showtimeSeat.LockedUntil);
+            Assert.Null(showtimeSeat.LockedByUserId);
+        }
+    }
+
+    [Fact]
     public async Task FullBookingPaymentFlow_E2E()
     {
         await using var factory = new CinemaWebApplicationFactory();
