@@ -117,6 +117,7 @@ CREATE TABLE [MOVIE] (
     [description] NVARCHAR(MAX) NULL,
     [posterUrl] NVARCHAR(1000) NULL,
     [trailerUrl] NVARCHAR(1000) NULL,
+    [bannerUrl] NVARCHAR(1000) NULL,
     [director] NVARCHAR(200) NULL,
     [highlight] NVARCHAR(30) NULL,
     [movieStatus] NVARCHAR(30) NOT NULL DEFAULT 'COMING_SOON',
@@ -1302,5 +1303,23 @@ BEGIN
         ([customerProfileId], [userId], [memberLevel], [rewardPoints], [dateOfBirth])
     VALUES
         ('CP01', 'U_CUST_01', 'GOLD', 500, '2005-12-09');
+END;
+GO
+
+-- ============================================================================
+-- 41. BẢNG BANNER (QUẢNG CÁO, BẮP NƯỚC, SỰ KIỆN RẠP)
+-- ============================================================================
+IF OBJECT_ID('dbo.BANNER', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.[BANNER] (
+        [bannerId] VARCHAR(50) PRIMARY KEY,
+        [title] NVARCHAR(200) NOT NULL,
+        [imageUrl] NVARCHAR(1000) NOT NULL,
+        [linkUrl] NVARCHAR(1000) NULL,
+        [bannerType] VARCHAR(50) NOT NULL, -- MOVIE, PROMOTION, FOOD_BEVERAGE, SYSTEM
+        [displayOrder] INT NOT NULL DEFAULT 0,
+        [isActive] BIT NOT NULL DEFAULT 1,
+        [createdAt] DATETIME NOT NULL DEFAULT GETDATE()
+    );
 END;
 GO
