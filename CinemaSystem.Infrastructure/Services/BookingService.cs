@@ -563,28 +563,35 @@ public sealed class BookingService : IBookingService
             return ServiceResult<bool>.Fail(400, "Only unpaid checkout bookings can be cancelled.", "INVALID_BOOKING_STATUS");
         }
 
-        var now = _clock.UtcNow;
-        await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
-
-        foreach (var payment in booking.Payments)
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase))
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+            var now = _clock.UtcNow;
+            await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
+
+            foreach (var payment in booking.Payments)
             {
-                payment.PaymentStatus = DomainConstants.PaymentStatus.Cancelled;
-                payment.UpdatedAt = now;
-                payment.FailureReason ??= "Customer cancelled checkout transaction.";
+                if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Pending, StringComparison.OrdinalIgnoreCase))
+                {
+                    payment.PaymentStatus = DomainConstants.PaymentStatus.Cancelled;
+                    payment.UpdatedAt = now;
+                    payment.FailureReason ??= "Customer cancelled checkout transaction.";
+                }
             }
-        }
 
-        booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
-        booking.ExpiredAt = now;
+            booking.BookingStatus = DomainConstants.EntityStatus.Cancelled;
+            booking.ExpiredAt = now;
 
-        if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
-        {
-            booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
-        }
+            if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+            {
+                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
+            }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
 
         return ServiceResult<bool>.Ok(true, "Pending booking cancelled and seats released successfully.");
     }
@@ -925,23 +932,28 @@ public sealed class BookingService : IBookingService
         var oldShowtimeSeat = bookingSeat.ShowtimeSeat;
 
         // 5. Sử dụng Transaction để cập nhật an toàn
-        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            // Giải phóng ghế cũ
-            oldShowtimeSeat.SeatStatus = DomainConstants.ShowtimeSeatStatus.Available;
-            oldShowtimeSeat.LockedUntil = null;
-            oldShowtimeSeat.LockedByUserId = null;
+            var strategy = _dbContext.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-            // Khóa ghế mới cho đơn hàng này
-            newShowtimeSeat.SeatStatus = DomainConstants.ShowtimeSeatStatus.Booked;
+                // Giải phóng ghế cũ
+                oldShowtimeSeat.SeatStatus = DomainConstants.ShowtimeSeatStatus.Available;
+                oldShowtimeSeat.LockedUntil = null;
+                oldShowtimeSeat.LockedByUserId = null;
 
-            // Cập nhật lại liên kết ghế cho BookingSeat
-            bookingSeat.ShowtimeSeatId = newShowtimeSeat.ShowtimeSeatId;
+                // Khóa ghế mới cho đơn hàng này
+                newShowtimeSeat.SeatStatus = DomainConstants.ShowtimeSeatStatus.Booked;
 
-            // Lưu thay đổi
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+                // Cập nhật lại liên kết ghế cho BookingSeat
+                bookingSeat.ShowtimeSeatId = newShowtimeSeat.ShowtimeSeatId;
+
+                // Lưu thay đổi
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            });
 
             // Gửi email thông báo chuyển ghế thủ công cho khách hàng qua AI
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
@@ -961,7 +973,6 @@ public sealed class BookingService : IBookingService
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync(cancellationToken);
             return ServiceResult<bool>.Fail(500, $"Internal server error while reassigning seat: {ex.Message}", "INTERNAL_ERROR");
         }
     }
