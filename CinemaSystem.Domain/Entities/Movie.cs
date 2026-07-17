@@ -25,6 +25,8 @@ public partial class Movie
 
     public string? TrailerUrl { get; set; }
 
+    public string? BannerUrl { get; set; }
+
     public string? Director { get; set; }
 
     public string? Highlight { get; set; }

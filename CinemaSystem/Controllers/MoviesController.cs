@@ -72,6 +72,17 @@ public sealed class MoviesController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpPost("autofill")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
+    [ProducesResponseType(typeof(ApiResponse<MovieAutofillResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> AutofillMovie(
+        [FromBody] MovieAutofillRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _movieService.AutofillMovieFromUrlAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [HttpPost]
     [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
     [Consumes("multipart/form-data")]
@@ -113,6 +124,37 @@ public sealed class MoviesController : ControllerBase
         CancellationToken cancellationToken)
     {
         var result = await _movieService.DeleteMovieAsync(movieId, GetUserId(), cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("{movieId}/banner")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UploadBanner(
+        string movieId,
+        IFormFile? bannerFile,
+        [FromForm] string? bannerUrl,
+        CancellationToken cancellationToken)
+    {
+        using var stream = bannerFile?.OpenReadStream();
+        var result = await _movieService.UploadMovieBannerAsync(
+            movieId,
+            stream,
+            bannerFile?.FileName,
+            bannerUrl,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpDelete("{movieId}/banner")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + "," + AuthConstants.Roles.Manager)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> DeleteBanner(
+        string movieId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _movieService.DeleteMovieBannerAsync(movieId, cancellationToken);
         return ToActionResult(result);
     }
 

@@ -328,10 +328,12 @@ public static class DependencyInjection
         services.AddScoped<IFbItemService, FbItemService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IVoucherService, VoucherService>();
+        services.AddScoped<IBannerService, CinemaSystem.Infrastructure.Banners.BannerService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
         
 
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieHighlightClassificationJob>();
+        services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieBannerAutofillJob>();
 
         return services;
     }

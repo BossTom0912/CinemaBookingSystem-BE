@@ -22,6 +22,8 @@ public sealed class MovieDetailResponse
 
     public string? TrailerUrl { get; init; }
 
+    public string? BannerUrl { get; init; }
+
     public string MovieStatus { get; init; } = string.Empty;
 
     public int ViewCount { get; init; }
