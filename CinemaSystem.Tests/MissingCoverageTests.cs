@@ -1401,7 +1401,8 @@ public sealed class PaymentServiceMissingCoverageTests
                     ClaimTokenMinutes = 5
                 }),
                 new CinemaSystem.Infrastructure.Time.SystemClock(),
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentService>.Instance);
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentService>.Instance,
+                Array.Empty<IPaymentGateway>());
             return new Fixture(dbContext, service);
         }
 

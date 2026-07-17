@@ -33,6 +33,7 @@ public class PaymentService : IPaymentService
     private readonly RefundSettings _refundSettings;
     private readonly IClock _clock;
     private readonly ILogger<PaymentService> _logger;
+    private readonly IReadOnlyDictionary<string, IPaymentGateway> _paymentGateways;
     // Biểu thức chính quy (Regex) để trích xuất mã giao dịch (Bắt đầu bằng chữ T và theo sau là 10 ký tự chữ/số)
     private static readonly Regex TransactionCodeRegex = new(
         DomainConstants.PaymentTransactionCode.Pattern,
@@ -47,7 +48,8 @@ public class PaymentService : IPaymentService
         IEmailSender emailSender,
         IOptions<RefundSettings> refundOptions,
         IClock clock,
-        ILogger<PaymentService> logger)
+        ILogger<PaymentService> logger,
+        IEnumerable<IPaymentGateway> paymentGateways)
     {
         // Gán DbContext được tiêm vào biến private
         _db = db;
@@ -59,13 +61,17 @@ public class PaymentService : IPaymentService
         _refundSettings = refundOptions.Value;
         _clock = clock;
         _logger = logger;
+        _paymentGateways = paymentGateways.ToDictionary(
+            gateway => gateway.ProviderName,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     // Phương thức tạo bản ghi thanh toán cho một đặt vé và trả về thông tin ngân hàng kèm mã giao dịch
     public async Task<CreatePaymentResponse> CreatePaymentAsync(
         CreatePaymentRequest request,
         string userId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? clientIpAddress = null)
     {
         // Loại bỏ khoảng trắng thừa ở hai đầu của ID đặt vé
         var bookingId = request.BookingId.Trim();
@@ -122,7 +128,7 @@ public class PaymentService : IPaymentService
             throw new InvalidOperationException($"Booking {booking.BookingId} has already been paid.");
 
         // Tính toán số tiền cần thanh toán dựa trên tổng tiền của đặt vé (có thể override trong môi trường dev)
-        var paymentAmount = GetPaymentAmount(booking.TotalAmount);
+        var paymentAmount = GetPaymentAmount(booking.TotalAmount, provider.ProviderName);
         // Tìm kiếm xem có khoản thanh toán nào đang ở trạng thái "Chờ xử lý" (Pending) với cùng nhà cung cấp hay không
         var pendingPayment = booking.Payments
             .Where(item =>
@@ -144,7 +150,11 @@ public class PaymentService : IPaymentService
             }
 
             // Trả về thông tin thanh toán từ giao dịch pending đã có sẵn
-            return ToCreatePaymentResponse(pendingPayment, booking.ExpiredAt);
+            return ToCreatePaymentResponse(
+                pendingPayment,
+                provider.ProviderName,
+                booking.ExpiredAt,
+                clientIpAddress);
         }
 
         // Lấy thời gian hiện tại chuẩn UTC
@@ -178,12 +188,42 @@ public class PaymentService : IPaymentService
         await _db.SaveChangesAsync(cancellationToken);
 
         // Trả về đối tượng phản hồi tạo thanh toán
-        return ToCreatePaymentResponse(payment, booking.ExpiredAt);
+        return ToCreatePaymentResponse(
+            payment,
+            provider.ProviderName,
+            booking.ExpiredAt,
+            clientIpAddress);
     }
 
     // Phương thức trợ giúp để chuyển đổi thực thể Payment sang đối tượng CreatePaymentResponse
-    private CreatePaymentResponse ToCreatePaymentResponse(Payment payment, DateTime? expiresAt)
+    private CreatePaymentResponse ToCreatePaymentResponse(
+        Payment payment,
+        string providerName,
+        DateTime? expiresAt,
+        string? clientIpAddress)
     {
+        string? checkoutUrl = null;
+        var bankName = string.Empty;
+        var bankAccount = string.Empty;
+
+        if (_paymentGateways.TryGetValue(providerName, out var gateway))
+        {
+            var effectiveExpiry = expiresAt
+                ?? payment.CreatedAt.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes);
+            checkoutUrl = gateway.CreateCheckoutUrl(new PaymentGatewayCheckoutRequest(
+                payment.PaymentId,
+                payment.TransactionCode ?? string.Empty,
+                payment.Amount,
+                payment.CreatedAt,
+                effectiveExpiry,
+                clientIpAddress ?? string.Empty));
+        }
+        else
+        {
+            bankName = _sepaySettings.BankName;
+            bankAccount = _sepaySettings.BankAccount;
+        }
+
         // Khởi tạo và trả về DTO chứa thông tin thanh toán
         return new CreatePaymentResponse
         {
@@ -193,20 +233,26 @@ public class PaymentService : IPaymentService
             Amount = payment.Amount,
             // Gán mã giao dịch (nếu null thì dùng chuỗi rỗng)
             TransactionCode = payment.TransactionCode ?? string.Empty,
+            PaymentProviderName = providerName,
             // Lấy tên ngân hàng từ cấu hình SePay
-            BankName = _sepaySettings.BankName,
+            BankName = bankName,
             // Lấy số tài khoản ngân hàng từ cấu hình SePay
-            BankAccount = _sepaySettings.BankAccount,
+            BankAccount = bankAccount,
+            CheckoutUrl = checkoutUrl,
             // Gán thời gian hết hạn của thanh toán
             ExpiresAt = expiresAt
         };
     }
 
     // Phương thức lấy số tiền thanh toán (Hỗ trợ override cho môi trường dev)
-    private decimal GetPaymentAmount(decimal bookingTotalAmount)
+    private decimal GetPaymentAmount(decimal bookingTotalAmount, string providerName)
     {
         // Trả về số tiền ghi đè nếu lớn hơn 0, ngược lại trả về đúng tổng tiền đặt vé
-        return _sepaySettings.DevelopmentPaymentAmountOverride is > 0
+        return !string.Equals(
+                providerName,
+                DomainConstants.PaymentProvider.VnPayName,
+                StringComparison.OrdinalIgnoreCase)
+            && _sepaySettings.DevelopmentPaymentAmountOverride is > 0
             ? _sepaySettings.DevelopmentPaymentAmountOverride.Value
             : bookingTotalAmount;
     }

@@ -45,6 +45,14 @@ public static class DomainConstants
         public const string Unavailable = "UNAVAILABLE";
     }
 
+    public static class SeatLock
+    {
+        private const string KeyPrefix = "seat-lock";
+
+        public static string BuildKey(string showtimeId, string seatId) =>
+            $"{KeyPrefix}:{showtimeId}:{seatId}";
+    }
+
     public static class CinemaStatus
     {
         public const string Active = "ACTIVE";
@@ -134,6 +142,8 @@ public static class DomainConstants
     {
         public const string SepayId = "PP_SEPAY";
         public const string SepayName = "SEPAY";
+        public const string VnPayId = "PP_VNPAY";
+        public const string VnPayName = "VNPAY";
     }
 
     public static class PaymentTransactionCode
