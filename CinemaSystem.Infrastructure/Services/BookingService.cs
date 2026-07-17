@@ -587,6 +587,16 @@ public sealed class BookingService : IBookingService
             if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
             {
                 booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
+                
+                var claimedVoucher = await _dbContext.CustomerVouchers
+                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId
+                        && cv.CustomerProfileId == booking.CustomerProfileId
+                        && cv.IsUsed, cancellationToken);
+                if (claimedVoucher != null)
+                {
+                    claimedVoucher.IsUsed = false;
+                    claimedVoucher.UsedAt = null;
+                }
             }
 
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -790,6 +800,16 @@ public sealed class BookingService : IBookingService
             if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
             {
                 booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
+                
+                var claimedVoucher = await _dbContext.CustomerVouchers
+                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId
+                        && cv.CustomerProfileId == booking.CustomerProfileId
+                        && cv.IsUsed, cancellationToken);
+                if (claimedVoucher != null)
+                {
+                    claimedVoucher.IsUsed = false;
+                    claimedVoucher.UsedAt = null;
+                }
             }
 
             await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
