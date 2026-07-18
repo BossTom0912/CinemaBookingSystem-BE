@@ -1622,6 +1622,10 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.BookingId, "UQ_VOUCHER_USAGE_BOOKING").IsUnique();
 
+            entity.HasIndex(e => e.CustomerVoucherId, "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER")
+                .IsUnique()
+                .HasFilter("[customerVoucherId] IS NOT NULL AND [usageStatus] <> 'CANCELLED'");
+
             entity.Property(e => e.VoucherUsageId)
                 .HasMaxLength(50)
                 .HasColumnName("voucherUsageId");
@@ -1631,6 +1635,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.CustomerProfileId)
                 .HasMaxLength(50)
                 .HasColumnName("customerProfileId");
+            entity.Property(e => e.CustomerVoucherId)
+                .HasMaxLength(50)
+                .HasColumnName("customerVoucherId");
             entity.Property(e => e.DiscountAmount)
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("discountAmount");
@@ -1652,6 +1659,11 @@ public partial class CinemaDbContext : DbContext
                 .HasForeignKey(d => d.CustomerProfileId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_VOUCHER_USAGE_CUSTOMER_PROFILE");
+
+            entity.HasOne(d => d.CustomerVoucher).WithMany(p => p.VoucherUsages)
+                .HasForeignKey(d => d.CustomerVoucherId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_VOUCHER_USAGE_CUSTOMER_VOUCHER");
 
             entity.HasOne(d => d.Voucher).WithMany(p => p.VoucherUsages)
                 .HasForeignKey(d => d.VoucherId)

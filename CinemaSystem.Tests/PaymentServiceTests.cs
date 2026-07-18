@@ -168,7 +168,8 @@ public sealed class PaymentServiceTests
                     ClaimTokenMinutes = 5
                 }),
                 new CinemaSystem.Infrastructure.Time.SystemClock(),
-                NullLogger<PaymentService>.Instance);
+                NullLogger<PaymentService>.Instance,
+                new VoucherReservationService(dbContext));
 
             return new Fixture(dbContext, service);
         }

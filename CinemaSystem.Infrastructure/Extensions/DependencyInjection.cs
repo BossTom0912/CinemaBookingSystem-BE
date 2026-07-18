@@ -328,6 +328,7 @@ public static class DependencyInjection
         services.AddScoped<IFbItemService, FbItemService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IVoucherService, VoucherService>();
+        services.AddScoped<IVoucherReservationService, VoucherReservationService>();
         services.AddScoped<IBannerService, CinemaSystem.Infrastructure.Banners.BannerService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
         

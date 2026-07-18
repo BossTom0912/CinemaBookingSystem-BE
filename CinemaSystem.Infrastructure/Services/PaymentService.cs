@@ -33,6 +33,7 @@ public class PaymentService : IPaymentService
     private readonly RefundSettings _refundSettings;
     private readonly IClock _clock;
     private readonly ILogger<PaymentService> _logger;
+    private readonly IVoucherReservationService _voucherReservationService;
     // Biểu thức chính quy (Regex) để trích xuất mã giao dịch (Bắt đầu bằng chữ T và theo sau là 10 ký tự chữ/số)
     private static readonly Regex TransactionCodeRegex = new(
         DomainConstants.PaymentTransactionCode.Pattern,
@@ -47,7 +48,8 @@ public class PaymentService : IPaymentService
         IEmailSender emailSender,
         IOptions<RefundSettings> refundOptions,
         IClock clock,
-        ILogger<PaymentService> logger)
+        ILogger<PaymentService> logger,
+        IVoucherReservationService voucherReservationService)
     {
         // Gán DbContext được tiêm vào biến private
         _db = db;
@@ -59,6 +61,7 @@ public class PaymentService : IPaymentService
         _refundSettings = refundOptions.Value;
         _clock = clock;
         _logger = logger;
+        _voucherReservationService = voucherReservationService;
     }
 
     // Phương thức tạo bản ghi thanh toán cho một đặt vé và trả về thông tin ngân hàng kèm mã giao dịch
@@ -319,9 +322,11 @@ public class PaymentService : IPaymentService
                     // Xác nhận sử dụng Voucher
                     if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
                     {
-                        booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Confirmed;
-                        booking.VoucherUsage.UsedAt = now;
-                        if (booking.VoucherUsage.Voucher != null)
+                        var confirmed = await _voucherReservationService.ConfirmAsync(
+                            booking.VoucherUsage,
+                            now,
+                            cancellationToken);
+                        if (confirmed && booking.VoucherUsage.Voucher != null)
                         {
                             booking.VoucherUsage.Voucher.UsedCount += 1;
                         }

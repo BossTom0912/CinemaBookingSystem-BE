@@ -69,6 +69,7 @@ IF OBJECT_ID(N'dbo.BOOKING', N'U') IS NULL
    OR OBJECT_ID(N'dbo.FB_ITEM', N'U') IS NULL
    OR OBJECT_ID(N'dbo.CINEMA_FB_INVENTORY', N'U') IS NULL
    OR OBJECT_ID(N'dbo.VOUCHER', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.VOUCHER_USAGE', N'U') IS NULL
 BEGIN
     THROW 52001, 'Required base tables are missing. Use the reset schema only for a new local database.', 1;
 END;
@@ -424,6 +425,100 @@ BEGIN TRY
         CREATE INDEX [IX_REFUND_PAYOUT_ATTEMPT_REFUND_STATUS] ON dbo.[REFUND_PAYOUT_ATTEMPT]([refundId], [attemptStatus], [requestedAt]);
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.EMAIL_OUTBOX') AND name = N'IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT')
         CREATE INDEX [IX_EMAIL_OUTBOX_STATUS_NEXT_ATTEMPT] ON dbo.[EMAIL_OUTBOX]([outboxStatus], [nextAttemptAt], [createdAt]);
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+-- SQL Server resolves column names when a batch is compiled. Add the nullable
+-- column in its own harmless, rerunnable phase before compiling the backfill.
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    IF COL_LENGTH(N'dbo.VOUCHER_USAGE', N'customerVoucherId') IS NULL
+        ALTER TABLE dbo.[VOUCHER_USAGE]
+            ADD [customerVoucherId] NVARCHAR(50) NULL;
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+-- Link a checkout reservation to the exact claimed voucher. Existing rows are
+-- backfilled only when exactly one used wallet claim is a safe match.
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    ;WITH exactClaim AS
+    (
+        SELECT
+            usage.[voucherUsageId],
+            MIN(claim.[customerVoucherId]) AS [customerVoucherId]
+        FROM dbo.[VOUCHER_USAGE] AS usage
+        INNER JOIN dbo.[CUSTOMER_VOUCHER] AS claim
+            ON claim.[voucherId] = usage.[voucherId]
+           AND claim.[customerProfileId] = usage.[customerProfileId]
+           AND claim.[isUsed] = 1
+        WHERE usage.[customerVoucherId] IS NULL
+          AND usage.[usageStatus] IN (N'APPLIED', N'CONFIRMED')
+        GROUP BY usage.[voucherUsageId]
+        HAVING COUNT_BIG(*) = 1
+    )
+    UPDATE usage
+    SET [customerVoucherId] = exactClaim.[customerVoucherId]
+    FROM dbo.[VOUCHER_USAGE] AS usage
+    INNER JOIN exactClaim
+        ON exactClaim.[voucherUsageId] = usage.[voucherUsageId];
+
+    -- APPLIED is a temporary reservation, not a consumed wallet claim.
+    UPDATE claim
+    SET [isUsed] = 0,
+        [usedAt] = NULL
+    FROM dbo.[CUSTOMER_VOUCHER] AS claim
+    INNER JOIN dbo.[VOUCHER_USAGE] AS usage
+        ON usage.[customerVoucherId] = claim.[customerVoucherId]
+    WHERE usage.[usageStatus] = N'APPLIED'
+      AND claim.[isUsed] = 1;
+
+    IF EXISTS
+    (
+        SELECT usage.[customerVoucherId]
+        FROM dbo.[VOUCHER_USAGE] AS usage
+        WHERE usage.[customerVoucherId] IS NOT NULL
+          AND usage.[usageStatus] <> N'CANCELLED'
+        GROUP BY usage.[customerVoucherId]
+        HAVING COUNT_BIG(*) > 1
+    )
+        THROW 52004, 'A customer voucher is linked to multiple non-cancelled usages. Reconcile those rows, then re-run.', 1;
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE parent_object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
+          AND name = N'FK_VOUCHER_USAGE_CUSTOMER_VOUCHER'
+    )
+        ALTER TABLE dbo.[VOUCHER_USAGE] WITH CHECK
+            ADD CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_VOUCHER]
+            FOREIGN KEY ([customerVoucherId])
+            REFERENCES dbo.[CUSTOMER_VOUCHER]([customerVoucherId]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
+          AND name = N'UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER'
+    )
+        CREATE UNIQUE INDEX [UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER]
+            ON dbo.[VOUCHER_USAGE]([customerVoucherId])
+            WHERE [customerVoucherId] IS NOT NULL
+              AND [usageStatus] <> N'CANCELLED';
 
     COMMIT TRANSACTION;
 END TRY
