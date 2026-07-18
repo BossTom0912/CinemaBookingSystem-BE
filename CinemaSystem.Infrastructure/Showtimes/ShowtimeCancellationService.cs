@@ -8,7 +8,6 @@ using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
-using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -22,27 +21,27 @@ namespace CinemaSystem.Infrastructure.Showtimes;
 public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 {
     private readonly CinemaDbContext _dbContext;
-    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly ICancellationCompensationService _compensationService;
+    private readonly IVoucherReservationService _voucherReservationService;
     private readonly IEmailSender _emailSender;
     private readonly IClock _clock;
-    private readonly RefundSettings _refundSettings;
     private readonly EmailTemplatesSettings _emailTemplates;
     private readonly ILogger<ShowtimeCancellationService> _logger;
 
     public ShowtimeCancellationService(
         CinemaDbContext dbContext,
-        IRefundClaimIssuer refundClaimIssuer,
+        ICancellationCompensationService compensationService,
+        IVoucherReservationService voucherReservationService,
         IEmailSender emailSender,
         IClock clock,
-        IOptions<RefundSettings> refundSettings,
         IOptions<EmailTemplatesSettings> emailTemplates,
         ILogger<ShowtimeCancellationService> logger)
     {
         _dbContext = dbContext;
-        _refundClaimIssuer = refundClaimIssuer;
+        _compensationService = compensationService;
+        _voucherReservationService = voucherReservationService;
         _emailSender = emailSender;
         _clock = clock;
-        _refundSettings = refundSettings.Value;
         _emailTemplates = emailTemplates.Value;
         _logger = logger;
     }
@@ -157,8 +156,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
                 var paidBookingsMoved = 0;
                 var unpaidBookingsCancelled = 0;
-                var refundsCreated = 0;
-                var totalRefundAmount = 0m;
+                var paidBookingsCompensated = 0;
+                var ticketVouchersIssued = 0;
+                var comboVouchersIssued = 0;
                 var cancellationEmails = new List<CancellationEmail>();
 
                 foreach (var showtimeSeat in showtime.ShowtimeSeats)
@@ -170,46 +170,44 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                 {
                     if (IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.Paid))
                     {
-                        var refundResult = MovePaidBookingToRefundPending(
-                            booking,
-                            cancellationId,
-                            reason,
-                            now);
-                        if (!refundResult.Success)
+                        var hasSuccessfulPayment = booking.Payments.Any(item =>
+                            IsStatus(
+                                item.PaymentStatus,
+                                BookingConstants.PaymentStatus.Success));
+                        if (!hasSuccessfulPayment)
                         {
                             return await RollbackAndFailAsync(
                                 transaction,
                                 (int)HttpStatusCode.Conflict,
-                                refundResult.Message,
-                                refundResult.ErrorCode,
+                                $"Paid booking {booking.BookingId} has no successful payment.",
+                                BookingConstants.RefundErrorCodes.PaidBookingPaymentNotFound,
                                 cancellationToken);
                         }
 
+                        await CancelPaidBookingAndRestoreVouchersAsync(
+                            booking,
+                            now,
+                            cancellationToken);
+                        var issue = await _compensationService
+                            .IssueForCancelledBookingAsync(
+                                booking,
+                                cancellationId,
+                                now,
+                                cancellationToken);
+
                         paidBookingsMoved++;
-                        refundsCreated += refundResult.RefundCreated ? 1 : 0;
-                        totalRefundAmount += refundResult.RefundAmount;
-                        if (refundResult.RefundId is not null)
-                        {
-                            if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
-                            {
-                                var issue = _refundClaimIssuer.Create(
-                                    refundResult.RefundId,
-                                    booking.CustomerProfileId,
-                                    now);
-                                _dbContext.RefundClaims.Add(issue.Claim);
-                                AddPaidCancellationEmail(
-                                    cancellationEmails,
-                                    booking,
-                                    showtime,
-                                    refundResult.RefundAmount,
-                                    issue.RawToken,
-                                    issue.Token.ExpiresAt);
-                            }
-                            else
-                            {
-                                AddCancellationEmail(cancellationEmails, booking, showtime);
-                            }
-                        }
+                        paidBookingsCompensated++;
+                        ticketVouchersIssued += issue.AlreadyIssued
+                            ? 0
+                            : issue.TicketVouchersIssued;
+                        comboVouchersIssued += issue.AlreadyIssued
+                            ? 0
+                            : issue.ComboVouchersIssued;
+                        AddPaidCancellationEmail(
+                            cancellationEmails,
+                            booking,
+                            showtime,
+                            issue);
 
                         AddCancellationNotification(booking, showtime, now);
                         continue;
@@ -219,6 +217,15 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                         || IsStatus(booking.BookingStatus, BookingConstants.BookingStatus.PendingPayment))
                     {
                         CancelUnpaidBooking(booking, now);
+                        await _compensationService.ReleaseBookingReservationsAsync(
+                            booking.BookingId,
+                            cancellationToken);
+                        if (booking.VoucherUsage is not null)
+                        {
+                            await _voucherReservationService.CancelAsync(
+                                booking.VoucherUsage,
+                                cancellationToken);
+                        }
                         unpaidBookingsCancelled++;
                         AddCancellationNotification(booking, showtime, now);
                         AddCancellationEmail(cancellationEmails, booking, showtime);
@@ -233,8 +240,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     reason,
                     paidBookingsMoved,
                     unpaidBookingsCancelled,
-                    refundsCreated,
-                    totalRefundAmount,
+                    paidBookingsCompensated,
+                    ticketVouchersIssued,
+                    comboVouchersIssued,
                     now));
 
                 await _dbContext.SaveChangesAsync(cancellationToken);
@@ -245,11 +253,12 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                 await SendCancellationEmailsAsync(cancellationEmails, cancellationToken);
 
                 _logger.LogInformation(
-                    "Showtime {ShowtimeId} cancelled by user {UserId}; refunds created: {RefundCount}, amount: {RefundAmount}.",
+                    "Showtime {ShowtimeId} cancelled by user {UserId}; paid bookings compensated: {BookingCount}, ticket vouchers: {TicketCount}, combo vouchers: {ComboCount}.",
                     showtime.ShowtimeId,
                     userId,
-                    refundsCreated,
-                    totalRefundAmount);
+                    paidBookingsCompensated,
+                    ticketVouchersIssued,
+                    comboVouchersIssued);
 
                 return ServiceResult<CancelShowtimeResponse>.Ok(
                     new CancelShowtimeResponse
@@ -257,15 +266,18 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                         ShowtimeId = showtime.ShowtimeId,
                         ShowtimeStatus = showtime.Status,
                         ShowtimeCancellationId = cancellationId,
-                        PaidBookingsMovedToRefundPending = paidBookingsMoved,
+                        PaidBookingsMovedToRefundPending = 0,
                         UnpaidBookingsCancelled = unpaidBookingsCancelled,
-                        RefundsCreated = refundsCreated,
-                        TotalRefundAmount = totalRefundAmount,
+                        RefundsCreated = 0,
+                        TotalRefundAmount = 0m,
                         RefundsSucceeded = 0,
                         RefundsManualRequired = 0,
-                        RefundsPending = refundsCreated
+                        RefundsPending = 0,
+                        PaidBookingsCompensated = paidBookingsCompensated,
+                        TicketVouchersIssued = ticketVouchersIssued,
+                        ComboVouchersIssued = comboVouchersIssued
                     },
-                    "Showtime cancelled and refund data generated successfully.");
+                    "Showtime cancelled and compensation vouchers issued successfully.");
             }
             catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
             {
@@ -306,7 +318,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     .ThenInclude(item => item!.User)
             .Include(item => item.Bookings)
                 .ThenInclude(item => item.Payments)
-                    .ThenInclude(item => item.Refunds)
+            .Include(item => item.Bookings)
+                .ThenInclude(item => item.VoucherUsage)
+                    .ThenInclude(item => item!.Voucher)
             .Include(item => item.Bookings)
                 .ThenInclude(item => item.BookingSeats)
                     .ThenInclude(item => item.Ticket)
@@ -330,24 +344,12 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private static RefundCreationResult MovePaidBookingToRefundPending(
+    private async Task CancelPaidBookingAndRestoreVouchersAsync(
         Booking booking,
-        string cancellationId,
-        string reason,
-        DateTime now)
+        DateTime now,
+        CancellationToken cancellationToken)
     {
-        var successfulPayment = booking.Payments
-            .Where(item => IsStatus(item.PaymentStatus, BookingConstants.PaymentStatus.Success))
-            .OrderByDescending(item => item.PaidAt ?? item.CreatedAt)
-            .FirstOrDefault();
-        if (successfulPayment is null)
-        {
-            return RefundCreationResult.Fail(
-                $"Paid booking {booking.BookingId} has no successful payment.",
-                BookingConstants.RefundErrorCodes.PaidBookingPaymentNotFound);
-        }
-
-        booking.BookingStatus = BookingConstants.BookingStatus.RefundPending;
+        booking.BookingStatus = BookingConstants.BookingStatus.Cancelled;
 
         foreach (var bookingSeat in booking.BookingSeats)
         {
@@ -360,32 +362,22 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             MarkShowtimeSeatUnavailable(bookingSeat.ShowtimeSeat);
         }
 
-        if (successfulPayment.Refunds.Any(IsActiveRefund))
+        await _compensationService.RestoreBookingEntitlementsAsync(
+            booking.BookingId,
+            cancellationToken);
+
+        if (booking.VoucherUsage is not null)
         {
-            return RefundCreationResult.Ok(
-                refundCreated: false,
-                refundAmount: 0m,
-                refundId: null);
+            var wasConfirmed = await _voucherReservationService.CancelAsync(
+                booking.VoucherUsage,
+                cancellationToken);
+            if (wasConfirmed && booking.VoucherUsage.Voucher is not null)
+            {
+                booking.VoucherUsage.Voucher.UsedCount = Math.Max(
+                    0,
+                    booking.VoucherUsage.Voucher.UsedCount - 1);
+            }
         }
-
-        var refund = new Refund
-        {
-            RefundId = NewId(BookingConstants.EntityIdPrefix.Refund),
-            BookingId = booking.BookingId,
-            PaymentId = successfulPayment.PaymentId,
-            PaymentProviderId = successfulPayment.PaymentProviderId,
-            ShowtimeCancellationId = cancellationId,
-            RefundAmount = successfulPayment.Amount,
-            RefundStatus = BookingConstants.RefundStatus.Pending,
-            RefundReason = reason,
-            RequestedAt = now
-        };
-        booking.Refunds.Add(refund);
-
-        return RefundCreationResult.Ok(
-            refundCreated: true,
-            refundAmount: refund.RefundAmount,
-            refundId: refund.RefundId);
     }
 
     private static void CancelUnpaidBooking(Booking booking, DateTime now)
@@ -433,7 +425,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             UserId = userId,
             BookingId = booking.BookingId,
             Title = "Showtime cancelled",
-            Message = $"Showtime {showtime.Movie.Title} at {showtime.StartTime:O} has been cancelled. Refund processing status: {booking.BookingStatus}.",
+            Message = $"Showtime {showtime.Movie.Title} at {showtime.StartTime:O} has been cancelled. Compensation ticket vouchers and one combo voucher were issued for 180 days.",
             IsRead = false,
             CreatedAt = now
         });
@@ -465,9 +457,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         ICollection<CancellationEmail> emails,
         Booking booking,
         Showtime showtime,
-        decimal amount,
-        string rawToken,
-        DateTime expiresAt)
+        CompensationIssueResult issue)
     {
         var email = booking.CustomerProfile?.User.Email ?? booking.GuestEmail;
         if (string.IsNullOrWhiteSpace(email))
@@ -475,19 +465,18 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             return;
         }
 
-        var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}"
-            + $"{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(rawToken)}";
         emails.Add(new CancellationEmail(
             email,
-            _emailTemplates.ShowtimeCancelledRefundSubject,
+            _emailTemplates.ShowtimeCancelledCompensationSubject,
             string.Format(
                 CultureInfo.InvariantCulture,
-                _emailTemplates.ShowtimeCancelledRefundBody,
+                _emailTemplates.ShowtimeCancelledCompensationBody,
                 showtime.Movie.Title,
                 showtime.StartTime,
-                amount,
-                expiresAt,
-                link)));
+                issue.TicketVouchersIssued,
+                issue.ExpiresAt,
+                string.Join(", ", issue.TicketVoucherCodes),
+                issue.ComboVoucherCode ?? "N/A")));
     }
 
     private async Task SendCancellationEmailsAsync(
@@ -522,8 +511,9 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         string reason,
         int paidBookingsMoved,
         int unpaidBookingsCancelled,
-        int refundsCreated,
-        decimal totalRefundAmount,
+        int paidBookingsCompensated,
+        int ticketVouchersIssued,
+        int comboVouchersIssued,
         DateTime now)
     {
         return new AuditLog
@@ -541,18 +531,12 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                 reason,
                 paidBookingsMoved,
                 unpaidBookingsCancelled,
-                refundsCreated,
-                totalRefundAmount
+                paidBookingsCompensated,
+                ticketVouchersIssued,
+                comboVouchersIssued
             }),
             CreatedAt = now
         };
-    }
-
-    private static bool IsActiveRefund(Refund refund)
-    {
-        return IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.Pending)
-            || IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.Success)
-            || IsStatus(refund.RefundStatus, BookingConstants.RefundStatus.ManualRequired);
     }
 
     private static bool IsStatus(string? actual, string expected)
@@ -599,40 +583,6 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     private static string NewId(string prefix)
     {
         return $"{prefix}_{Guid.NewGuid():N}";
-    }
-
-    private sealed record RefundCreationResult(
-        bool Success,
-        bool RefundCreated,
-        decimal RefundAmount,
-        string? RefundId,
-        string Message,
-        string ErrorCode)
-    {
-        public static RefundCreationResult Ok(
-            bool refundCreated,
-            decimal refundAmount,
-            string? refundId)
-        {
-            return new RefundCreationResult(
-                true,
-                refundCreated,
-                refundAmount,
-                refundId,
-                string.Empty,
-                string.Empty);
-        }
-
-        public static RefundCreationResult Fail(string message, string errorCode)
-        {
-            return new RefundCreationResult(
-                false,
-                false,
-                0m,
-                null,
-                message,
-                errorCode);
-        }
     }
 
     private sealed record CancellationEmail(

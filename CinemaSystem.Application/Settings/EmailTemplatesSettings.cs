@@ -55,6 +55,11 @@ public sealed class EmailTemplatesSettings
     public string ShowtimeCancelledRefundBody { get; set; } =
         "Showtime {0} at {1:O} was cancelled. Expected refund: {2:N0}. Submit bank information before {3:O}: {4}";
 
+    public string ShowtimeCancelledCompensationSubject { get; set; } =
+        "Cinema Booking - Showtime Cancelled, Compensation Issued";
+    public string ShowtimeCancelledCompensationBody { get; set; } =
+        "Showtime {0} at {1:O} was cancelled. We issued {2} unrestricted ticket voucher(s) and one medium popcorn + medium soft drink voucher. They expire at {3:O}. Ticket codes: {4}. Combo code: {5}.";
+
     public string RefundCompletedSubject { get; set; } =
         "Cinema Booking - Refund Completed";
     public string RefundCompletedBody { get; set; } =

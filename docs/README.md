@@ -50,6 +50,9 @@ agents discover them there automatically.
   files: `dev-seed-admin-manager-staff.txt`,
   `dev-seed-paid-ticket-ready-to-scan.txt`, and
   `dev-seed-10-movies-booking-payment-qr.txt`.
+- [`database/dev-seed-voucher-compensation-flow.txt`](database/dev-seed-voucher-compensation-flow.txt):
+  three rerunnable future showtimes (2D, IMAX and VIP) for the complete
+  Customer booking/payment -> Admin cancellation -> compensation voucher test.
 - [`database/SCRUM-198-ticket-scan-db-changes.md`](database/SCRUM-198-ticket-scan-db-changes.md):
   team handoff and deployment notes for ticket-scan actor auditing.
 - [`database/SCRUM-193-customer-assisted-refund-db-changes.md`](database/SCRUM-193-customer-assisted-refund-db-changes.md):
@@ -75,5 +78,9 @@ are retained for traceability but are not authoritative specifications.
   merge-conflict decisions, integrated feature/database scope, and build/test
   evidence for `main` + `MangerAndAdmin_1`.
 - [`reports/SCRUM-193-customer-assisted-refund.md`](reports/SCRUM-193-customer-assisted-refund.md)
+- [`reports/showtime-cancellation-compensation-voucher.md`](reports/showtime-cancellation-compensation-voucher.md):
+  chính sách hiện hành, API, trạng thái và hướng triển khai voucher bồi thường
+  thay cho refund khi rạp hủy suất chiếu; các báo cáo SCRUM-192/193 vẫn được giữ
+  làm lịch sử.
 - [`reports/SCRUM-198-ticket-scan.md`](reports/SCRUM-198-ticket-scan.md)
 - [`reports/MangerAndAdmin_1-admin-merge-report.md`](reports/MangerAndAdmin_1-admin-merge-report.md)

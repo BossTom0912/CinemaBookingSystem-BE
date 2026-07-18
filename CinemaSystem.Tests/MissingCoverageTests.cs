@@ -1402,7 +1402,12 @@ public sealed class PaymentServiceMissingCoverageTests
                 }),
                 new CinemaSystem.Infrastructure.Time.SystemClock(),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<PaymentService>.Instance,
-                new VoucherReservationService(dbContext));
+                new VoucherReservationService(dbContext),
+                new CancellationCompensationService(
+                    dbContext,
+                    Microsoft.Extensions.Options.Options.Create(
+                        new CancellationCompensationSettings()),
+                    new CinemaSystem.Infrastructure.Time.SystemClock()));
             return new Fixture(dbContext, service);
         }
 

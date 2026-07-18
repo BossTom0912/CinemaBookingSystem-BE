@@ -169,7 +169,11 @@ public sealed class PaymentServiceTests
                 }),
                 new CinemaSystem.Infrastructure.Time.SystemClock(),
                 NullLogger<PaymentService>.Instance,
-                new VoucherReservationService(dbContext));
+                new VoucherReservationService(dbContext),
+                new CancellationCompensationService(
+                    dbContext,
+                    Options.Create(new CancellationCompensationSettings()),
+                    new CinemaSystem.Infrastructure.Time.SystemClock()));
 
             return new Fixture(dbContext, service);
         }

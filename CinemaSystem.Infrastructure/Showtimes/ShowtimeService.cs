@@ -48,6 +48,9 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
     // Khai báo biến dịch vụ AI viết thư xin lỗi
     private readonly IAiEmailService _aiEmailService;
+    // Legacy DELETE must delegate cancellation with bookings to the canonical
+    // compensation workflow instead of creating the old refund flow.
+    private readonly IShowtimeCancellationService? _showtimeCancellationService;
 
     public ShowtimeService(
         CinemaDbContext dbContext,
@@ -57,7 +60,8 @@ public sealed class ShowtimeService : IShowtimeService
         IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings>? emailTemplatesOptions = null,
         IBackgroundJobClient? backgroundJobClient = null,
         IHttpContextAccessor? httpContextAccessor = null,
-        IAiEmailService? aiEmailService = null)
+        IAiEmailService? aiEmailService = null,
+        IShowtimeCancellationService? showtimeCancellationService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
@@ -67,6 +71,7 @@ public sealed class ShowtimeService : IShowtimeService
         _backgroundJobClient = backgroundJobClient!;
         _httpContextAccessor = httpContextAccessor!;
         _aiEmailService = aiEmailService!;
+        _showtimeCancellationService = showtimeCancellationService;
     }
 
     // Phương thức lấy danh sách tất cả các suất chiếu
@@ -812,10 +817,49 @@ public sealed class ShowtimeService : IShowtimeService
         // Nếu suất chiếu này đã có Booking
         if (existing.Bookings.Any())
         {
-             // Thì không thể xóa cứng ngay, mà phải thực hiện Cancel suất chiếu và tiến hành thủ tục Refund
-             await CancelShowtimeAndTriggerRefundsAsync(existing, cancellationToken);
-             // Trả về kết quả Xóa mềm
-             return ServiceResult<object>.Ok(new { showtimeId = showtimeId, deleted = true }, "Showtime softly deleted and refunds initiated.");
+            if (_showtimeCancellationService is null)
+            {
+                return ServiceResult<object>.Fail(
+                    500,
+                    "Showtime cancellation service is not configured.",
+                    "SHOWTIME_CANCELLATION_SERVICE_UNAVAILABLE");
+            }
+
+            var user = _httpContextAccessor.HttpContext?.User;
+            var userId = user?.FindFirst(AuthConstants.Claims.UserId)?.Value
+                ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? user?.FindFirst("sub")?.Value;
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return ServiceResult<object>.Fail(
+                    401,
+                    "Unauthorized.",
+                    "UNAUTHORIZED");
+            }
+
+            // Preserve the legacy DELETE endpoint for the existing Admin UI,
+            // but route every showtime with booking history to the one
+            // authoritative cancellation use case.
+            var cancellationResult = await _showtimeCancellationService
+                .CancelShowtimeAsync(
+                    showtimeId,
+                    userId,
+                    new CancelShowtimeRequest
+                    {
+                        Reason = "Cancelled through the legacy admin delete action."
+                    },
+                    cancellationToken);
+
+            return cancellationResult.Success
+                ? ServiceResult<object>.Ok(
+                    cancellationResult.Data,
+                    cancellationResult.Message,
+                    cancellationResult.StatusCode)
+                : ServiceResult<object>.Fail(
+                    cancellationResult.StatusCode,
+                    cancellationResult.Message,
+                    cancellationResult.ErrorCode ?? "SHOWTIME_CANCELLATION_FAILED",
+                    cancellationResult.Errors);
         }
 
         // Kiểm tra xem lịch sử Hủy của suất chiếu này đã có phát sinh bản ghi Refunds nào chưa

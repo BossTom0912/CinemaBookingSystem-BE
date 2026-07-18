@@ -193,6 +193,8 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
         var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         var voucherReservationService =
             scope.ServiceProvider.GetRequiredService<IVoucherReservationService>();
+        var compensationService =
+            scope.ServiceProvider.GetRequiredService<ICancellationCompensationService>();
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
         var now = clock.UtcNow;
         var expiryMinutes = _settings.Value.PendingPaymentExpiryMinutes;
@@ -232,6 +234,10 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                     booking.VoucherUsage,
                     cancellationToken);
             }
+
+            await compensationService.ReleaseBookingReservationsAsync(
+                booking.BookingId,
+                cancellationToken);
 
             foreach (var payment in booking.Payments)
             {

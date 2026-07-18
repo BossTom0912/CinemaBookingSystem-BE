@@ -1,0 +1,300 @@
+/*
+DEV ONLY - book, pay, cancel-showtime and compensation-voucher fixtures.
+
+Run the whole file against CinemaBookingDB. The script is rerunnable:
+- it creates three dedicated movies and showtimes when missing;
+- it refreshes a fixture only when that showtime has no booking history;
+- it never updates/deletes an existing booking, payment, ticket or compensation.
+
+Times are stored in UTC. The three showtimes start approximately 4, 30 and
+56 hours after execution.
+*/
+
+USE [CinemaBookingDB];
+GO
+
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+GO
+
+IF OBJECT_ID(N'dbo.MOVIE', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.MOVIE_GENRE', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SHOWTIME', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SHOWTIME_SEAT', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SEAT', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.ROOM', N'U') IS NULL
+BEGIN
+    THROW 53101, 'Required movie/showtime tables are missing.', 1;
+END;
+GO
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.[ROOM] AS room
+    WHERE room.[roomId] IN ('RM01', 'RM02', 'RM03')
+      AND room.[roomStatus] = 'ACTIVE'
+    GROUP BY room.[roomStatus]
+    HAVING COUNT(*) = 3
+)
+    THROW 53102, 'RM01, RM02 and RM03 must exist and be ACTIVE.', 1;
+GO
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    DECLARE @TodayUtc DATE = CONVERT(DATE, SYSUTCDATETIME());
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_VRF_01')
+    BEGIN
+        INSERT INTO dbo.[MOVIE]
+        (
+            [movieId], [title], [durationMinutes], [languageId],
+            [releaseDate], [ageRating], [description], [posterUrl],
+            [trailerUrl], [director], [highlight], [movieStatus],
+            [viewCount], [averageRating], [totalReviews], [totalViews],
+            [dailyViews], [bannerUrl]
+        )
+        VALUES
+        (
+            'MOV_VRF_01', N'Vệt Sáng Cuối Trời', 124, 'EN_SUB_VN',
+            DATEADD(DAY, -14, @TodayUtc), 'T13',
+            N'Một đội thám hiểm vượt qua vùng không gian bất ổn để đưa nguồn năng lượng cuối cùng trở về Trái Đất.',
+            'https://placehold.co/600x900/0F172A/FFFFFF/png?text=Vet+Sang+Cuoi+Troi',
+            NULL, N'Nguyễn Minh Khang', 'HOT', 'NOW_SHOWING',
+            0, 0.00, 0, 0, 0,
+            'https://placehold.co/1600x600/0F172A/FFFFFF/png?text=Vet+Sang+Cuoi+Troi'
+        );
+    END;
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_VRF_02')
+    BEGIN
+        INSERT INTO dbo.[MOVIE]
+        (
+            [movieId], [title], [durationMinutes], [languageId],
+            [releaseDate], [ageRating], [description], [posterUrl],
+            [trailerUrl], [director], [highlight], [movieStatus],
+            [viewCount], [averageRating], [totalReviews], [totalViews],
+            [dailyViews], [bannerUrl]
+        )
+        VALUES
+        (
+            'MOV_VRF_02', N'Hồ Sơ Đêm Sài Gòn', 112, 'VN',
+            DATEADD(DAY, -10, @TodayUtc), 'T16',
+            N'Một điều tra viên lần theo hồ sơ thất lạc và phát hiện đường dây tội phạm ẩn sau những chuyến xe đêm.',
+            'https://placehold.co/600x900/111827/FBBF24/png?text=Ho+So+Dem+Sai+Gon',
+            NULL, N'Lê Quang Huy', 'NEW', 'NOW_SHOWING',
+            0, 0.00, 0, 0, 0,
+            'https://placehold.co/1600x600/111827/FBBF24/png?text=Ho+So+Dem+Sai+Gon'
+        );
+    END;
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.[MOVIE] WHERE [movieId] = 'MOV_VRF_03')
+    BEGIN
+        INSERT INTO dbo.[MOVIE]
+        (
+            [movieId], [title], [durationMinutes], [languageId],
+            [releaseDate], [ageRating], [description], [posterUrl],
+            [trailerUrl], [director], [highlight], [movieStatus],
+            [viewCount], [averageRating], [totalReviews], [totalViews],
+            [dailyViews], [bannerUrl]
+        )
+        VALUES
+        (
+            'MOV_VRF_03', N'Biệt Đội Mầm Xanh', 98, 'VN',
+            DATEADD(DAY, -7, @TodayUtc), 'P',
+            N'Nhóm bạn nhỏ và những người máy tái chế cùng bảo vệ khu rừng trước một cơn bão lớn.',
+            'https://placehold.co/600x900/14532D/FFFFFF/png?text=Biet+Doi+Mam+Xanh',
+            NULL, N'Phạm Ngọc Lan', 'TRENDING', 'NOW_SHOWING',
+            0, 0.00, 0, 0, 0,
+            'https://placehold.co/1600x600/14532D/FFFFFF/png?text=Biet+Doi+Mam+Xanh'
+        );
+    END;
+
+    INSERT INTO dbo.[MOVIE_GENRE] ([movieId], [genreId])
+    SELECT source.[movieId], source.[genreId]
+    FROM
+    (
+        VALUES
+            ('MOV_VRF_01', 4),
+            ('MOV_VRF_01', 8),
+            ('MOV_VRF_02', 13),
+            ('MOV_VRF_02', 14),
+            ('MOV_VRF_03', 6),
+            ('MOV_VRF_03', 12)
+    ) AS source([movieId], [genreId])
+    WHERE EXISTS
+    (
+        SELECT 1
+        FROM dbo.[GENRE] AS genre
+        WHERE genre.[genreId] = source.[genreId]
+    )
+      AND NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[MOVIE_GENRE] AS existing
+        WHERE existing.[movieId] = source.[movieId]
+          AND existing.[genreId] = source.[genreId]
+    );
+
+    DECLARE @BaseUtc DATETIME2 =
+        DATEADD(HOUR, DATEDIFF(HOUR, 0, SYSUTCDATETIME()) + 4, 0);
+
+    DECLARE @ExpectedShowtime TABLE
+    (
+        [showtimeId] NVARCHAR(50) PRIMARY KEY,
+        [movieId] NVARCHAR(50) NOT NULL,
+        [roomId] NVARCHAR(50) NOT NULL,
+        [startTime] DATETIME2 NOT NULL,
+        [durationMinutes] INT NOT NULL,
+        [basePrice] DECIMAL(18,2) NOT NULL
+    );
+
+    INSERT INTO @ExpectedShowtime
+    VALUES
+        ('ST_VRF_01', 'MOV_VRF_01', 'RM01',
+         @BaseUtc, 124, 90000.00),
+        ('ST_VRF_02', 'MOV_VRF_02', 'RM02',
+         DATEADD(HOUR, 26, @BaseUtc), 112, 120000.00),
+        ('ST_VRF_03', 'MOV_VRF_03', 'RM03',
+         DATEADD(HOUR, 52, @BaseUtc), 98, 150000.00);
+
+    DECLARE @RefreshableShowtime TABLE
+    (
+        [showtimeId] NVARCHAR(50) PRIMARY KEY
+    );
+
+    INSERT INTO @RefreshableShowtime ([showtimeId])
+    SELECT expected.[showtimeId]
+    FROM @ExpectedShowtime AS expected
+    LEFT JOIN dbo.[SHOWTIME] AS persisted
+        ON persisted.[showtimeId] = expected.[showtimeId]
+    WHERE persisted.[showtimeId] IS NULL
+       OR NOT EXISTS
+       (
+           SELECT 1
+           FROM dbo.[BOOKING] AS booking
+           WHERE booking.[showtimeId] = expected.[showtimeId]
+       );
+
+    UPDATE persisted
+    SET
+        persisted.[movieId] = expected.[movieId],
+        persisted.[roomId] = expected.[roomId],
+        persisted.[startTime] = expected.[startTime],
+        persisted.[endTime] =
+            DATEADD(MINUTE, expected.[durationMinutes], expected.[startTime]),
+        persisted.[basePrice] = expected.[basePrice],
+        persisted.[status] = 'OPEN'
+    FROM dbo.[SHOWTIME] AS persisted
+    INNER JOIN @ExpectedShowtime AS expected
+        ON expected.[showtimeId] = persisted.[showtimeId]
+    INNER JOIN @RefreshableShowtime AS refreshable
+        ON refreshable.[showtimeId] = persisted.[showtimeId];
+
+    INSERT INTO dbo.[SHOWTIME]
+    (
+        [showtimeId], [movieId], [roomId], [startTime],
+        [endTime], [basePrice], [status]
+    )
+    SELECT
+        expected.[showtimeId], expected.[movieId], expected.[roomId],
+        expected.[startTime],
+        DATEADD(MINUTE, expected.[durationMinutes], expected.[startTime]),
+        expected.[basePrice], 'OPEN'
+    FROM @ExpectedShowtime AS expected
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME] AS persisted
+        WHERE persisted.[showtimeId] = expected.[showtimeId]
+    );
+
+    UPDATE showtimeSeat
+    SET
+        showtimeSeat.[seatStatus] = 'AVAILABLE',
+        showtimeSeat.[lockedUntil] = NULL,
+        showtimeSeat.[lockedByUserId] = NULL
+    FROM dbo.[SHOWTIME_SEAT] AS showtimeSeat
+    INNER JOIN @RefreshableShowtime AS refreshable
+        ON refreshable.[showtimeId] = showtimeSeat.[showtimeId];
+
+    INSERT INTO dbo.[SHOWTIME_SEAT]
+    (
+        [showtimeSeatId], [showtimeId], [seatId],
+        [seatStatus], [lockedUntil], [lockedByUserId]
+    )
+    SELECT
+        CONCAT('STS_', expected.[showtimeId], '_', seat.[seatId]),
+        expected.[showtimeId], seat.[seatId],
+        'AVAILABLE', NULL, NULL
+    FROM @ExpectedShowtime AS expected
+    INNER JOIN @RefreshableShowtime AS refreshable
+        ON refreshable.[showtimeId] = expected.[showtimeId]
+    INNER JOIN dbo.[SEAT] AS seat
+        ON seat.[roomId] = expected.[roomId]
+       AND seat.[isActive] = 1
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME_SEAT] AS persistedSeat
+        WHERE persistedSeat.[showtimeId] = expected.[showtimeId]
+          AND persistedSeat.[seatId] = seat.[seatId]
+    );
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+SELECT
+    showtime.[showtimeId],
+    movie.[movieId],
+    movie.[title],
+    cinema.[cinemaId],
+    cinema.[cinemaName],
+    room.[roomId],
+    room.[roomName],
+    showtime.[startTime] AS [startTimeUtc],
+    DATEADD(HOUR, 7, showtime.[startTime]) AS [startTimeVietnam],
+    showtime.[endTime] AS [endTimeUtc],
+    showtime.[basePrice],
+    COUNT(DISTINCT showtimeSeat.[showtimeSeatId]) AS [availableSeatCount],
+    COUNT(DISTINCT booking.[bookingId]) AS [bookingCount],
+    showtime.[status]
+FROM dbo.[SHOWTIME] AS showtime
+INNER JOIN dbo.[MOVIE] AS movie
+    ON movie.[movieId] = showtime.[movieId]
+INNER JOIN dbo.[ROOM] AS room
+    ON room.[roomId] = showtime.[roomId]
+INNER JOIN dbo.[CINEMA] AS cinema
+    ON cinema.[cinemaId] = room.[cinemaId]
+LEFT JOIN dbo.[SHOWTIME_SEAT] AS showtimeSeat
+    ON showtimeSeat.[showtimeId] = showtime.[showtimeId]
+   AND showtimeSeat.[seatStatus] = 'AVAILABLE'
+LEFT JOIN dbo.[BOOKING] AS booking
+    ON booking.[showtimeId] = showtime.[showtimeId]
+WHERE showtime.[showtimeId] IN ('ST_VRF_01', 'ST_VRF_02', 'ST_VRF_03')
+GROUP BY
+    showtime.[showtimeId], movie.[movieId], movie.[title],
+    cinema.[cinemaId], cinema.[cinemaName],
+    room.[roomId], room.[roomName],
+    showtime.[startTime], showtime.[endTime],
+    showtime.[basePrice], showtime.[status]
+ORDER BY showtime.[startTime];
+GO
+
+SELECT
+    userAccount.[email],
+    userAccount.[fullName],
+    role.[roleName],
+    userAccount.[status]
+FROM dbo.[USER] AS userAccount
+INNER JOIN dbo.[ROLE] AS role
+    ON role.[roleId] = userAccount.[roleId]
+WHERE role.[roleName] = 'ADMIN'
+ORDER BY userAccount.[email];
+GO
