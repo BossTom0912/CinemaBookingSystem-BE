@@ -178,9 +178,14 @@ public sealed class AccountProvisioningService : IAccountProvisioningService
             CreatedAt = now
         });
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        var executionStrategy = _dbContext.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(
+                cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
 
         _backgroundJobClient.Enqueue<IEmailService>(email =>
             email.SendAccountInvitationAsync(normalizedEmail, invitationOtp, CancellationToken.None));
