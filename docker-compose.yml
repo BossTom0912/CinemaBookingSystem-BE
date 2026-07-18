@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: CinemaSystem/Dockerfile
+    ports:
+      - "5070:8080"
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+    volumes:
+      - cinema_uploads:/app/wwwroot/uploads
+
+volumes:
+  cinema_uploads:
