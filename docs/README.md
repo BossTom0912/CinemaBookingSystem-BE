@@ -38,14 +38,16 @@ agents discover them there automatically.
 ## Database
 
 - [`database/cinema-booking-schema.sql`](database/cinema-booking-schema.sql):
-  canonical complete local database reset/creation script. It drops and
-  recreates the database; it includes the
-  ticket-scan, refund, customer voucher wallet, F&B fulfillment, email outbox,
-  and checkout-idempotency schema; it replaces the old standalone `.sql`
-  patches.
+  **canonical full reset script**. It drops and recreates the database, then
+  creates the complete schema and standard reference seed data. Use only for a
+  new/local database whose existing data may be deleted.
 - [`database/cinema-booking-schema-upgrade.sql`](database/cinema-booking-schema-upgrade.sql):
-  idempotent upgrade script for an existing database. It preserves data and
-  rolls back if a safe conversion is not possible.
+  **canonical data-preserving upgrade script**. It applies every supported
+  additive schema change (including banner, voucher and cancellation
+  compensation) without deleting business data, and only inserts idempotent
+  reference seed data. It rolls back if a safe conversion is not possible.
+- Do not apply standalone feature schema patches. Their supported contents are
+  consolidated into the two canonical scripts above.
 - Development fixtures are kept as rerunnable `.txt` scripts rather than schema
   files: `dev-seed-admin-manager-staff.txt`,
   `dev-seed-paid-ticket-ready-to-scan.txt`, and

@@ -8,6 +8,9 @@ Run this script against the existing target database, for example:
 Safety contract:
 - No DROP DATABASE, DROP TABLE, DELETE, TRUNCATE, or destructive data rewrite.
 - Every schema change is guarded, so the script is safe to re-run.
+- It contains every supported additive schema change and only idempotent
+  reference-data seeds (for example, BANK_DIRECTORY). It does not add dev
+  movies, bookings, payments, tickets, or compensation test fixtures.
 - Each upgrade phase runs in a transaction. The retry-safe checkout contract
   commits first, so an optional later migration cannot leave the running API
   without its required booking columns.
@@ -172,6 +175,21 @@ BEGIN TRY
     )
         CREATE INDEX [IX_CHECKIN_LOG_SCANNED_BY_USER_TIME]
             ON dbo.[CHECKIN_LOG]([scannedByUserId], [scanTime]);
+
+    -- Banner module. Kept here instead of a standalone patch so an existing
+    -- database receives the same schema as the canonical reset script.
+    IF OBJECT_ID(N'dbo.BANNER', N'U') IS NULL
+        CREATE TABLE dbo.[BANNER]
+        (
+            [bannerId] VARCHAR(50) NOT NULL PRIMARY KEY,
+            [title] NVARCHAR(200) NOT NULL,
+            [imageUrl] NVARCHAR(1000) NOT NULL,
+            [linkUrl] NVARCHAR(1000) NULL,
+            [bannerType] VARCHAR(50) NOT NULL,
+            [displayOrder] INT NOT NULL CONSTRAINT [DF_BANNER_DISPLAY_ORDER] DEFAULT 0,
+            [isActive] BIT NOT NULL CONSTRAINT [DF_BANNER_IS_ACTIVE] DEFAULT 1,
+            [createdAt] DATETIME NOT NULL CONSTRAINT [DF_BANNER_CREATED_AT] DEFAULT GETDATE()
+        );
 
     -- Voucher wallet introduced by the customer voucher feature.
     IF OBJECT_ID(N'dbo.CUSTOMER_VOUCHER', N'U') IS NULL
