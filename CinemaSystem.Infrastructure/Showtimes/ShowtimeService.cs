@@ -379,110 +379,113 @@ public sealed class ShowtimeService : IShowtimeService
         // Nếu có thay đổi cốt lõi VÀ suất chiếu này đã có vé được thanh toán thành công
         if (coreInfoChanged && showtime.Bookings.Any(b => b.BookingStatus == DomainConstants.EntityStatus.Paid))
         {
-            // Khởi tạo Transaction để đảm bảo tính toàn vẹn dữ liệu
-            using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-            try
+            var strategy = _dbContext.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync(async () =>
             {
-                // Chuyển trạng thái của suất chiếu thành "Đang xử lý không ổn định" do ảnh hưởng tới khách đã mua vé
-                showtime.Status = DomainConstants.EntityStatus.ProcessingUnstable;
-                
-                // Lọc ra các đơn đặt vé đã được thanh toán của suất chiếu này
-                var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
-                
-                // Duyệt qua từng đơn đặt vé
-                foreach (var booking in paidBookings)
+                using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+                try
                 {
-                    // Chuyển trạng thái đơn đặt vé thành "Đang xử lý không ổn định"
-                    booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
+                    // Chuyển trạng thái của suất chiếu thành "Đang xử lý không ổn định" do ảnh hưởng tới khách đã mua vé
+                    showtime.Status = DomainConstants.EntityStatus.ProcessingUnstable;
                     
-                    // Khởi tạo list để ghi lại chi tiết các thay đổi
-                    var updateDetails = new List<string>();
-                    // Nếu đổi phòng, ghi vào list
-                    if (roomChanged) updateDetails.Add($"Room changed to {request.RoomId}");
-                    // Nếu đổi giờ, ghi vào list
-                    if (timeChanged) updateDetails.Add($"Start time changed to {normalizedStartTime:yyyy-MM-dd HH:mm}");
-                    // Kết hợp các thay đổi thành một chuỗi lý do
-                    var updateReason = string.Join(" and ", updateDetails);
-
-                    // Lấy email khách hàng (ưu tiên email tài khoản, sau đó tới email khách vãng lai)
-                    var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                    // Lọc ra các đơn đặt vé đã được thanh toán của suất chiếu này
+                    var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
                     
-                    // Nếu có email hợp lệ
-                    if (!string.IsNullOrEmpty(customerEmail))
+                    // Duyệt qua từng đơn đặt vé
+                    foreach (var booking in paidBookings)
                     {
-                        // Tính chênh lệch thời gian giữa giờ chiếu cũ và mới (tính bằng phút)
-                        var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
+                        // Chuyển trạng thái đơn đặt vé thành "Đang xử lý không ổn định"
+                        booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
                         
-                        if (timeChanged
-                            && timeDiff >= _settings.ShowtimeMaterialChangeThresholdMinutes)
+                        // Khởi tạo list để ghi lại chi tiết các thay đổi
+                        var updateDetails = new List<string>();
+                        // Nếu đổi phòng, ghi vào list
+                        if (roomChanged) updateDetails.Add($"Room changed to {request.RoomId}");
+                        // Nếu đổi giờ, ghi vào list
+                        if (timeChanged) updateDetails.Add($"Start time changed to {normalizedStartTime:yyyy-MM-dd HH:mm}");
+                        // Kết hợp các thay đổi thành một chuỗi lý do
+                        var updateReason = string.Join(" and ", updateDetails);
+
+                        // Lấy email khách hàng (ưu tiên email tài khoản, sau đó tới email khách vãng lai)
+                        var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                        
+                        // Nếu có email hợp lệ
+                        if (!string.IsNullOrEmpty(customerEmail))
                         {
-                            // Lấy secret key từ cấu hình bảo mật
-                            var secret = _securitySettings.ConfirmationTokenSecret;
+                            // Tính chênh lệch thời gian giữa giờ chiếu cũ và mới (tính bằng phút)
+                            var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
                             
-                            // Sử dụng HMACSHA256 để băm ID của booking tạo mã token
-                            using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
-                            var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
-                            
-                            // Chuyển mã hash sang dạng chuỗi Base64
-                            var token = Convert.ToBase64String(hash);
-                            // Mã hóa token để an toàn khi truyền qua URL
-                            var encodedToken = System.Uri.EscapeDataString(token);
-                            
-                            // Lấy tiêu đề email cho sự kiện đổi giờ chiếu
-                            string subject = _emailTemplates.ShowtimeTimeChangeSubject;
-                            var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
-                            var newTimeStr = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-                            var bookingId = booking.BookingId;
-                            
-                            // Đẩy job gửi email AI song ngữ kèm các nút bấm chấp nhận/hoàn tiền qua Hangfire
-                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                                ai.SendAiTimeChangeEmailAsync(
-                                    customerEmail, 
-                                    subject, 
-                                    movieTitle,
-                                    newTimeStr, 
-                                    bookingId, 
-                                    encodedToken, 
-                                    CancellationToken.None));
-                        }
-                        else
-                        {
-                            // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng qua dịch vụ AI
-                            string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
-                            var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
-                            var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-                            
-                            _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                                ai.SendAiApologyEmailAsync(
-                                    customerEmail, 
-                                    subject, 
-                                    "Điều chỉnh thông tin suất chiếu", 
-                                    $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice} (Chi tiết thay đổi: {updateReason}).", 
-                                    CancellationToken.None));
+                            if (timeChanged
+                                && timeDiff >= _settings.ShowtimeMaterialChangeThresholdMinutes)
+                            {
+                                // Lấy secret key từ cấu hình bảo mật
+                                var secret = _securitySettings.ConfirmationTokenSecret;
+                                
+                                // Sử dụng HMACSHA256 để băm ID của booking tạo mã token
+                                using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                                var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                                
+                                // Chuyển mã hash sang dạng chuỗi Base64
+                                var token = Convert.ToBase64String(hash);
+                                // Mã hóa token để an toàn khi truyền qua URL
+                                var encodedToken = System.Uri.EscapeDataString(token);
+                                
+                                // Lấy tiêu đề email cho sự kiện đổi giờ chiếu
+                                string subject = _emailTemplates.ShowtimeTimeChangeSubject;
+                                var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                                var newTimeStr = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                                var bookingId = booking.BookingId;
+                                
+                                // Đẩy job gửi email AI song ngữ kèm các nút bấm chấp nhận/hoàn tiền qua Hangfire
+                                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                    ai.SendAiTimeChangeEmailAsync(
+                                        customerEmail, 
+                                        subject, 
+                                        movieTitle,
+                                        newTimeStr, 
+                                        bookingId, 
+                                        encodedToken, 
+                                        CancellationToken.None));
+                            }
+                            else
+                            {
+                                // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng qua dịch vụ AI
+                                string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
+                                var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
+                                var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                                
+                                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                                    ai.SendAiApologyEmailAsync(
+                                        customerEmail, 
+                                        subject, 
+                                        "Điều chỉnh thông tin suất chiếu", 
+                                        $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice} (Chi tiết thay đổi: {updateReason}).", 
+                                        CancellationToken.None));
+                            }
                         }
                     }
-                }
-                
-                // MediatR is not registered, so Hangfire cannot resolve IMediator, causing an abstract class instantiation error
-                // _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new ShowtimeUnstableEvent { ShowtimeId = showtime.ShowtimeId, Reason = "Core info updated after tickets sold" }, CancellationToken.None));
+                    
+                    // MediatR is not registered, so Hangfire cannot resolve IMediator, causing an abstract class instantiation error
+                    // _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new ShowtimeUnstableEvent { ShowtimeId = showtime.ShowtimeId, Reason = "Core info updated after tickets sold" }, CancellationToken.None));
 
-                // Lưu tất cả các thay đổi trạng thái vào Database
-                await _dbContext.SaveChangesAsync(cancellationToken);
-                // Xác nhận (commit) Transaction thành công
-                await transaction.CommitAsync(cancellationToken);
-                
-                // Tải lại dữ liệu suất chiếu từ DB (không tracking) để trả về API
-                var unstable = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
-                // Trả về báo thành công, nhưng trạng thái là cần xử lý thủ công (unstable)
-                return ServiceResult<ShowtimeResponse>.Ok(ToResponse(unstable!), "Showtime unstable. Manual processing required.", 200);
-            }
-            catch (Exception)
-            {
-                // Nếu có bất kì lỗi nào, hoàn tác (Rollback) Transaction
-                await transaction.RollbackAsync(cancellationToken);
-                // Bắn lại lỗi (Throw exception)
-                throw;
-            }
+                    // Lưu tất cả các thay đổi trạng thái vào Database
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    // Xác nhận (commit) Transaction thành công
+                    await transaction.CommitAsync(cancellationToken);
+                    
+                    // Tải lại dữ liệu suất chiếu từ DB (không tracking) để trả về API
+                    var unstable = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
+                    // Trả về báo thành công, nhưng trạng thái là cần xử lý thủ công (unstable)
+                    return ServiceResult<ShowtimeResponse>.Ok(ToResponse(unstable!), "Showtime unstable. Manual processing required.", 200);
+                }
+                catch (Exception)
+                {
+                    // Nếu có bất kì lỗi nào, hoàn tác (Rollback) Transaction
+                    await transaction.RollbackAsync(cancellationToken);
+                    // Bắn lại lỗi (Throw exception)
+                    throw;
+                }
+            });
         }
 
         // Nếu không có vé nào bị ảnh hưởng (hoặc không thay đổi thông tin cốt lõi)

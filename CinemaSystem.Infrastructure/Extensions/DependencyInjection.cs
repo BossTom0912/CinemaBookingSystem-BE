@@ -235,10 +235,14 @@ public static class DependencyInjection
         {
             options.UseSqlServer(
                 defaultConnection,
-                sqlOptions => sqlOptions.EnableRetryOnFailure(
-                    maxRetryCount: 1,
-                    maxRetryDelay: TimeSpan.FromSeconds(2),
-                    errorNumbersToAdd: null));
+                sqlOptions =>
+                {
+                    sqlOptions.EnableRetryOnFailure(
+                        maxRetryCount: 1,
+                        maxRetryDelay: TimeSpan.FromSeconds(2),
+                        errorNumbersToAdd: null);
+                    sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                });
         });
 
         services.AddScoped<IAuthService, AuthService>();
