@@ -32,6 +32,9 @@ agents discover them there automatically.
 
 - [`api/api-contract-backend.docx`](api/api-contract-backend.docx)
 - [`api/api-contract-movie-showtime.docx`](api/api-contract-movie-showtime.docx)
+- [`api/admin-account-provisioning-vi.md`](api/admin-account-provisioning-vi.md):
+  SQL deployment, API contract, error handling and FE flow for the
+  data-driven Admin account-provisioning feature.
 - [`api/examples/create-order.json`](api/examples/create-order.json)
 - [`api/examples/seat-map.json`](api/examples/seat-map.json)
 

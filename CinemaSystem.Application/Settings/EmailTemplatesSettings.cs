@@ -16,8 +16,8 @@ public sealed class EmailTemplatesSettings
     public string EmailUpdateBody { get; set; } =
         "Your email-update OTP is {0}. It expires in {1} minutes.";
 
-    public string StaffInvitationSubject { get; set; } = "Cinema Booking - Staff Invitation";
-    public string StaffInvitationBody { get; set; } =
+    public string AccountInvitationSubject { get; set; } = "Cinema Booking - Account Invitation";
+    public string AccountInvitationBody { get; set; } =
         "You have been invited to Cinema Booking. Use invitation code {0} to set your password.";
 
     public string SeatMaintenanceSubject { get; set; } = "Cinema Booking - Seat Maintenance";

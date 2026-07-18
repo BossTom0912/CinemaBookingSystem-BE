@@ -167,13 +167,13 @@ public sealed class ControllerMoqCoverageTests
     }
 
     [Fact]
-    public async Task Admin_CreateStaff_InvalidModelState_ReturnsBadRequestWithoutCallingService()
+    public async Task Admin_ProvisionAccount_InvalidModelState_ReturnsBadRequestWithoutCallingService()
     {
-        var service = new Mock<IAdminService>(MockBehavior.Strict);
+        var service = new Mock<IAccountProvisioningService>(MockBehavior.Strict);
         var controller = new AdminController(service.Object);
-        controller.ModelState.AddModelError(nameof(CreateStaffRequest.Email), "Required");
+        controller.ModelState.AddModelError(nameof(ProvisionManagedAccountRequest.Email), "Required");
 
-        var result = await controller.CreateStaff(new CreateStaffRequest(), CancellationToken.None);
+        var result = await controller.ProvisionAccount(new ProvisionManagedAccountRequest(), CancellationToken.None);
 
         var response = AssertApiResponse<object>(result, StatusCodes.Status400BadRequest, false);
         Assert.Equal("VALIDATION_ERROR", response.ErrorCode);
@@ -181,21 +181,36 @@ public sealed class ControllerMoqCoverageTests
     }
 
     [Fact]
-    public async Task Admin_CreateStaff_ServiceConflict_ReturnsConflict()
+    public async Task Admin_ProvisionAccount_ServiceConflict_ReturnsConflict()
     {
-        var service = new Mock<IAdminService>(MockBehavior.Strict);
+        var service = new Mock<IAccountProvisioningService>(MockBehavior.Strict);
         service
-            .Setup(x => x.CreateStaffAsync(
-                It.Is<CreateStaffRequest>(r => r.Email == "staff@example.com"),
+            .Setup(x => x.ProvisionAsync(
+                "USR_ADMIN",
+                It.Is<ProvisionManagedAccountRequest>(r => r.Email == "staff@example.com"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ServiceResult<object>.Fail(StatusCodes.Status409Conflict, "Email exists.", "EMAIL_EXISTS"));
-        var controller = new AdminController(service.Object);
+            .ReturnsAsync(ServiceResult<ProvisionedAccountResponse>.Fail(
+                StatusCodes.Status409Conflict,
+                "Email exists.",
+                "EMAIL_EXISTS"));
+        var controller = WithUser(
+            new AdminController(service.Object),
+            new Claim(ClaimTypes.NameIdentifier, "USR_ADMIN"));
 
-        var result = await controller.CreateStaff(
-            new CreateStaffRequest { Email = "staff@example.com", FullName = "Staff" },
+        var result = await controller.ProvisionAccount(
+            new ProvisionManagedAccountRequest
+            {
+                Email = "staff@example.com",
+                FullName = "Staff",
+                RoleId = "ROLE_STAFF",
+                CinemaId = "CIN_1"
+            },
             CancellationToken.None);
 
-        var response = AssertApiResponse<object>(result, StatusCodes.Status409Conflict, false);
+        var response = AssertApiResponse<ProvisionedAccountResponse>(
+            result,
+            StatusCodes.Status409Conflict,
+            false);
         Assert.Equal("EMAIL_EXISTS", response.ErrorCode);
         service.VerifyAll();
     }

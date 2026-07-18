@@ -76,6 +76,15 @@ public sealed class AuthService : IAuthService
 
     public async Task<ServiceResult<object>> RegisterCustomerAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
+        var customerRole = await GetPublicRegistrationRoleAsync(cancellationToken);
+        if (customerRole is null)
+        {
+            return ServiceResult<object>.Fail(
+                500,
+                "Public registration role policy is not configured.",
+                "PUBLIC_REGISTRATION_POLICY_MISSING");
+        }
+
         // Chuẩn hóa địa chỉ email đầu vào (viết thường, xóa khoảng trắng thừa)
         var normalizedEmail = NormalizeEmail(request.Email);
         // Lấy thời gian hiện tại chuẩn UTC
@@ -90,7 +99,7 @@ public sealed class AuthService : IAuthService
         {
             // Kiểm tra xem có thể gửi lại email xác nhận cho đăng ký đang chờ xử lý hay không
             var canResendPendingRegistration =
-                AuthConstants.Roles.Normalize(existingUser.Role?.RoleName) == AuthConstants.Roles.Customer &&
+                existingUser.RoleId == customerRole.RoleId &&
                 !existingUser.EmailVerified &&
                 existingUser.Status == AuthConstants.UserStatus.PendingVerification;
 
@@ -118,12 +127,6 @@ public sealed class AuthService : IAuthService
         }
 
         // Lấy thông tin Role của Khách hàng, nếu chưa có thì tạo mới
-        var customerRole = await GetOrCreateRoleAsync(
-            AuthConstants.RoleIds.Customer,
-            AuthConstants.Roles.Customer,
-            "Customer account",
-            cancellationToken);
-
         // Khởi tạo đối tượng User mới
         var user = new User
         {
@@ -388,11 +391,14 @@ public sealed class AuthService : IAuthService
         if (user is null)
         {
             // Lấy hoặc tạo mới Role Khách hàng
-            var customerRole = await GetOrCreateRoleAsync(
-                AuthConstants.RoleIds.Customer,
-                AuthConstants.Roles.Customer,
-                "Customer account",
-                cancellationToken);
+            var customerRole = await GetPublicRegistrationRoleAsync(cancellationToken);
+            if (customerRole is null)
+            {
+                return ServiceResult<AuthResponse>.Fail(
+                    500,
+                    "Public registration role policy is not configured.",
+                    "PUBLIC_REGISTRATION_POLICY_MISSING");
+            }
 
             // Khởi tạo đối tượng User mới cho tài khoản Google này
             user = new User
@@ -1113,53 +1119,17 @@ public sealed class AuthService : IAuthService
         return Math.Max(1, token.AttemptCount);
     }
 
-    private async Task<Role> GetOrCreateRoleAsync(
-        string roleId,
-        string roleName,
-        string description,
-        CancellationToken cancellationToken)
+    private async Task<Role?> GetPublicRegistrationRoleAsync(CancellationToken cancellationToken)
     {
-        // Cố gắng tìm Role tương ứng trong CSDL thông qua ID hoặc Name
-        var role = await _dbContext.Roles.FirstOrDefaultAsync(
-            item => item.RoleName == roleName || item.RoleId == roleId,
-            cancellationToken);
-
-        // Nếu Role đã tồn tại
-        if (role is not null)
-        {
-            // Đảm bảo tên Role được viết theo chuẩn của hệ thống (In hoa, không khoảng trống)
-            var normalizedRoleName = AuthConstants.Roles.Normalize(role.RoleName);
-            // Nếu có sự sai lệch
-            if (role.RoleName != normalizedRoleName)
-            {
-                // Cập nhật lại tên chuẩn
-                role.RoleName = normalizedRoleName;
-                // Lưu vào CSDL
-                await _dbContext.SaveChangesAsync(cancellationToken);
-            }
-
-            // Trả về Role đã tìm thấy
-            return role;
-        }
-
-        // Khởi tạo một đối tượng Role mới
-        role = new Role
-        {
-            // Cài đặt ID Role
-            RoleId = roleId,
-            // Cài đặt tên Role
-            RoleName = roleName,
-            // Cài đặt mô tả chức danh
-            Description = description
-        };
-
-        // Ghi vào CSDL
-        _dbContext.Roles.Add(role);
-        // Lưu lại thay đổi
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        
-        // Trả về Role vừa tạo mới
-        return role;
+        return await (
+                from policy in _dbContext.RoleProvisioningPolicies
+                join role in _dbContext.Roles on policy.RoleId equals role.RoleId
+                where policy.IsActive
+                      && policy.IsPublicRegistrationAllowed
+                      && policy.ProfileKind == DomainConstants.AccountProfileKind.Customer
+                      && !policy.RequiresCinema
+                select role)
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private RefreshToken CreateRefreshToken(string userId, string token)

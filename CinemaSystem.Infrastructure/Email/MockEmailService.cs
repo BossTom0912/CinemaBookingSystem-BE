@@ -35,15 +35,15 @@ public sealed class MockEmailService : IEmailSender, IEmailService
         return Task.CompletedTask;
     }
 
-    public Task SendInvitationAsync(
+    public Task SendAccountInvitationAsync(
         string toEmail,
         string invitationToken,
         CancellationToken cancellationToken)
     {
         return SendEmailAsync(
             toEmail,
-            _templates.StaffInvitationSubject,
-            string.Format(_templates.StaffInvitationBody, invitationToken),
+            _templates.AccountInvitationSubject,
+            string.Format(_templates.AccountInvitationBody, invitationToken),
             cancellationToken);
     }
 }

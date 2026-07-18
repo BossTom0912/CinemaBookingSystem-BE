@@ -246,7 +246,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IAuthService, AuthService>();
-        services.AddScoped<IAdminService, AdminService>();
+        services.AddScoped<IAccountProvisioningService, AccountProvisioningService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<ICinemaService, CinemaService>();
         services.AddScoped<IMovieService, MovieService>();
