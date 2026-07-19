@@ -174,7 +174,11 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                             IsStatus(
                                 item.PaymentStatus,
                                 BookingConstants.PaymentStatus.Success));
-                        if (!hasSuccessfulPayment)
+                        // A 100% standard voucher or compensation ticket can settle a booking
+                        // immediately without a payment-gateway transaction. It is still a paid
+                        // booking for the cancellation-compensation policy.
+                        var isZeroAmountSettledBooking = booking.TotalAmount == 0m;
+                        if (!hasSuccessfulPayment && !isZeroAmountSettledBooking)
                         {
                             return await RollbackAndFailAsync(
                                 transaction,
