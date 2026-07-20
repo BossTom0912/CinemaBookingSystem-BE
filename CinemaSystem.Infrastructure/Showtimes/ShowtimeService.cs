@@ -520,6 +520,18 @@ public sealed class ShowtimeService : IShowtimeService
         // Nếu có sự thay đổi về phòng chiếu (phòng chiếu mới so với phòng chiếu cũ)
         if (roomChanged)
         {
+            // Kiểm tra xem suất chiếu này đã phát sinh ghế được đặt trong bất kỳ đơn hàng nào chưa
+            var hasBookings = await _dbContext.BookingSeats
+                .AnyAsync(bs => bs.ShowtimeSeat.ShowtimeId == showtime.ShowtimeId, cancellationToken);
+
+            if (hasBookings)
+            {
+                return ServiceResult<ShowtimeResponse>.Fail(
+                    400,
+                    "Không thể thay đổi phòng chiếu của suất chiếu này do đã có ghế được đặt. Vui lòng sử dụng tính năng Đổi phòng chuyên dụng (ChangeRoom) hoặc Hủy suất chiếu.",
+                    "SHOWTIME_HAS_BOOKINGS");
+            }
+
             // Truy vấn lấy danh sách ghế đang hoạt động của phòng mới
             var activeSeats2 = await _dbContext.Seats
                 .Where(item => item.RoomId == request.RoomId && item.IsActive)
@@ -532,7 +544,7 @@ public sealed class ShowtimeService : IShowtimeService
                 return ServiceResult<ShowtimeResponse>.Fail(400, "Room has no active seats.", "ROOM_HAS_NO_SEATS");
             }
 
-            // Xóa bỏ tất cả các ghế đã tạo cũ của suất chiếu này (do đổi phòng)
+            // Xóa bỏ tất cả các ghế đã tạo cũ của suất chiếu này (do đổi phòng và chưa phát sinh đơn vé)
             _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
             // Thêm lại tập hợp ghế mới ứng với phòng mới
             await _dbContext.ShowtimeSeats.AddRangeAsync(activeSeats2.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)), cancellationToken);
@@ -585,6 +597,23 @@ public sealed class ShowtimeService : IShowtimeService
         if (newRoom.RoomStatus != DomainConstants.EntityStatus.Active)
             // Trả lỗi 400
             return ServiceResult<ShowtimeResponse>.Fail(400, "New room is not active.", "ROOM_INACTIVE");
+
+        // Kiểm tra xem thời gian suất chiếu trong phòng mới có bị trùng hoặc vi phạm thời gian dọn dẹp không
+        var overlapValidation = await ValidateMovieRoomAndOverlapAsync(
+            showtime.MovieId,
+            request.NewRoomId,
+            showtime.StartTime,
+            excludeShowtimeId: showtime.ShowtimeId,
+            existingStartTime: null,
+            cancellationToken);
+
+        if (!overlapValidation.Success)
+        {
+            return ServiceResult<ShowtimeResponse>.Fail(
+                overlapValidation.StatusCode,
+                overlapValidation.Message,
+                overlapValidation.ErrorCode!);
+        }
 
         // Lấy danh sách các ghế kích hoạt của phòng mới
         var activeNewSeats = newRoom.Seats.Where(s => s.IsActive).ToList();
@@ -874,14 +903,8 @@ public sealed class ShowtimeService : IShowtimeService
         // Định nghĩa lý do Hủy mặc định
         var cancelReason = DomainConstants.ShowtimeCancellationReason.AdministrativeUpdate;
         
-        // Lấy UserId của người đang thao tác từ JWT Token.
-        var userId = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            throw new InvalidOperationException(
-                "An authenticated user is required to cancel a showtime.");
-        }
+        // Lấy UserId của người đang thao tác từ JWT Token (fallback về admin hệ thống nếu gọi từ background job/service)
+        var userId = _httpContextAccessor?.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "USR_SYSTEM_ADMIN";
 
         // Lấy thông tin bản ghi Hủy hiện tại (nếu có)
         var cancellation = showtime.ShowtimeCancellation;

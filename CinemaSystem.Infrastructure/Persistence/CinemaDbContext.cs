@@ -201,6 +201,8 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.BookingStatus, "IX_BOOKING_STATUS");
 
+            entity.HasIndex(e => new { e.BookingStatus, e.ExpiredAt }, "IX_BOOKING_STATUS_EXPIRED_AT");
+
             entity.Property(e => e.BookingId)
                 .HasMaxLength(50)
                 .HasColumnName("bookingId");
@@ -1390,6 +1392,10 @@ public partial class CinemaDbContext : DbContext
             entity.HasIndex(e => new { e.ShowtimeId, e.SeatStatus }, "IX_SHOWTIME_SEAT_STATUS");
 
             entity.HasIndex(e => new { e.ShowtimeId, e.SeatId }, "UQ_SHOWTIME_SEAT_SHOWTIME_SEAT").IsUnique();
+
+            entity.HasIndex(e => new { e.LockedByUserId, e.LockedUntil }, "IX_SHOWTIME_SEAT_LOCKED_USER_UNTIL");
+
+            entity.HasIndex(e => new { e.ShowtimeId, e.SeatStatus, e.LockedUntil }, "IX_SHOWTIME_SEAT_SHOWTIME_STATUS_LOCKED");
 
             entity.Property(e => e.ShowtimeSeatId)
                 .HasMaxLength(50)
