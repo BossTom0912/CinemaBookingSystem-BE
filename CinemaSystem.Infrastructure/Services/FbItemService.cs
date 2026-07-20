@@ -5,16 +5,19 @@ using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CinemaSystem.Infrastructure.Services;
 
 public sealed class FbItemService : IFbItemService
 {
     private readonly CinemaDbContext _dbContext;
+    private readonly ILogger<FbItemService> _logger;
 
-    public FbItemService(CinemaDbContext dbContext)
+    public FbItemService(CinemaDbContext dbContext, ILogger<FbItemService> logger)
     {
         _dbContext = dbContext;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<FbItemResponse>> CreateAsync(CreateFbItemRequest request, CancellationToken cancellationToken = default)
@@ -227,88 +230,111 @@ public sealed class FbItemService : IFbItemService
             return ServiceResult<FbFulfillmentResponse>.Fail(403, FbConstants.Messages.ForbiddenBranchOrder, FbConstants.ErrorCodes.ForbiddenCinemaBranch);
         }
 
-        using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var executionStrategy = _dbContext.Database.CreateExecutionStrategy();
         try
         {
-            decimal totalFbAmount = 0;
-            var bookingFbItems = new List<BookingFbItem>();
-
-            foreach (var itemReq in request.Items)
+            return await executionStrategy.ExecuteAsync(async () =>
             {
-                var fbItem = await _dbContext.FbItems.FirstOrDefaultAsync(x => x.FbItemId == itemReq.FbItemId, cancellationToken);
-                if (fbItem == null || fbItem.ItemStatus == FbConstants.ItemStatus.Inactive)
+                await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+                try
                 {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<FbFulfillmentResponse>.Fail(404, $"F&B item '{itemReq.FbItemId}' is unavailable.", FbConstants.ErrorCodes.ItemUnavailable);
+                    decimal totalFbAmount = 0;
+                    var bookingFbItems = new List<BookingFbItem>();
+
+                    foreach (var itemReq in request.Items)
+                    {
+                        var fbItem = await _dbContext.FbItems.FirstOrDefaultAsync(x => x.FbItemId == itemReq.FbItemId, cancellationToken);
+                        if (fbItem == null || fbItem.ItemStatus == FbConstants.ItemStatus.Inactive)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                            return ServiceResult<FbFulfillmentResponse>.Fail(404, $"F&B item '{itemReq.FbItemId}' is unavailable.", FbConstants.ErrorCodes.ItemUnavailable);
+                        }
+
+                        // Pure SQL Atomic Update to prevent concurrency overselling
+                        int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
+                            "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
+                            new object[] { itemReq.Quantity, cinemaId, itemReq.FbItemId, itemReq.Quantity },
+                            cancellationToken);
+
+                        if (rowsAffected == 0)
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                            return ServiceResult<FbFulfillmentResponse>.Fail(
+                                409,
+                                $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
+                                FbConstants.ErrorCodes.InsufficientStock);
+                        }
+
+                        var subtotal = fbItem.Price * itemReq.Quantity;
+                        totalFbAmount += subtotal;
+
+                        bookingFbItems.Add(new BookingFbItem
+                        {
+                            BookingFbitemId = $"BFI_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                            FbItemId = itemReq.FbItemId,
+                            Quantity = itemReq.Quantity,
+                            UnitPrice = fbItem.Price,
+                            Subtotal = subtotal
+                        });
+                    }
+
+                    var bookingId = $"BKG_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+                    var booking = new Booking
+                    {
+                        BookingId = bookingId,
+                        ShowtimeId = request.ShowtimeId, // Can be NULL for standalone counter sale
+                        CustomerProfileId = request.CustomerProfileId,
+                        CreatedByStaffProfileId = staffProfileId,
+                        BookingChannel = FbConstants.Channel.Counter,
+                        GuestName = request.GuestName,
+                        GuestPhone = request.GuestPhone,
+                        GuestEmail = request.GuestEmail,
+                        BookingStatus = DomainConstants.EntityStatus.Paid,
+                        TotalAmount = totalFbAmount,
+                        FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled, // Handed directly over at counter POS
+                        FbFulfilledAt = DateTime.UtcNow,
+                        FbFulfilledByStaffProfileId = staffProfileId,
+                        CreatedAt = DateTime.UtcNow,
+                        BookingFbItems = bookingFbItems
+                    };
+
+                    _dbContext.Bookings.Add(booking);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+
+                    var response = new FbFulfillmentResponse
+                    {
+                        BookingId = bookingId,
+                        FbFulfillmentStatus = booking.FbFulfillmentStatus,
+                        FbFulfilledAt = booking.FbFulfilledAt,
+                        StaffProfileId = staffProfileId,
+                        Message = FbConstants.Messages.OrderPlacedSuccess
+                    };
+
+                    return ServiceResult<FbFulfillmentResponse>.Ok(response, FbConstants.Messages.OrderCompleted, 201);
                 }
-
-                // Pure SQL Atomic Update to prevent concurrency overselling
-                int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
-                    "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
-                    new object[] { itemReq.Quantity, cinemaId, itemReq.FbItemId, itemReq.Quantity },
-                    cancellationToken);
-
-                if (rowsAffected == 0)
+                catch
                 {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ServiceResult<FbFulfillmentResponse>.Fail(
-                        409,
-                        $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
-                        FbConstants.ErrorCodes.InsufficientStock);
+                    await transaction.RollbackAsync(CancellationToken.None);
+                    throw;
                 }
-
-                var subtotal = fbItem.Price * itemReq.Quantity;
-                totalFbAmount += subtotal;
-
-                bookingFbItems.Add(new BookingFbItem
-                {
-                    BookingFbitemId = $"BFI_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-                    FbItemId = itemReq.FbItemId,
-                    Quantity = itemReq.Quantity,
-                    UnitPrice = fbItem.Price,
-                    Subtotal = subtotal
-                });
-            }
-
-            var bookingId = $"BKG_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
-            var booking = new Booking
-            {
-                BookingId = bookingId,
-                ShowtimeId = request.ShowtimeId, // Can be NULL for standalone counter sale
-                CustomerProfileId = request.CustomerProfileId,
-                CreatedByStaffProfileId = staffProfileId,
-                BookingChannel = FbConstants.Channel.Counter,
-                GuestName = request.GuestName,
-                GuestPhone = request.GuestPhone,
-                GuestEmail = request.GuestEmail,
-                BookingStatus = DomainConstants.EntityStatus.Paid,
-                TotalAmount = totalFbAmount,
-                FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled, // Handed directly over at counter POS
-                FbFulfilledAt = DateTime.UtcNow,
-                FbFulfilledByStaffProfileId = staffProfileId,
-                CreatedAt = DateTime.UtcNow,
-                BookingFbItems = bookingFbItems
-            };
-
-            _dbContext.Bookings.Add(booking);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-
-            var response = new FbFulfillmentResponse
-            {
-                BookingId = bookingId,
-                FbFulfillmentStatus = booking.FbFulfillmentStatus,
-                FbFulfilledAt = booking.FbFulfilledAt,
-                StaffProfileId = staffProfileId,
-                Message = FbConstants.Messages.OrderPlacedSuccess
-            };
-
-            return ServiceResult<FbFulfillmentResponse>.Ok(response, FbConstants.Messages.OrderCompleted, 201);
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync(cancellationToken);
-            return ServiceResult<FbFulfillmentResponse>.Fail(500, $"Error processing counter F&B order: {ex.Message}", FbConstants.ErrorCodes.InternalError);
+            _logger.LogError(
+                ex,
+                "Failed to process counter F&B order for cinema {CinemaId} by staff profile {StaffProfileId}",
+                cinemaId,
+                staffProfileId);
+            return ServiceResult<FbFulfillmentResponse>.Fail(
+                500,
+                FbConstants.Messages.CounterOrderProcessingFailed,
+                FbConstants.ErrorCodes.InternalError);
         }
     }
 
