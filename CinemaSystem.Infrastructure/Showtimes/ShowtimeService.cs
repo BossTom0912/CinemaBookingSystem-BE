@@ -21,15 +21,17 @@ public sealed class ShowtimeService : IShowtimeService
     private static readonly HashSet<string> ValidShowtimeStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         // Trạng thái mở bán
-        DomainConstants.EntityStatus.Open,
+        DomainConstants.ShowtimeStatus.Open,
         // Trạng thái đóng không bán vé nữa
-        DomainConstants.EntityStatus.Closed,
+        DomainConstants.ShowtimeStatus.Closed,
         // Trạng thái đã hủy
-        DomainConstants.EntityStatus.Cancelled,
+        DomainConstants.ShowtimeStatus.Cancelled,
         // Trạng thái đã hoàn thành (chiếu xong)
-        DomainConstants.EntityStatus.Completed,
+        DomainConstants.ShowtimeStatus.Completed,
+        // Trạng thái tạm hoãn / tạm ngưng
+        DomainConstants.ShowtimeStatus.Suspended,
         // Trạng thái đang xử lý không ổn định (ví dụ đang đổi rạp/giờ)
-        DomainConstants.EntityStatus.ProcessingUnstable
+        DomainConstants.ShowtimeStatus.ProcessingUnstable
     };
 
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
