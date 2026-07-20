@@ -1145,27 +1145,30 @@ public sealed class ShowtimeService : IShowtimeService
         // Tính toán giờ kết thúc = giờ bắt đầu + (thời lượng phim + thời gian dọn rạp quy định)
         var endTime = normalizedStartTime.AddMinutes(movie.DurationMinutes + _settings.ScreeningRoomCleaningMinutes);
         
-        // Truy vấn DB kiểm tra xem có bất kì suất chiếu nào bị đè giờ lên suất chiếu chuẩn bị tạo này không
-        var hasOverlap = await _dbContext.Showtimes.AnyAsync(
-            // Cùng phòng chiếu
-            item => item.RoomId == roomId
-                // Khác ID (để loại trừ trường hợp tự đụng chính nó lúc Update)
-                && item.ShowtimeId != excludeShowtimeId
-                // Bỏ qua các suất chiếu đã Hủy
-                && item.Status != DomainConstants.EntityStatus.Cancelled
-                // Điều kiện đụng độ: Giờ bắt đầu mới phải nhỏ hơn giờ kết thúc cũ
-                && normalizedStartTime < item.EndTime // strict inequality allows touching ends
-                // Và Giờ kết thúc mới phải lớn hơn giờ bắt đầu cũ
-                && endTime > item.StartTime,
-            cancellationToken);
+        // Truy vấn DB kiểm tra xem có suất chiếu nào bị đè giờ không và lấy thông tin suất chiếu xung đột đầu tiên
+        var conflictingShowtime = await _dbContext.Showtimes
+            .Include(item => item.Movie)
+            .FirstOrDefaultAsync(
+                item => item.RoomId == roomId
+                    && item.ShowtimeId != excludeShowtimeId
+                    && item.Status != DomainConstants.EntityStatus.Cancelled
+                    && normalizedStartTime < item.EndTime // strict inequality allows touching ends
+                    && endTime > item.StartTime,
+                cancellationToken);
 
         // Nếu có trùng thời gian
-        if (hasOverlap)
+        if (conflictingShowtime is not null)
         {
-            // Trả lỗi 409 Xung đột
+            var conflictMovieTitle = conflictingShowtime.Movie?.Title ?? "khác";
+            var conflictStartStr = conflictingShowtime.StartTime.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            var conflictEndStr = conflictingShowtime.EndTime.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+            var detailedMessage = $"Suất chiếu bị trùng lịch với phim \"{conflictMovieTitle}\" ({conflictStartStr} - {conflictEndStr}) tại phòng này (bao gồm 15 phút dọn rạp).";
+
+            // Trả lỗi 409 Xung đột kèm chi tiết
             return ShowtimeValidationResult.Fail(
                 409,
-                "Showtime overlaps with an existing showtime in the same room.",
+                detailedMessage,
                 "SHOWTIME_OVERLAP",
                 endTime);
         }
