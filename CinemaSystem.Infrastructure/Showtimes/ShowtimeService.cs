@@ -108,7 +108,7 @@ public sealed class ShowtimeService : IShowtimeService
                 Status = item.Status,
                 // Gán số lượng ghế của suất chiếu (bằng tổng số ghế trong collection)
                 ShowtimeSeatCount = item.ShowtimeSeats.Count,
-                HasBookings = item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
+                HasBookings = item.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
             })
             // Chuyển kết quả truy vấn thành một List bất đồng bộ
             .ToListAsync(cancellationToken);
@@ -148,7 +148,7 @@ public sealed class ShowtimeService : IShowtimeService
                 BasePrice = item.BasePrice,
                 Status = item.Status,
                 ShowtimeSeatCount = item.ShowtimeSeats.Count,
-                HasBookings = item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
+                HasBookings = item.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
             })
             .ToListAsync(cancellationToken);
 
@@ -195,7 +195,7 @@ public sealed class ShowtimeService : IShowtimeService
                 Status = item.Status,
                 // Đếm số ghế trong suất chiếu
                 ShowtimeSeatCount = item.ShowtimeSeats.Count,
-                HasBookings = item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
+                HasBookings = item.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
             })
             // Lấy ra phần tử đầu tiên thỏa mãn hoặc trả về null nếu không có
             .FirstOrDefaultAsync(cancellationToken);
@@ -1189,7 +1189,7 @@ public sealed class ShowtimeService : IShowtimeService
             Status = showtime.Status,
             // Đếm số ghế của suất chiếu
             ShowtimeSeatCount = showtime.ShowtimeSeats.Count,
-            HasBookings = showtime.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.EntityStatus.Booked || sts.SeatStatus == DomainConstants.EntityStatus.Paid)
+            HasBookings = showtime.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || showtime.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
         };
     }
 
