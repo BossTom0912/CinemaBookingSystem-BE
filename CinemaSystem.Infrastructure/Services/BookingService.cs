@@ -643,8 +643,27 @@ public sealed class BookingService : IBookingService
             return ServiceResult<bool>.Fail(400, "Token has expired because it is less than 2 hours before showtime.", "TOKEN_EXPIRED_TIME_LIMIT");
         }
 
+        // Xử lý Idempotency cho đơn hàng đã xác nhận hoặc đã hoàn tiền trước đó
         if (booking.BookingStatus != DomainConstants.EntityStatus.ProcessingUnstable)
-            return ServiceResult<bool>.Fail(400, "Booking is not pending a time change confirmation.", "INVALID_STATUS");
+        {
+            if (booking.BookingStatus == DomainConstants.EntityStatus.Paid)
+            {
+                return ServiceResult<bool>.Ok(
+                    true,
+                    "ALREADY_ACCEPTED: Quý khách đã lựa chọn xác nhận tham dự suất chiếu mới cho đơn hàng này trước đó. Đơn vé của bạn đã ở trạng thái hợp lệ và vị trí ghế được giữ nguyên.");
+            }
+
+            if (booking.BookingStatus == DomainConstants.EntityStatus.PendingRefund ||
+                booking.BookingStatus == DomainConstants.EntityStatus.Refunded ||
+                booking.BookingStatus == DomainConstants.EntityStatus.Cancelled)
+            {
+                return ServiceResult<bool>.Ok(
+                    true,
+                    "ALREADY_REFUNDED: Quý khách đã lựa chọn yêu cầu hoàn tiền 100% cho đơn hàng này trước đó. Hệ thống đang tiến hành xử lý hoàn tiền tự động về tài khoản của bạn.");
+            }
+
+            return ServiceResult<bool>.Fail(400, "Đơn hàng không ở trạng thái chờ xác nhận đổi giờ chiếu.", "INVALID_STATUS");
+        }
 
         if (accept)
         {
@@ -897,7 +916,7 @@ public sealed class BookingService : IBookingService
         return $"seat-lock:{showtimeId}:{seatId}";
     }
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
         string.Join(

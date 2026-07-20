@@ -34,7 +34,7 @@ public sealed class NotificationService : INotificationService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    private static string NewId() => $"{DomainConstants.EntityIdPrefix.Notification}_{Guid.NewGuid():N}";
+    private static string NewId() => CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification);
 
     public async Task<ServiceResult<PagedList<NotificationResponse>>> GetNotificationsAsync(
         string userId,

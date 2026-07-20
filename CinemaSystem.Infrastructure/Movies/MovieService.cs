@@ -391,7 +391,7 @@ public sealed class MovieService : IMovieService
         }
 
         // Tạo ID mới cho bộ phim với tiền tố MOV_
-        var movieId = $"{DomainConstants.EntityIdPrefix.Movie}_{Guid.NewGuid():N}";
+        var movieId = CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Movie);
 
         // Khởi tạo biến lưu đường dẫn poster
         string? posterUrl = null;

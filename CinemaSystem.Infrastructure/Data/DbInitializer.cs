@@ -129,5 +129,5 @@ public static class DbInitializer
         logger.LogInformation("Seeded admin user {Email}.", normalizedEmail);
     }
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 }

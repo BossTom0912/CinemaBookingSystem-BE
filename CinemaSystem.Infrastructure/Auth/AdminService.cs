@@ -265,5 +265,5 @@ public sealed class AdminService : IAdminService
     }
 
     // Hàm tiện ích nội bộ (private static) để tạo ID ngẫu nhiên định dạng có tiền tố, ví dụ: "USR_a1b2c3d4..."
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 }

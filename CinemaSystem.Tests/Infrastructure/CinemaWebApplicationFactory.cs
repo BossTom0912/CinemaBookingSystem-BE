@@ -395,12 +395,17 @@ public sealed class FakeAiEmailService : IAiEmailService
         string toEmail,
         string subject,
         string movieTitle,
+        string oldTime,
         string newTime,
+        string cutoffTime,
         string bookingId,
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null)
     {
-        var body = $"Movie {movieTitle}. Start time changed to {newTime}. Booking {bookingId}. Token {token}. Please wait for the cinema to handle it.";
+        var body = $"Movie {movieTitle}. Old time: {oldTime}, New time: {newTime}. Cutoff: {cutoffTime}. Booking {bookingId}. Token {token}. Voucher {compensationVoucherCode}. Seat {targetSeatType}. Note {compensationNote}.";
         return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 }
