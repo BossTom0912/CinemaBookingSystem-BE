@@ -25,4 +25,6 @@ public sealed class ShowtimeResponse
     public string Status { get; init; } = string.Empty;
 
     public int ShowtimeSeatCount { get; init; }
+
+    public bool HasBookings { get; init; }
 }
