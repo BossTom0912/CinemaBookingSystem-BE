@@ -623,37 +623,6 @@ public sealed class ShowtimeService : IShowtimeService
         var activeNewSeats = newRoom.Seats.Where(s => s.IsActive).ToList();
         var seatMapping = request.SeatMapping ?? new Dictionary<string, string>();
 
-        // 1. Kiểm tra xem tất cả các ghế đã được đặt vé của phòng cũ có map được sang phòng mới hay không
-        foreach (var oldSts in showtime.ShowtimeSeats)
-        {
-            if (oldSts.SeatStatus == DomainConstants.EntityStatus.Booked || 
-                oldSts.SeatStatus == DomainConstants.EntityStatus.Paid || 
-                oldSts.BookingSeat != null)
-            {
-                string? newSeatId = null;
-                if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId))
-                {
-                    newSeatId = mappedId;
-                }
-                else
-                {
-                    var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == oldSts.Seat?.SeatCode);
-                    if (equivalentSeat != null)
-                    {
-                        newSeatId = equivalentSeat.SeatId;
-                    }
-                }
-
-                if (newSeatId == null || !activeNewSeats.Any(s => s.SeatId == newSeatId))
-                {
-                    return ServiceResult<ShowtimeResponse>.Fail(400, $"Cannot map seat {oldSts.Seat?.SeatCode ?? oldSts.SeatId} to new room.", "MAPPING_FAILED");
-                }
-            }
-        }
-
-        var usedNewSeatIds = new System.Collections.Generic.HashSet<string>();
-        var affectedBookings = new System.Collections.Generic.HashSet<string>();
-
         var bookingIds = showtime.Bookings.Select(b => b.BookingId).ToList();
         var bookingSeats = await _dbContext.BookingSeats
             .Where(bs => bookingIds.Contains(bs.BookingId))
@@ -664,49 +633,110 @@ public sealed class ShowtimeService : IShowtimeService
                 .ThenInclude(sts => sts.Seat)
             .ToListAsync(cancellationToken);
 
-        // 2. Cập nhật trực tiếp (In-place) SeatId của ghế đã được bán thay vì XÓA bỏ bản ghi
-        // Việc cập nhật tại chỗ giữ nguyên ShowtimeSeatId -> Không vi phạm FK_TICKET_BOOKING_SEAT
+        // Lấy danh sách các ghế đã phát sinh đơn hàng / đặt chỗ
+        var bookedShowtimeSeats = showtime.ShowtimeSeats
+            .Where(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked ||
+                          sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked ||
+                          sts.SeatStatus == "BOOKED" ||
+                          sts.SeatStatus == "Booked" ||
+                          bookingSeats.Any(bs => bs.ShowtimeSeatId == sts.ShowtimeSeatId))
+            .ToList();
+
+        // Nếu tổng số vé đã bán nhiều hơn số lượng ghế hoạt động của phòng mới
+        if (activeNewSeats.Count < bookedShowtimeSeats.Count)
+        {
+            return ServiceResult<ShowtimeResponse>.Fail(
+                400,
+                $"Phòng chiếu mới ({activeNewSeats.Count} ghế) không đủ sức chứa cho {bookedShowtimeSeats.Count} vé đã đặt.",
+                "ROOM_CAPACITY_EXCEEDED");
+        }
+
+        // 1. Ánh xạ thông minh đa cấp (Multi-level Fallback Seat Mapping)
+        var mappedNewSeatIds = new System.Collections.Generic.HashSet<string>();
+        var seatMapResult = new Dictionary<string, string>(); // oldSts.ShowtimeSeatId -> newSeatId
+
+        foreach (var oldSts in bookedShowtimeSeats)
+        {
+            string? newSeatId = null;
+
+            // Cấp 1: Lấy theo mapping chỉ định thủ công từ request
+            if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId) &&
+                activeNewSeats.Any(s => s.SeatId == mappedId && !mappedNewSeatIds.Contains(s.SeatId)))
+            {
+                newSeatId = mappedId;
+            }
+
+            // Cấp 2: Tìm ghế tương đương cùng SeatCode (ví dụ "A1" == "A1", không phân biệt hoa thường)
+            if (newSeatId == null && oldSts.Seat != null && !string.IsNullOrWhiteSpace(oldSts.Seat.SeatCode))
+            {
+                var oldCode = oldSts.Seat.SeatCode.Trim();
+                var matchCode = activeNewSeats.FirstOrDefault(s =>
+                    !mappedNewSeatIds.Contains(s.SeatId) &&
+                    string.Equals(s.SeatCode.Trim(), oldCode, StringComparison.OrdinalIgnoreCase));
+                if (matchCode != null)
+                {
+                    newSeatId = matchCode.SeatId;
+                }
+            }
+
+            // Cấp 3: Tìm ghế trống cùng loại (VIP/Thường/Đôi) trong phòng mới
+            if (newSeatId == null && oldSts.Seat != null)
+            {
+                var matchType = activeNewSeats.FirstOrDefault(s =>
+                    !mappedNewSeatIds.Contains(s.SeatId) &&
+                    s.SeatTypeId == oldSts.Seat.SeatTypeId);
+                if (matchType != null)
+                {
+                    newSeatId = matchType.SeatId;
+                }
+            }
+
+            // Cấp 4: Tự động gán cho bất kỳ ghế trống hoạt động nào còn lại của phòng mới
+            if (newSeatId == null)
+            {
+                var matchAny = activeNewSeats.FirstOrDefault(s => !mappedNewSeatIds.Contains(s.SeatId));
+                if (matchAny != null)
+                {
+                    newSeatId = matchAny.SeatId;
+                }
+            }
+
+            if (newSeatId == null)
+            {
+                return ServiceResult<ShowtimeResponse>.Fail(
+                    400,
+                    $"Không thể ánh xạ ghế {oldSts.Seat?.SeatCode ?? oldSts.SeatId} sang phòng chiếu mới.",
+                    "MAPPING_FAILED");
+            }
+
+            mappedNewSeatIds.Add(newSeatId);
+            seatMapResult[oldSts.ShowtimeSeatId] = newSeatId;
+        }
+
+        var affectedBookings = new System.Collections.Generic.HashSet<string>();
+
+        // 2. Cập nhật trực tiếp (In-place Update) SeatId của các ghế đã được bán
         var oldShowtimeSeatsList = showtime.ShowtimeSeats.ToList();
         foreach (var oldSts in oldShowtimeSeatsList)
         {
-            bool isBooked = oldSts.SeatStatus == DomainConstants.EntityStatus.Booked || 
-                            oldSts.SeatStatus == DomainConstants.EntityStatus.Paid || 
-                            oldSts.BookingSeat != null ||
-                            bookingSeats.Any(bs => bs.ShowtimeSeatId == oldSts.ShowtimeSeatId);
-
-            if (isBooked)
+            if (seatMapResult.TryGetValue(oldSts.ShowtimeSeatId, out var newSeatId))
             {
-                string? newSeatId = null;
-                if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId))
+                var newSeatObj = activeNewSeats.FirstOrDefault(s => s.SeatId == newSeatId);
+                if (newSeatObj != null)
                 {
-                    newSeatId = mappedId;
-                }
-                else
-                {
-                    var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == oldSts.Seat?.SeatCode);
-                    if (equivalentSeat != null) newSeatId = equivalentSeat.SeatId;
-                }
-
-                if (newSeatId != null)
-                {
-                    var newSeatObj = activeNewSeats.FirstOrDefault(s => s.SeatId == newSeatId);
-                    if (newSeatObj != null)
+                    // Đánh dấu nếu loại ghế bị hạ cấp hoặc thay đổi
+                    if (oldSts.Seat != null && newSeatObj.SeatTypeId != oldSts.Seat.SeatTypeId)
                     {
-                        // Nếu loại ghế bị thay đổi (hạ cấp hoặc đổi loại)
-                        if (oldSts.Seat != null && newSeatObj.SeatTypeId != oldSts.Seat.SeatTypeId)
+                        var relatedBs = bookingSeats.Where(bs => bs.ShowtimeSeatId == oldSts.ShowtimeSeatId).ToList();
+                        foreach (var bs in relatedBs)
                         {
-                            var relatedBs = bookingSeats.Where(bs => bs.ShowtimeSeatId == oldSts.ShowtimeSeatId).ToList();
-                            foreach (var bs in relatedBs)
-                            {
-                                bs.Booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
-                                affectedBookings.Add(bs.BookingId);
-                            }
+                            bs.Booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
+                            affectedBookings.Add(bs.BookingId);
                         }
-
-                        // Đổi SeatId của ghế sang SeatId phòng chiếu mới giữ nguyên PK ShowtimeSeatId!
-                        oldSts.SeatId = newSeatObj.SeatId;
-                        usedNewSeatIds.Add(newSeatObj.SeatId);
                     }
+
+                    // Đổi SeatId của ghế sang SeatId phòng chiếu mới (Giữ nguyên PK ShowtimeSeatId -> Không lỗi FK!)
+                    oldSts.SeatId = newSeatObj.SeatId;
                 }
             }
             else
@@ -719,7 +749,7 @@ public sealed class ShowtimeService : IShowtimeService
         // 3. Tạo bản ghi ShowtimeSeat mới cho các ghế chưa được map trong phòng mới
         foreach (var newSeat in activeNewSeats)
         {
-            if (!usedNewSeatIds.Contains(newSeat.SeatId))
+            if (!mappedNewSeatIds.Contains(newSeat.SeatId))
             {
                 var newSts = CreateShowtimeSeat(showtime.ShowtimeId, newSeat.SeatId);
                 _dbContext.ShowtimeSeats.Add(newSts);
