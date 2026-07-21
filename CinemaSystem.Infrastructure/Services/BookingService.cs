@@ -693,7 +693,7 @@ public sealed class BookingService : IBookingService
                 if (!exists) payment = null;
             }
 
-            if (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId))
+            if (booking.TotalAmount > 0 && (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId)))
             {
                 return ServiceResult<bool>.Fail(400, "Cannot reject time change because no valid payment record exists to process the refund.", "INVALID_PAYMENT");
             }
@@ -702,8 +702,8 @@ public sealed class BookingService : IBookingService
             {
                 RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
                 BookingId = booking.BookingId,
-                PaymentId = payment.PaymentId,
-                PaymentProviderId = payment.PaymentProviderId,
+                PaymentId = payment?.PaymentId ?? "ZERO_PAYMENT",
+                PaymentProviderId = payment?.PaymentProviderId ?? "VOUCHER",
                 RefundAmount = booking.TotalAmount,
                 RefundStatus = DomainConstants.RefundStatus.Pending,
                 RefundReason = "User rejected time change",
@@ -711,7 +711,9 @@ public sealed class BookingService : IBookingService
             };
             _dbContext.Refunds.Add(refund);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund initiated.");
+            
+            var msg = booking.TotalAmount == 0 ? "ZERO_AMOUNT_REFUND" : "Time change rejected. Refund initiated.";
+            return ServiceResult<bool>.Ok(true, msg);
         }
     }
 

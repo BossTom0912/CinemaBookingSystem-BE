@@ -155,8 +155,8 @@ public class GeminiAiEmailService : IAiEmailService
     {
         var formattedSubject = $"[CinemaSystem] Điều chỉnh giờ chiếu phim - Mã vé: #{bookingId}";
 
-        var confirmAcceptUrl = $"http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=true&token={token}";
-        var confirmRefundUrl = $"http://localhost:5070/api/bookings/{bookingId}/confirm-time-change?accept=false&token={token}";
+        var confirmAcceptUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=true&token={token}";
+        var confirmRefundUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=false&token={token}";
 
         var compRows = "";
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode))
