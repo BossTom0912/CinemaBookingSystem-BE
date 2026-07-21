@@ -110,7 +110,85 @@ public sealed class ShowtimeCancellationApiIntegrationTests
     }
 
     [Fact]
-    public async Task LegacyDeleteShowtime_WithPaidBooking_DelegatesToCompensationCancellation()
+    public async Task CancelShowtime_ZeroAmountPaidBookingWithoutPayment_IssuesCompensation()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedCancellationDataAsync(factory);
+
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var db = setupScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            var now = DateTime.UtcNow;
+            var showtimeSeat = await db.ShowtimeSeats.SingleAsync(item =>
+                item.ShowtimeSeatId == "STS_CANCEL_EMPTY_A1");
+            showtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Booked;
+
+            db.Bookings.Add(new Booking
+            {
+                BookingId = "BKG_CANCEL_ZERO_PAID",
+                CustomerProfileId = "CUS_CANCEL_A",
+                ShowtimeId = "SHW_CANCEL_EMPTY",
+                BookingStatus = BookingConstants.BookingStatus.Paid,
+                TotalAmount = 0m,
+                CreatedAt = now,
+                BookingChannel = BookingConstants.BookingChannel.Online
+            });
+            db.BookingSeats.Add(new BookingSeat
+            {
+                BookingSeatId = "BKS_CANCEL_ZERO_PAID",
+                BookingId = "BKG_CANCEL_ZERO_PAID",
+                ShowtimeSeatId = showtimeSeat.ShowtimeSeatId,
+                SeatPrice = 100000m
+            });
+            db.Tickets.Add(new Ticket
+            {
+                TicketId = "TCK_CANCEL_ZERO_PAID",
+                BookingSeatId = "BKS_CANCEL_ZERO_PAID",
+                QrCode = "QR_CANCEL_ZERO_PAID",
+                TicketStatus = BookingConstants.TicketStatus.Unused,
+                GeneratedAt = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
+
+        var response = await client.PostAsJsonAsync(
+            "/api/manager/showtimes/SHW_CANCEL_EMPTY/cancel",
+            new CancelShowtimeRequest { Reason = "Free booking cancellation coverage" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<CancelShowtimeResponse>>(response);
+        Assert.True(body!.Success);
+        Assert.Equal(1, body.Data!.PaidBookingsCompensated);
+        Assert.Equal(1, body.Data.TicketVouchersIssued);
+        Assert.Equal(1, body.Data.ComboVouchersIssued);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var booking = await verificationDb.Bookings.SingleAsync(item =>
+            item.BookingId == "BKG_CANCEL_ZERO_PAID");
+        var ticket = await verificationDb.Tickets.SingleAsync(item =>
+            item.TicketId == "TCK_CANCEL_ZERO_PAID");
+        var compensation = await verificationDb.CancellationCompensations
+            .Include(item => item.Tickets)
+            .Include(item => item.Combo)
+            .SingleAsync(item => item.SourceBookingId == booking.BookingId);
+
+        Assert.Equal(BookingConstants.BookingStatus.Cancelled, booking.BookingStatus);
+        Assert.Equal(BookingConstants.TicketStatus.Cancelled, ticket.TicketStatus);
+        Assert.False(await verificationDb.Payments.AnyAsync(item =>
+            item.BookingId == booking.BookingId));
+        Assert.False(await verificationDb.Refunds.AnyAsync(item =>
+            item.BookingId == booking.BookingId));
+        Assert.Single(compensation.Tickets);
+        Assert.NotNull(compensation.Combo);
+    }
+
+    [Fact]
+    public async Task LegacyDeleteShowtime_WithPaidBooking_TriggersRefundWorkflow()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedCancellationDataAsync(factory);
@@ -119,8 +197,8 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
 
-        // The existing Admin UI uses DELETE /api/showtimes/{id}. It must not
-        // fall back to the legacy REFUND_PENDING workflow for a paid booking.
+        // The legacy Admin UI uses DELETE /api/showtimes/{id}; main keeps its
+        // paid-booking cancellation contract on the REFUND_PENDING workflow.
         var response = await client.DeleteAsync("/api/showtimes/SHW_CANCEL_A");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -132,11 +210,11 @@ public sealed class ShowtimeCancellationApiIntegrationTests
 
         var booking = await db.Bookings.SingleAsync(item =>
             item.BookingId == "BKG_CANCEL_A_PAID");
-        Assert.Equal(BookingConstants.BookingStatus.Cancelled, booking.BookingStatus);
-        Assert.False(await db.Refunds.AnyAsync(item =>
+        Assert.Equal(BookingConstants.BookingStatus.RefundPending, booking.BookingStatus);
+        Assert.True(await db.Refunds.AnyAsync(item =>
             item.BookingId == booking.BookingId));
-        Assert.Single(await db.CancellationCompensations.Where(item =>
-            item.SourceBookingId == booking.BookingId).ToListAsync());
+        Assert.False(await db.CancellationCompensations.AnyAsync(item =>
+            item.SourceBookingId == booking.BookingId));
     }
 
     [Fact]

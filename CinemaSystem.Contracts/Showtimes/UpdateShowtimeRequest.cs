@@ -21,4 +21,8 @@ public sealed class UpdateShowtimeRequest
 
     [MaxLength(30)]
     public string Status { get; init; } = DomainConstants.ShowtimeStatus.Open;
+
+    public string? CompensationVoucherCode { get; init; }
+    public string? CompensationNote { get; init; }
+    public string? TargetSeatType { get; init; }
 }

@@ -37,6 +37,7 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddMemoryCache();
         services.AddOptions<JwtSettings>()
             .Configure(options =>
             {
@@ -197,9 +198,6 @@ public static class DependencyInjection
                 options.OpenBeforeStartMinutes = ReadNullableInt(
                     configuration[
                         $"{TicketScanSettings.SectionName}:OpenBeforeStartMinutes"]);
-                options.CloseAfterEndMinutes = ReadNullableInt(
-                    configuration[
-                        $"{TicketScanSettings.SectionName}:CloseAfterEndMinutes"]);
             })
             .Validate(
                 options => options.OpenBeforeStartMinutes.HasValue,
@@ -207,12 +205,6 @@ public static class DependencyInjection
             .Validate(
                 options => options.OpenBeforeStartMinutes >= 0,
                 "Ticket scan opening window cannot be negative.")
-            .Validate(
-                options => options.CloseAfterEndMinutes.HasValue,
-                "Ticket scan closing window must be configured.")
-            .Validate(
-                options => options.CloseAfterEndMinutes >= 0,
-                "Ticket scan closing window cannot be negative.")
             .ValidateOnStart();
 
         services.AddDataProtection();
@@ -273,6 +265,7 @@ public static class DependencyInjection
         services.AddScoped<IRefundService, RefundService>();
         services.AddScoped<IRefundClaimService, RefundClaimService>();
         services.AddScoped<IManualRefundService, ManualRefundService>();
+        services.AddScoped<IRefundCustomerConfirmationService, RefundCustomerConfirmationService>();
         services.AddScoped<IRefundProcessor, RefundProcessor>();
         services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
         services.AddScoped<IStaffShiftReportService, StaffShiftReportService>();

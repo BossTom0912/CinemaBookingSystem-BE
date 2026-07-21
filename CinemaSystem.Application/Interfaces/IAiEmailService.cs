@@ -16,8 +16,26 @@ public interface IAiEmailService
         string toEmail,
         string subject,
         string movieTitle,
+        string oldTime,
         string newTime,
+        string cutoffTime,
         string bookingId,
         string token,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null);
+
+    Task SendAiRoomChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string oldRoomName,
+        string newRoomName,
+        string timeStr,
+        string bookingId,
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null);
 }

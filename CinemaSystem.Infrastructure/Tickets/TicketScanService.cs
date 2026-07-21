@@ -146,188 +146,232 @@ public sealed class TicketScanService : ITicketScanService
             ? null
             : staffProfile!.CinemaId;
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
-
-        var ticket = await LoadTicketAsync(normalizedQrCode, cancellationToken);
-        if (ticket is null)
+        var strategy = _dbContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            return await FailAndCommitAsync(
-                transaction,
+            var ticket = await LoadTicketAsync(normalizedQrCode, cancellationToken);
+            if (ticket is null)
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    null,
+                    normalizedQrCode,
+                    HttpStatusCode.NotFound,
+                    "Ticket was not found.",
+                    BookingConstants.TicketScanErrorCodes.TicketNotFound,
+                    FailureReasons.TicketNotFound,
+                    cancellationToken);
+            }
+
+            var booking = ticket.BookingSeat.Booking;
+            var showtime = booking.Showtime;
+            var room = showtime.Room;
+
+            if (staffCinemaId is not null
+                && !string.Equals(
+                    staffCinemaId,
+                    room.CinemaId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Forbidden,
+                    "Ticket belongs to another cinema.",
+                    BookingConstants.TicketScanErrorCodes.TicketWrongCinema,
+                    FailureReasons.WrongCinema,
+                    cancellationToken);
+            }
+
+            if (!string.Equals(
+                    normalizedRoomId,
+                    room.RoomId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "Ticket belongs to another screening room.",
+                    BookingConstants.TicketScanErrorCodes.TicketWrongRoom,
+                    FailureReasons.WrongRoom,
+                    cancellationToken);
+            }
+
+            var ticketStateFailure = GetTicketStateFailure(ticket.TicketStatus);
+            if (ticketStateFailure is not null)
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    ticketStateFailure.Value.Message,
+                    ticketStateFailure.Value.ErrorCode,
+                    ticketStateFailure.Value.FailureReason,
+                    cancellationToken);
+            }
+
+            if (booking.BookingStatus is not BookingConstants.BookingStatus.Paid
+                and not BookingConstants.BookingStatus.Completed)
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "Booking is not eligible for check-in.",
+                    BookingConstants.TicketScanErrorCodes.BookingNotEligibleForCheckIn,
+                    FailureReasons.BookingNotEligible,
+                    cancellationToken);
+            }
+
+            if (!string.Equals(room.RoomStatus, BookingConstants.ResourceStatus.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "The screening room is currently unavailable or under maintenance.",
+                    BookingConstants.TicketScanErrorCodes.TicketNotUsable,
+                    FailureReasons.TicketNotUsable,
+                    cancellationToken);
+            }
+
+            if (showtime.Status == BookingConstants.ShowtimeStatus.Cancelled )
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "The showtime was cancelled or suspended.",
+                    BookingConstants.TicketScanErrorCodes.ShowtimeCancelled,
+                    FailureReasons.ShowtimeCancelled,
+                    cancellationToken);
+            }
+
+            var now = _clock.UtcNow;
+            var checkInOpensAt = EnsureUtc(showtime.StartTime)
+                .AddMinutes(-_settings.OpenBeforeStartMinutes!.Value);
+            if (now < checkInOpensAt)
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "The check-in window has not opened yet.",
+                    BookingConstants.TicketScanErrorCodes.CheckInTooEarly,
+                    FailureReasons.InvalidTime,
+                    cancellationToken);
+            }
+
+            if (now >= EnsureUtc(showtime.EndTime))
+            {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                return await FailAndCommitAsync(
+                    failTx,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "The showtime has ended; ticket check-in is no longer available.",
+                    BookingConstants.TicketScanErrorCodes.CheckInWindowClosed,
+                    FailureReasons.InvalidTime,
+                    cancellationToken);
+            }
+
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+
+            var affectedRows = await MarkTicketCheckedInAsync(
+                ticket.TicketId,
+                cancellationToken);
+            if (affectedRows != 1)
+            {
+                return await FailAndCommitAsync(
+                    transaction,
+                    actorUserId,
+                    staffProfileId,
+                    ticket.TicketId,
+                    normalizedQrCode,
+                    HttpStatusCode.Conflict,
+                    "Ticket was scanned concurrently or is no longer unused.",
+                    BookingConstants.TicketScanErrorCodes.TicketScanConflict,
+                    FailureReasons.ConcurrentScanConflict,
+                    cancellationToken);
+            }
+
+            var checkInLog = CreateCheckInLog(
                 actorUserId,
                 staffProfileId,
+                ticket.TicketId,
+                normalizedQrCode,
+                BookingConstants.CheckInResult.Success,
                 null,
-                normalizedQrCode,
-                HttpStatusCode.NotFound,
-                "Ticket was not found.",
-                BookingConstants.TicketScanErrorCodes.TicketNotFound,
-                FailureReasons.TicketNotFound,
-                cancellationToken);
-        }
+                now);
+            _dbContext.CheckinLogs.Add(checkInLog);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
 
-        var booking = ticket.BookingSeat.Booking;
-        var showtime = booking.Showtime;
-        var room = showtime.Room;
-
-        if (staffCinemaId is not null
-            && !string.Equals(
-                staffCinemaId,
-                room.CinemaId,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
+            _logger.LogInformation(
+                "Ticket {TicketId} checked in by user {UserId} at cinema {CinemaId}.",
                 ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Forbidden,
-                "Ticket belongs to another cinema.",
-                BookingConstants.TicketScanErrorCodes.TicketWrongCinema,
-                FailureReasons.WrongCinema,
-                cancellationToken);
-        }
-
-        if (!string.Equals(
-                normalizedRoomId,
-                room.RoomId,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return await FailAndCommitAsync(
-                transaction,
                 actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                "Ticket belongs to another screening room.",
-                BookingConstants.TicketScanErrorCodes.TicketWrongRoom,
-                FailureReasons.WrongRoom,
-                cancellationToken);
-        }
+                room.CinemaId);
 
-        var ticketStateFailure = GetTicketStateFailure(ticket.TicketStatus);
-        if (ticketStateFailure is not null)
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                ticketStateFailure.Value.Message,
-                ticketStateFailure.Value.ErrorCode,
-                ticketStateFailure.Value.FailureReason,
-                cancellationToken);
-        }
-
-        if (booking.BookingStatus is not BookingConstants.BookingStatus.Paid
-            and not BookingConstants.BookingStatus.Completed)
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                "Booking is not eligible for check-in.",
-                BookingConstants.TicketScanErrorCodes.BookingNotEligibleForCheckIn,
-                FailureReasons.BookingNotEligible,
-                cancellationToken);
-        }
-
-        if (showtime.Status == BookingConstants.ShowtimeStatus.Cancelled)
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                "The showtime was cancelled.",
-                BookingConstants.TicketScanErrorCodes.ShowtimeCancelled,
-                FailureReasons.ShowtimeCancelled,
-                cancellationToken);
-        }
-
-        var now = _clock.UtcNow;
-        var checkInOpensAt = EnsureUtc(showtime.StartTime)
-            .AddMinutes(-_settings.OpenBeforeStartMinutes!.Value);
-        if (now < checkInOpensAt)
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                "The check-in window has not opened yet.",
-                BookingConstants.TicketScanErrorCodes.CheckInTooEarly,
-                FailureReasons.InvalidTime,
-                cancellationToken);
-        }
-
-        var checkInClosesAt = EnsureUtc(showtime.EndTime)
-            .AddMinutes(_settings.CloseAfterEndMinutes!.Value);
-        if (now > checkInClosesAt)
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                "The check-in window has closed.",
-                BookingConstants.TicketScanErrorCodes.CheckInWindowClosed,
-                FailureReasons.InvalidTime,
-                cancellationToken);
-        }
-
-        var affectedRows = await MarkTicketCheckedInAsync(
-            ticket.TicketId,
-            cancellationToken);
-        if (affectedRows != 1)
-        {
-            return await FailAndCommitAsync(
-                transaction,
-                actorUserId,
-                staffProfileId,
-                ticket.TicketId,
-                normalizedQrCode,
-                HttpStatusCode.Conflict,
-                "Ticket was scanned concurrently or is no longer unused.",
-                BookingConstants.TicketScanErrorCodes.TicketScanConflict,
-                FailureReasons.ConcurrentScanConflict,
-                cancellationToken);
-        }
-
-        var checkInLog = CreateCheckInLog(
-            actorUserId,
-            staffProfileId,
-            ticket.TicketId,
-            normalizedQrCode,
-            BookingConstants.CheckInResult.Success,
-            null,
-            now);
-        _dbContext.CheckinLogs.Add(checkInLog);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "Ticket {TicketId} checked in by user {UserId} at cinema {CinemaId}.",
-            ticket.TicketId,
-            actorUserId,
-            room.CinemaId);
-
-        return ServiceResult<ScanTicketResponse>.Ok(
-            ToResponse(ticket, checkInLog),
-            "Ticket checked in successfully.");
+            return ServiceResult<ScanTicketResponse>.Ok(
+                ToResponse(ticket, checkInLog),
+                "Ticket checked in successfully.");
+        });
     }
 
     private async Task<Ticket?> LoadTicketAsync(
@@ -336,6 +380,7 @@ public sealed class TicketScanService : ITicketScanService
     {
         return await _dbContext.Tickets
             .AsNoTracking()
+            .AsSingleQuery()
             .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.Booking)
                     .ThenInclude(booking => booking.Showtime)
@@ -498,7 +543,7 @@ public sealed class TicketScanService : ITicketScanService
         };
     }
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 
     private sealed record ScanActor(
         string UserId,

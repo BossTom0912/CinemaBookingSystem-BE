@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,6 +34,10 @@ public sealed class BookingService : IBookingService
     private readonly IVoucherService _voucherService;
     private readonly IVoucherReservationService _voucherReservationService;
     private readonly ICancellationCompensationService _cancellationCompensationService;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
+    private readonly RefundSettings _refundSettings;
+    private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
     public BookingService(
         CinemaDbContext dbContext,
@@ -45,6 +50,10 @@ public sealed class BookingService : IBookingService
         IVoucherService voucherService,
         IVoucherReservationService voucherReservationService,
         ICancellationCompensationService cancellationCompensationService,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
+        IOptions<RefundSettings> refundSettings,
+        IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplates,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
@@ -57,6 +66,10 @@ public sealed class BookingService : IBookingService
         _voucherService = voucherService;
         _voucherReservationService = voucherReservationService;
         _cancellationCompensationService = cancellationCompensationService;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
+        _refundSettings = refundSettings.Value;
+        _emailTemplates = emailTemplates.Value;
         _backgroundJobClient = backgroundJobClient!;
     }
 
@@ -445,6 +458,12 @@ public sealed class BookingService : IBookingService
                 "CHECKOUT_CONFLICT");
         }
 
+        // Release temporary selection locks from Redis since DB now holds the authoritative lock (LockedUntil = booking.ExpiredAt)
+        foreach (var ss in showtimeSeats)
+        {
+            await _seatLockStore.ReleaseAsync($"seat_lock_{showtime.ShowtimeId}_{ss.SeatId}", cancellationToken);
+        }
+
         return ServiceResult<BookingResponse>.Ok(new BookingResponse
         {
             BookingId = booking.BookingId,
@@ -713,7 +732,10 @@ public sealed class BookingService : IBookingService
 
         var booking = await _dbContext.Bookings
             .Include(b => b.Payments)
+            .Include(b => b.CustomerProfile)
+                .ThenInclude(profile => profile!.User)
             .Include(b => b.Showtime)
+                .ThenInclude(showtime => showtime.Movie)
             .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
 
         if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
@@ -724,14 +746,36 @@ public sealed class BookingService : IBookingService
             return ServiceResult<bool>.Fail(400, "Token has expired because it is less than 2 hours before showtime.", "TOKEN_EXPIRED_TIME_LIMIT");
         }
 
+        // Xử lý Idempotency cho đơn hàng đã xác nhận hoặc đã hoàn tiền trước đó
         if (booking.BookingStatus != DomainConstants.EntityStatus.ProcessingUnstable)
-            return ServiceResult<bool>.Fail(400, "Booking is not pending a time change confirmation.", "INVALID_STATUS");
+        {
+            if (booking.BookingStatus == DomainConstants.EntityStatus.Paid)
+            {
+                return ServiceResult<bool>.Ok(
+                    true,
+                    "ALREADY_ACCEPTED: Quý khách đã lựa chọn xác nhận tham dự suất chiếu mới cho đơn hàng này trước đó. Đơn vé của bạn đã ở trạng thái hợp lệ và vị trí ghế được giữ nguyên.");
+            }
+
+            if (booking.BookingStatus == DomainConstants.EntityStatus.PendingRefund ||
+                booking.BookingStatus == DomainConstants.EntityStatus.Refunded ||
+                booking.BookingStatus == DomainConstants.EntityStatus.Cancelled)
+            {
+                return ServiceResult<bool>.Ok(
+                    true,
+                    "ALREADY_REFUNDED: Quý khách đã lựa chọn yêu cầu hoàn tiền 100% cho đơn hàng này trước đó. Hệ thống đang tiến hành xử lý hoàn tiền tự động về tài khoản của bạn.");
+            }
+
+            return ServiceResult<bool>.Fail(400, "Đơn hàng không ở trạng thái chờ xác nhận đổi giờ chiếu.", "INVALID_STATUS");
+        }
 
         if (accept)
         {
             booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+            await IssueRescheduleAcceptanceVoucherAsync(booking, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change accepted successfully.");
+            return ServiceResult<bool>.Ok(
+                true,
+                "Time change accepted successfully. A 20% ticket voucher valid for one month was added to your compensation vouchers.");
         }
         else
         {
@@ -755,7 +799,7 @@ public sealed class BookingService : IBookingService
                 if (!exists) payment = null;
             }
 
-            if (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId))
+            if (booking.TotalAmount > 0 && (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId)))
             {
                 return ServiceResult<bool>.Fail(400, "Cannot reject time change because no valid payment record exists to process the refund.", "INVALID_PAYMENT");
             }
@@ -764,16 +808,160 @@ public sealed class BookingService : IBookingService
             {
                 RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
                 BookingId = booking.BookingId,
-                PaymentId = payment.PaymentId,
-                PaymentProviderId = payment.PaymentProviderId,
+                PaymentId = payment?.PaymentId ?? "ZERO_PAYMENT",
+                PaymentProviderId = payment?.PaymentProviderId ?? "VOUCHER",
                 RefundAmount = booking.TotalAmount,
                 RefundStatus = DomainConstants.RefundStatus.Pending,
                 RefundReason = "User rejected time change",
                 RequestedAt = _clock.UtcNow
             };
             _dbContext.Refunds.Add(refund);
+            RefundClaimIssue? claimIssue = null;
+            if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+            {
+                claimIssue = _refundClaimIssuer.Create(
+                    refund.RefundId,
+                    booking.CustomerProfileId,
+                    _clock.UtcNow);
+                _dbContext.RefundClaims.Add(claimIssue.Claim);
+            }
+            await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund initiated.");
+            await TrySendTimeChangeRefundClaimEmailAsync(booking, claimIssue, cancellationToken);
+            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund claim initiated.");
+        }
+    }
+
+    private async Task TrySendTimeChangeRefundClaimEmailAsync(
+        Booking booking,
+        RefundClaimIssue? claimIssue,
+        CancellationToken cancellationToken)
+    {
+        var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+        if (claimIssue is null || string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        try
+        {
+            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(claimIssue.RawToken)}";
+            await _emailSender.SendEmailAsync(
+                email,
+                _emailTemplates.ShowtimeCancelledRefundSubject,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    _emailTemplates.ShowtimeCancelledRefundBody,
+                    booking.Showtime.Movie.Title,
+                    booking.Showtime.StartTime,
+                    booking.TotalAmount,
+                    claimIssue.Token.ExpiresAt,
+                    link),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Refund claim email could not be sent for booking {BookingId}.", booking.BookingId);
+        }
+    }
+
+    private async Task IssueRescheduleAcceptanceVoucherAsync(
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return;
+        }
+
+        var voucherCode = $"VOUCHER_REFUND_20PCT_{booking.BookingId}".ToUpperInvariant();
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(item => item.VoucherCode == voucherCode, cancellationToken);
+        if (voucher is null)
+        {
+            var now = _clock.UtcNow;
+            voucher = new Voucher
+            {
+                VoucherId = NewId(DomainConstants.EntityIdPrefix.Voucher),
+                VoucherCode = voucherCode,
+                Title = "VOUCHER_REFUND_20_PERCENT_RESCHEDULE",
+                Description = "Voucher bồi thường giảm 20% giá vé phim khi khách đồng ý đổi suất chiếu.",
+                DiscountType = DomainConstants.DiscountType.Percent,
+                DiscountValue = 20m,
+                UsageLimit = 1,
+                PerCustomerLimit = 1,
+                UsedCount = 0,
+                StartDate = now,
+                EndDate = now.AddMonths(1),
+                VoucherStatus = DomainConstants.VoucherStatus.Active
+            };
+            _dbContext.Vouchers.Add(voucher);
+        }
+
+        var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
+            item => item.CustomerProfileId == booking.CustomerProfileId
+                && item.VoucherId == voucher.VoucherId,
+            cancellationToken);
+        if (!alreadyAssigned)
+        {
+            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+            {
+                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                CustomerProfileId = booking.CustomerProfileId,
+                VoucherId = voucher.VoucherId,
+                ClaimedAt = _clock.UtcNow,
+                IsUsed = false
+            });
+        }
+    }
+
+    private async Task IssueRescheduleRejectionVoucherAsync(
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return;
+        }
+
+        var voucherCode = $"VOUCHER_REFUND_100PCT_{booking.BookingId}".ToUpperInvariant();
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(item => item.VoucherCode == voucherCode, cancellationToken);
+        if (voucher is null)
+        {
+            var now = _clock.UtcNow;
+            voucher = new Voucher
+            {
+                VoucherId = NewId(DomainConstants.EntityIdPrefix.Voucher),
+                VoucherCode = voucherCode,
+                Title = "VOUCHER_REFUND_100_PERCENT_RESCHEDULE_CANCEL",
+                Description = "Voucher bồi thường 100% khi khách từ chối đổi suất chiếu.",
+                DiscountType = DomainConstants.DiscountType.Percent,
+                DiscountValue = 100m,
+                UsageLimit = 1,
+                PerCustomerLimit = 1,
+                UsedCount = 0,
+                StartDate = now,
+                EndDate = now.AddDays(180),
+                VoucherStatus = DomainConstants.VoucherStatus.Active
+            };
+            _dbContext.Vouchers.Add(voucher);
+        }
+
+        var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
+            item => item.CustomerProfileId == booking.CustomerProfileId
+                && item.VoucherId == voucher.VoucherId,
+            cancellationToken);
+        if (!alreadyAssigned)
+        {
+            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+            {
+                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                CustomerProfileId = booking.CustomerProfileId,
+                VoucherId = voucher.VoucherId,
+                ClaimedAt = _clock.UtcNow,
+                IsUsed = false
+            });
         }
     }
 
@@ -980,7 +1168,7 @@ public sealed class BookingService : IBookingService
         return $"seat-lock:{showtimeId}:{seatId}";
     }
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 
     private static string GenerateTicketQrCode(string bookingId, string bookingSeatId) =>
         string.Join(

@@ -295,6 +295,14 @@ public class PaymentService : IPaymentService
             await using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
             try
             {
+                // Reload payment status from DB inside transaction to prevent race conditions from duplicate concurrent webhooks
+                await _db.Entry(payment).ReloadAsync(cancellationToken);
+                if (string.Equals(payment.PaymentStatus, DomainConstants.PaymentStatus.Success, StringComparison.OrdinalIgnoreCase))
+                {
+                    await tx.RollbackAsync(cancellationToken);
+                    return;
+                }
+
                 var now = _clock.UtcNow;
                 // Cập nhật trạng thái thanh toán thành "Thành công" (Success)
                 payment.PaymentStatus = DomainConstants.PaymentStatus.Success;

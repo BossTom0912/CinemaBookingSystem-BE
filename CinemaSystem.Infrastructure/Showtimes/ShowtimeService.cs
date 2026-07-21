@@ -21,15 +21,17 @@ public sealed class ShowtimeService : IShowtimeService
     private static readonly HashSet<string> ValidShowtimeStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
         // Trạng thái mở bán
-        DomainConstants.EntityStatus.Open,
+        DomainConstants.ShowtimeStatus.Open,
         // Trạng thái đóng không bán vé nữa
-        DomainConstants.EntityStatus.Closed,
+        DomainConstants.ShowtimeStatus.Closed,
         // Trạng thái đã hủy
-        DomainConstants.EntityStatus.Cancelled,
+        DomainConstants.ShowtimeStatus.Cancelled,
         // Trạng thái đã hoàn thành (chiếu xong)
-        DomainConstants.EntityStatus.Completed,
+        DomainConstants.ShowtimeStatus.Completed,
+        // Trạng thái tạm hoãn / tạm ngưng
+        DomainConstants.ShowtimeStatus.Suspended,
         // Trạng thái đang xử lý không ổn định (ví dụ đang đổi rạp/giờ)
-        DomainConstants.EntityStatus.ProcessingUnstable
+        DomainConstants.ShowtimeStatus.ProcessingUnstable
     };
 
     // Khai báo biến DbContext để tương tác với cơ sở dữ liệu
@@ -48,10 +50,6 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
     // Khai báo biến dịch vụ AI viết thư xin lỗi
     private readonly IAiEmailService _aiEmailService;
-    // Legacy DELETE must delegate cancellation with bookings to the canonical
-    // compensation workflow instead of creating the old refund flow.
-    private readonly IShowtimeCancellationService? _showtimeCancellationService;
-
     public ShowtimeService(
         CinemaDbContext dbContext,
         IClock clock,
@@ -60,8 +58,7 @@ public sealed class ShowtimeService : IShowtimeService
         IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings>? emailTemplatesOptions = null,
         IBackgroundJobClient? backgroundJobClient = null,
         IHttpContextAccessor? httpContextAccessor = null,
-        IAiEmailService? aiEmailService = null,
-        IShowtimeCancellationService? showtimeCancellationService = null)
+        IAiEmailService? aiEmailService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
@@ -71,18 +68,16 @@ public sealed class ShowtimeService : IShowtimeService
         _backgroundJobClient = backgroundJobClient!;
         _httpContextAccessor = httpContextAccessor!;
         _aiEmailService = aiEmailService!;
-        _showtimeCancellationService = showtimeCancellationService;
     }
 
     // Phương thức lấy danh sách tất cả các suất chiếu
     public async Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesAsync(
         CancellationToken cancellationToken)
     {
-        // Truy vấn bảng Showtimes
+        var nowThreshold = DateTime.UtcNow.AddDays(-1);
         var showtimes = await _dbContext.Showtimes
-            // Không tracking để tăng hiệu suất do chỉ đọc dữ liệu
             .AsNoTracking()
-            // Sắp xếp tăng dần theo thời gian bắt đầu
+            .Where(item => item.EndTime >= nowThreshold)
             .OrderBy(item => item.StartTime)
             // Ánh xạ sang đối tượng ShowtimeResponse (DTO trả về)
             .Select(item => new ShowtimeResponse
@@ -110,7 +105,8 @@ public sealed class ShowtimeService : IShowtimeService
                 // Gán trạng thái suất chiếu
                 Status = item.Status,
                 // Gán số lượng ghế của suất chiếu (bằng tổng số ghế trong collection)
-                ShowtimeSeatCount = item.ShowtimeSeats.Count
+                ShowtimeSeatCount = item.ShowtimeSeats.Count,
+                HasBookings = item.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
             })
             // Chuyển kết quả truy vấn thành một List bất đồng bộ
             .ToListAsync(cancellationToken);
@@ -149,7 +145,8 @@ public sealed class ShowtimeService : IShowtimeService
                 EndTime = item.EndTime,
                 BasePrice = item.BasePrice,
                 Status = item.Status,
-                ShowtimeSeatCount = item.ShowtimeSeats.Count
+                ShowtimeSeatCount = item.ShowtimeSeats.Count,
+                HasBookings = item.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
             })
             .ToListAsync(cancellationToken);
 
@@ -195,7 +192,8 @@ public sealed class ShowtimeService : IShowtimeService
                 // Gán trạng thái suất chiếu
                 Status = item.Status,
                 // Đếm số ghế trong suất chiếu
-                ShowtimeSeatCount = item.ShowtimeSeats.Count
+                ShowtimeSeatCount = item.ShowtimeSeats.Count,
+                HasBookings = item.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || item.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
             })
             // Lấy ra phần tử đầu tiên thỏa mãn hoặc trả về null nếu không có
             .FirstOrDefaultAsync(cancellationToken);
@@ -376,179 +374,172 @@ public sealed class ShowtimeService : IShowtimeService
         // Đánh dấu nếu có sự thay đổi thông tin cốt lõi (phòng chiếu hoặc giờ chiếu)
         var coreInfoChanged = roomChanged || timeChanged;
 
-        // Nếu có thay đổi cốt lõi VÀ suất chiếu này đã có vé được thanh toán thành công
-        if (coreInfoChanged && showtime.Bookings.Any(b => b.BookingStatus == DomainConstants.EntityStatus.Paid))
-        {
-            var strategy = _dbContext.Database.CreateExecutionStrategy();
-            return await strategy.ExecuteAsync(async () =>
-            {
-                using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-                try
-                {
-                    // Chuyển trạng thái của suất chiếu thành "Đang xử lý không ổn định" do ảnh hưởng tới khách đã mua vé
-                    showtime.Status = DomainConstants.EntityStatus.ProcessingUnstable;
-                    
-                    // Lọc ra các đơn đặt vé đã được thanh toán của suất chiếu này
-                    var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
-                    
-                    // Duyệt qua từng đơn đặt vé
-                    foreach (var booking in paidBookings)
-                    {
-                        // Chuyển trạng thái đơn đặt vé thành "Đang xử lý không ổn định"
-                        booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
-                        
-                        // Khởi tạo list để ghi lại chi tiết các thay đổi
-                        var updateDetails = new List<string>();
-                        // Nếu đổi phòng, ghi vào list
-                        if (roomChanged) updateDetails.Add($"Room changed to {request.RoomId}");
-                        // Nếu đổi giờ, ghi vào list
-                        if (timeChanged) updateDetails.Add($"Start time changed to {normalizedStartTime:yyyy-MM-dd HH:mm}");
-                        // Kết hợp các thay đổi thành một chuỗi lý do
-                        var updateReason = string.Join(" and ", updateDetails);
-
-                        // Lấy email khách hàng (ưu tiên email tài khoản, sau đó tới email khách vãng lai)
-                        var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
-                        
-                        // Nếu có email hợp lệ
-                        if (!string.IsNullOrEmpty(customerEmail))
-                        {
-                            // Tính chênh lệch thời gian giữa giờ chiếu cũ và mới (tính bằng phút)
-                            var timeDiff = Math.Abs((normalizedStartTime - showtime.StartTime).TotalMinutes);
-                            
-                            if (timeChanged
-                                && timeDiff >= _settings.ShowtimeMaterialChangeThresholdMinutes)
-                            {
-                                // Lấy secret key từ cấu hình bảo mật
-                                var secret = _securitySettings.ConfirmationTokenSecret;
-                                
-                                // Sử dụng HMACSHA256 để băm ID của booking tạo mã token
-                                using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
-                                var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
-                                
-                                // Chuyển mã hash sang dạng chuỗi Base64
-                                var token = Convert.ToBase64String(hash);
-                                // Mã hóa token để an toàn khi truyền qua URL
-                                var encodedToken = System.Uri.EscapeDataString(token);
-                                
-                                // Lấy tiêu đề email cho sự kiện đổi giờ chiếu
-                                string subject = _emailTemplates.ShowtimeTimeChangeSubject;
-                                var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
-                                var newTimeStr = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-                                var bookingId = booking.BookingId;
-                                
-                                // Đẩy job gửi email AI song ngữ kèm các nút bấm chấp nhận/hoàn tiền qua Hangfire
-                                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                                    ai.SendAiTimeChangeEmailAsync(
-                                        customerEmail, 
-                                        subject, 
-                                        movieTitle,
-                                        newTimeStr, 
-                                        bookingId, 
-                                        encodedToken, 
-                                        CancellationToken.None));
-                            }
-                            else
-                            {
-                                // Nếu thay đổi dưới 15 phút hoặc chỉ đổi phòng thì gửi email thông báo nhẹ nhàng qua dịch vụ AI
-                                string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
-                                var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
-                                var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
-                                
-                                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                                    ai.SendAiApologyEmailAsync(
-                                        customerEmail, 
-                                        subject, 
-                                        "Điều chỉnh thông tin suất chiếu", 
-                                        $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice} (Chi tiết thay đổi: {updateReason}).", 
-                                        CancellationToken.None));
-                            }
-                        }
-                    }
-                    
-                    // MediatR is not registered, so Hangfire cannot resolve IMediator, causing an abstract class instantiation error
-                    // _backgroundJobClient.Enqueue<IMediator>(m => m.Publish(new ShowtimeUnstableEvent { ShowtimeId = showtime.ShowtimeId, Reason = "Core info updated after tickets sold" }, CancellationToken.None));
-
-                    // Lưu tất cả các thay đổi trạng thái vào Database
-                    await _dbContext.SaveChangesAsync(cancellationToken);
-                    // Xác nhận (commit) Transaction thành công
-                    await transaction.CommitAsync(cancellationToken);
-                    
-                    // Tải lại dữ liệu suất chiếu từ DB (không tracking) để trả về API
-                    var unstable = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
-                    // Trả về báo thành công, nhưng trạng thái là cần xử lý thủ công (unstable)
-                    return ServiceResult<ShowtimeResponse>.Ok(ToResponse(unstable!), "Showtime unstable. Manual processing required.", 200);
-                }
-                catch (Exception)
-                {
-                    // Nếu có bất kì lỗi nào, hoàn tác (Rollback) Transaction
-                    await transaction.RollbackAsync(cancellationToken);
-                    // Bắn lại lỗi (Throw exception)
-                    throw;
-                }
-            });
-        }
-
-        // Nếu không có vé nào bị ảnh hưởng (hoặc không thay đổi thông tin cốt lõi)
-        // Gọi hàm validate để kiểm tra lại phim, phòng và đụng độ khung giờ
+        // 1. Gọi hàm validate để kiểm tra lại phim, phòng và đụng độ khung giờ
         var validation = await ValidateMovieRoomAndOverlapAsync(
             request.MovieId,
             request.RoomId,
             request.StartTime,
-            // Truyền ID của chính suất chiếu này vào để bỏ qua check trùng với chính nó
             showtime.ShowtimeId,
             showtime.StartTime,
             cancellationToken);
             
-        // Nếu validate không hợp lệ
         if (!validation.Success)
         {
-            // Trả về lỗi
             return ServiceResult<ShowtimeResponse>.Fail(
                 validation.StatusCode,
                 validation.Message,
                 validation.ErrorCode!);
         }
 
-        // Cập nhật ID phim
-        showtime.MovieId = request.MovieId;
-        // Cập nhật ID phòng chiếu
-        showtime.RoomId = request.RoomId;
-        // Cập nhật thời gian bắt đầu (chuẩn UTC)
-        showtime.StartTime = normalizedStartTime;
-        // Cập nhật thời gian kết thúc (lấy từ kết quả validate)
-        showtime.EndTime = validation.EndTime;
-        // Cập nhật giá vé cơ sở
-        showtime.BasePrice = request.BasePrice;
-        // Cập nhật trạng thái
-        showtime.Status = status;
-
-        // Nếu có sự thay đổi về phòng chiếu (phòng chiếu mới so với phòng chiếu cũ)
+        // 2. Nếu có sự thay đổi về phòng chiếu (phòng chiếu mới so với phòng chiếu cũ)
         if (roomChanged)
         {
-            // Truy vấn lấy danh sách ghế đang hoạt động của phòng mới
+            var hasBookings = await _dbContext.BookingSeats
+                .AnyAsync(bs => bs.ShowtimeSeat.ShowtimeId == showtime.ShowtimeId, cancellationToken);
+
+            if (hasBookings)
+            {
+                return ServiceResult<ShowtimeResponse>.Fail(
+                    400,
+                    "Không thể thay đổi phòng chiếu của suất chiếu này do đã có ghế được đặt. Vui lòng sử dụng tính năng Đổi phòng chuyên dụng (ChangeRoom) hoặc Hủy suất chiếu.",
+                    "SHOWTIME_HAS_BOOKINGS");
+            }
+
             var activeSeats2 = await _dbContext.Seats
                 .Where(item => item.RoomId == request.RoomId && item.IsActive)
                 .ToListAsync(cancellationToken);
                 
-            // Nếu phòng mới không có ghế hoạt động
             if (activeSeats2.Count == 0)
             {
-                // Trả về lỗi 400
                 return ServiceResult<ShowtimeResponse>.Fail(400, "Room has no active seats.", "ROOM_HAS_NO_SEATS");
             }
 
-            // Xóa bỏ tất cả các ghế đã tạo cũ của suất chiếu này (do đổi phòng)
             _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats);
-            // Thêm lại tập hợp ghế mới ứng với phòng mới
             await _dbContext.ShowtimeSeats.AddRangeAsync(activeSeats2.Select(seat => CreateShowtimeSeat(showtime.ShowtimeId, seat.SeatId)), cancellationToken);
         }
 
-        // Lưu thông tin được cập nhật xuống cơ sở dữ liệu
+        var originalStartTime = showtime.StartTime;
+        var oldStartTimeStr = originalStartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        var oldRoomName = showtime.Room?.RoomName ?? showtime.RoomId;
+        
+        string newRoomName = request.RoomId;
+        if (roomChanged)
+        {
+            var newRoomObj = await _dbContext.Rooms.AsNoTracking().FirstOrDefaultAsync(r => r.RoomId == request.RoomId, cancellationToken);
+            if (newRoomObj != null)
+            {
+                newRoomName = newRoomObj.RoomName;
+            }
+        }
+
+        // 3. Luôn luôn cập nhật thông tin Suất chiếu (Giờ chiếu mới, Phòng chiếu, Giá vé)
+        showtime.MovieId = request.MovieId;
+        showtime.RoomId = request.RoomId;
+        showtime.StartTime = normalizedStartTime;
+        showtime.EndTime = validation.EndTime;
+        showtime.BasePrice = request.BasePrice;
+        showtime.Status = DomainConstants.EntityStatus.Open;
+
+        // 4. Nếu có thay đổi giờ chiếu VÀ suất chiếu này đã có vé được thanh toán -> Cập nhật trạng thái đơn vé và gửi email đền bù
+        if (coreInfoChanged && showtime.Bookings.Any(b => b.BookingStatus == DomainConstants.EntityStatus.Paid))
+        {
+            var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
+            
+            foreach (var booking in paidBookings)
+            {
+                booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
+                
+                var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                if (!string.IsNullOrEmpty(customerEmail))
+                {
+                    var timeDiff = Math.Abs((normalizedStartTime - originalStartTime).TotalMinutes);
+                    
+                    if (timeChanged && timeDiff >= _settings.ShowtimeMaterialChangeThresholdMinutes)
+                    {
+                        var secret = _securitySettings.ConfirmationTokenSecret;
+                        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                        var token = Convert.ToBase64String(hash);
+                        var encodedToken = System.Uri.EscapeDataString(token);
+                        
+                        string subject = _emailTemplates.ShowtimeTimeChangeSubject;
+                        var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                        var newTimeStr = normalizedStartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                        var cutoffTimeStr = normalizedStartTime.AddHours(-2).ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                        var bookingId = booking.BookingId;
+                        
+                        _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                            ai.SendAiTimeChangeEmailAsync(
+                                customerEmail, 
+                                subject, 
+                                movieTitle,
+                                oldStartTimeStr,
+                                newTimeStr,
+                                cutoffTimeStr,
+                                bookingId, 
+                                encodedToken, 
+                                CancellationToken.None,
+                                request.CompensationVoucherCode,
+                                request.CompensationNote,
+                                request.TargetSeatType));
+                    }
+                    else if (roomChanged && !timeChanged)
+                    {
+                        string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
+                        var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                        var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+                        _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                            ai.SendAiRoomChangeEmailAsync(
+                                customerEmail, 
+                                subject, 
+                                movieTitle,
+                                oldRoomName,
+                                newRoomName,
+                                timeStr,
+                                booking.BookingId, 
+                                CancellationToken.None,
+                                request.CompensationVoucherCode,
+                                request.CompensationNote,
+                                request.TargetSeatType));
+                    }
+                    else
+                    {
+                        string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
+                        var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
+                        var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                        
+                        string updateCompInfo = "";
+                        if (!string.IsNullOrWhiteSpace(request.CompensationVoucherCode))
+                        {
+                            updateCompInfo += $" Mã Voucher đền bù dành riêng cho bạn: [{request.CompensationVoucherCode.Trim()}].";
+                        }
+                        if (!string.IsNullOrWhiteSpace(request.CompensationNote))
+                        {
+                            updateCompInfo += $" Quyền lợi đền bù: {request.CompensationNote.Trim()}.";
+                        }
+                        if (!string.IsNullOrWhiteSpace(request.TargetSeatType))
+                        {
+                            updateCompInfo += $" Đặc biệt: Đã ưu tiên nâng hạng ghế của bạn lên loại [{request.TargetSeatType.Trim()}] miễn phí!";
+                        }
+
+                        _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                            ai.SendAiApologyEmailAsync(
+                                customerEmail, 
+                                subject, 
+                                "Điều chỉnh thông tin suất chiếu", 
+                                $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice}.{updateCompInfo}", 
+                                CancellationToken.None));
+                    }
+                }
+            }
+        }
+
+        // 5. Lưu toàn bộ thay đổi xuống Database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         // Tải lại suất chiếu để lấy đủ thông tin phục vụ Response
         var updated = await LoadShowtimeAsync(showtime.ShowtimeId, tracking: false, cancellationToken);
-        // Trả về thành công
         return ServiceResult<ShowtimeResponse>.Ok(ToResponse(updated!), "Showtime updated successfully.", 200);
     }
 
@@ -558,215 +549,212 @@ public sealed class ShowtimeService : IShowtimeService
         ChangeRoomRequest request,
         CancellationToken cancellationToken)
     {
-        // Tải suất chiếu lên bao gồm các ghế của nó và đơn đặt vé
+        // Tải suất chiếu lên bao gồm phòng chiếu, phim, các ghế của nó và đơn đặt vé
         var showtime = await _dbContext.Showtimes
-            // Bao gồm danh sách ghế của suất chiếu (ShowtimeSeats)
+            .Include(s => s.Room)
+            .Include(s => s.Movie)
             .Include(s => s.ShowtimeSeats)
-                // Từ ShowtimeSeat lấy thông tin Seat thật (ở bảng Seats)
                 .ThenInclude(sts => sts.Seat)
-            // Bao gồm danh sách Booking của suất chiếu
             .Include(s => s.Bookings)
-            // Lấy dòng đầu tiên khớp ID suất chiếu
             .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
 
         // Nếu không tìm thấy suất chiếu
         if (showtime == null)
-            // Báo lỗi 404
             return ServiceResult<ShowtimeResponse>.Fail(404, "Showtime not found.", "NOT_FOUND");
+
+        // Lưu tên phòng cũ TRƯỚC KHI cập nhật entity sang phòng mới
+        var oldRoomName = showtime.Room?.RoomName ?? showtime.RoomId;
 
         // Lấy thông tin phòng chiếu mới bao gồm cả danh sách ghế (Seats)
         var newRoom = await _dbContext.Rooms
-            // Bao gồm danh sách ghế
             .Include(r => r.Seats)
-            // Tìm theo ID phòng chiếu mới yêu cầu
             .FirstOrDefaultAsync(r => r.RoomId == request.NewRoomId, cancellationToken);
 
-        // Nếu không tìm thấy phòng mới
         if (newRoom == null)
-            // Báo lỗi 404
             return ServiceResult<ShowtimeResponse>.Fail(404, "New room not found.", "NOT_FOUND");
+
+        var newRoomName = newRoom.RoomName;
 
         // Nếu phòng mới không ở trạng thái Active
         if (newRoom.RoomStatus != DomainConstants.EntityStatus.Active)
             // Trả lỗi 400
             return ServiceResult<ShowtimeResponse>.Fail(400, "New room is not active.", "ROOM_INACTIVE");
 
-        // Lấy danh sách các ghế kích hoạt của phòng mới
-        var activeNewSeats = newRoom.Seats.Where(s => s.IsActive).ToList();
+        // Kiểm tra xem thời gian suất chiếu trong phòng mới có bị trùng hoặc vi phạm thời gian dọn dẹp không
+        var overlapValidation = await ValidateMovieRoomAndOverlapAsync(
+            showtime.MovieId,
+            request.NewRoomId,
+            showtime.StartTime,
+            excludeShowtimeId: showtime.ShowtimeId,
+            existingStartTime: null,
+            cancellationToken);
 
-        // Lấy mapping ghế người dùng truyền vào, nếu null thì khởi tạo Dictionary rỗng
-        var seatMapping = request.SeatMapping ?? new Dictionary<string, string>();
-
-        // Duyệt qua các ghế của suất chiếu cũ (để kiểm tra xem có map được với phòng mới không)
-        foreach (var oldSts in showtime.ShowtimeSeats)
+        if (!overlapValidation.Success)
         {
-            // Chỉ xét những ghế đã được đặt chỗ hoặc thanh toán hoặc đang gắn với vé
-            if (oldSts.SeatStatus == DomainConstants.EntityStatus.Booked || oldSts.SeatStatus == DomainConstants.EntityStatus.Paid || oldSts.BookingSeat != null)
-            {
-                // Biến lưu trữ ID của ghế mới tương ứng
-                string? newSeatId = null;
-                
-                // Nếu khách hàng cung cấp mapping cho ghế này thì lấy ID mới theo mapping
-                if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId))
-                {
-                    // Gán ID theo mapping
-                    newSeatId = mappedId;
-                }
-                else // Nếu không có mapping thủ công
-                {
-                    // Tìm kiếm một ghế ở phòng mới có cùng mã ghế (SeatCode) ví dụ "A1"
-                    var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == oldSts.Seat.SeatCode);
-                    // Nếu tìm thấy
-                    if (equivalentSeat != null)
-                    {
-                        // Gán ID của ghế tương đương đó
-                        newSeatId = equivalentSeat.SeatId;
-                    }
-                }
-
-                // Nếu sau quá trình tìm kiếm mà không có ghế nào khớp cho ghế đã bán
-                if (newSeatId == null)
-                {
-                    // Trả lỗi 400 vì không thể chuyển đổi sơ đồ ghế
-                    return ServiceResult<ShowtimeResponse>.Fail(400, $"Cannot map seat {oldSts.Seat.SeatCode} to new room.", "MAPPING_FAILED");
-                }
-            }
+            return ServiceResult<ShowtimeResponse>.Fail(
+                overlapValidation.StatusCode,
+                overlapValidation.Message,
+                overlapValidation.ErrorCode!);
         }
 
-        var bookingIds = showtime.Bookings.Select(b => b.BookingId).ToList();
+        var activeNewSeats = newRoom.Seats.Where(s => s.IsActive).ToList();
+        var seatMapping = request.SeatMapping ?? new Dictionary<string, string>();
 
-        // Truy vấn tất cả BookingSeats liên quan đến những Booking của suất chiếu này kèm thông tin Booking
+        var bookingIds = showtime.Bookings.Select(b => b.BookingId).ToList();
         var bookingSeats = await _dbContext.BookingSeats
-            // Lọc những BookingSeat thuộc về các Booking của suất chiếu
             .Where(bs => bookingIds.Contains(bs.BookingId))
-            // Include để lấy thông tin Booking liên quan để chuyển trạng thái và gửi email
             .Include(bs => bs.Booking)
                 .ThenInclude(b => b.CustomerProfile)
                     .ThenInclude(cp => cp!.User)
-            // Include để lấy ShowtimeSeat hiện tại của BookingSeat
             .Include(bs => bs.ShowtimeSeat)
-                // Lấy thông tin Seat từ ShowtimeSeat
                 .ThenInclude(sts => sts.Seat)
-            // Lấy kết quả ra List
             .ToListAsync(cancellationToken);
 
-        // Khởi tạo list để tạo các bản ghi ghế cho suất chiếu ở phòng mới
-        var newShowtimeSeats = new List<ShowtimeSeat>();
-        // Lặp qua tất cả ghế active của phòng mới
-        foreach (var newSeat in activeNewSeats)
+        // Lấy danh sách các ghế đã phát sinh đơn hàng / đặt chỗ
+        var bookedShowtimeSeats = showtime.ShowtimeSeats
+            .Where(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked ||
+                          sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked ||
+                          sts.SeatStatus == "BOOKED" ||
+                          sts.SeatStatus == "Booked" ||
+                          bookingSeats.Any(bs => bs.ShowtimeSeatId == sts.ShowtimeSeatId))
+            .ToList();
+
+        // Nếu tổng số vé đã bán nhiều hơn số lượng ghế hoạt động của phòng mới
+        if (activeNewSeats.Count < bookedShowtimeSeats.Count)
         {
-            // Tạo đối tượng ShowtimeSeat và đưa vào list
-            newShowtimeSeats.Add(CreateShowtimeSeat(showtime.ShowtimeId, newSeat.SeatId));
+            return ServiceResult<ShowtimeResponse>.Fail(
+                400,
+                $"Phòng chiếu mới ({activeNewSeats.Count} ghế) không đủ sức chứa cho {bookedShowtimeSeats.Count} vé đã đặt.",
+                "ROOM_CAPACITY_EXCEEDED");
         }
-        // Thêm tất cả vào Database context
-        await _dbContext.ShowtimeSeats.AddRangeAsync(newShowtimeSeats, cancellationToken);
 
-        var affectedBookings = new System.Collections.Generic.HashSet<string>();
+        // 1. Ánh xạ thông minh đa cấp (Multi-level Fallback Seat Mapping)
+        var mappedNewSeatIds = new System.Collections.Generic.HashSet<string>();
+        var seatMapResult = new Dictionary<string, string>(); // oldSts.ShowtimeSeatId -> newSeatId
 
-        // Duyệt qua từng bản ghi ghế của đơn đặt vé
-        foreach (var bs in bookingSeats)
+        foreach (var oldSts in bookedShowtimeSeats)
         {
-            if (bs.ShowtimeSeat?.Seat == null) continue;
-
-            // Biến tạm để lưu SeatID mới
             string? newSeatId = null;
-            // Nếu có trong map truyền vào thì lấy
-            if (seatMapping.TryGetValue(bs.ShowtimeSeat.SeatId, out var mappedId))
+
+            // Cấp 1: Lấy theo mapping chỉ định thủ công từ request
+            if (seatMapping.TryGetValue(oldSts.SeatId, out var mappedId) &&
+                activeNewSeats.Any(s => s.SeatId == mappedId && !mappedNewSeatIds.Contains(s.SeatId)))
             {
                 newSeatId = mappedId;
             }
-            else // Không có trong map thì tìm tự động theo tên ghế (SeatCode)
-            {
-                var equivalentSeat = activeNewSeats.FirstOrDefault(s => s.SeatCode == bs.ShowtimeSeat.Seat.SeatCode);
-                if (equivalentSeat != null) newSeatId = equivalentSeat.SeatId;
-            }
-            
-            // Nếu tìm được ghế thay thế
-            if (newSeatId != null)
-            {
-                // Tìm kiếm ShowtimeSeat mới đã được add vào danh sách tạo ở bước trên
-                var newSts = newShowtimeSeats.FirstOrDefault(sts => sts.SeatId == newSeatId);
-                // Nếu tìm thấy
-                if (newSts != null)
-                {
-                    // Cập nhật lại liên kết cho BookingSeat trỏ tới ShowtimeSeat mới
-                    bs.ShowtimeSeatId = newSts.ShowtimeSeatId;
-                    // Đánh dấu trạng thái ghế mới là đã bán (Booked)
-                    newSts.SeatStatus = DomainConstants.EntityStatus.Booked;
 
-                    // Kiểm tra xem loại ghế ở phòng mới có trùng khớp với phòng cũ không
-                    var newSeat = activeNewSeats.FirstOrDefault(s => s.SeatId == newSeatId);
-                    if (newSeat != null && newSeat.SeatTypeId != bs.ShowtimeSeat.Seat.SeatTypeId)
-                    {
-                        // Đánh dấu Booking bị ảnh hưởng (hạ cấp hoặc đổi loại ghế)
-                        bs.Booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
-                        affectedBookings.Add(bs.BookingId);
-                    }
+            // Cấp 2: Tìm ghế tương đương cùng SeatCode (ví dụ "A1" == "A1", không phân biệt hoa thường)
+            if (newSeatId == null && oldSts.Seat != null && !string.IsNullOrWhiteSpace(oldSts.Seat.SeatCode))
+            {
+                var oldCode = oldSts.Seat.SeatCode.Trim();
+                var matchCode = activeNewSeats.FirstOrDefault(s =>
+                    !mappedNewSeatIds.Contains(s.SeatId) &&
+                    string.Equals(s.SeatCode.Trim(), oldCode, StringComparison.OrdinalIgnoreCase));
+                if (matchCode != null)
+                {
+                    newSeatId = matchCode.SeatId;
                 }
+            }
+
+            // Cấp 3: Tìm ghế trống cùng loại (VIP/Thường/Đôi) trong phòng mới
+            if (newSeatId == null && oldSts.Seat != null)
+            {
+                var matchType = activeNewSeats.FirstOrDefault(s =>
+                    !mappedNewSeatIds.Contains(s.SeatId) &&
+                    s.SeatTypeId == oldSts.Seat.SeatTypeId);
+                if (matchType != null)
+                {
+                    newSeatId = matchType.SeatId;
+                }
+            }
+
+            // Cấp 4: Tự động gán cho bất kỳ ghế trống hoạt động nào còn lại của phòng mới
+            if (newSeatId == null)
+            {
+                var matchAny = activeNewSeats.FirstOrDefault(s => !mappedNewSeatIds.Contains(s.SeatId));
+                if (matchAny != null)
+                {
+                    newSeatId = matchAny.SeatId;
+                }
+            }
+
+            if (newSeatId == null)
+            {
+                return ServiceResult<ShowtimeResponse>.Fail(
+                    400,
+                    $"Không thể ánh xạ ghế {oldSts.Seat?.SeatCode ?? oldSts.SeatId} sang phòng chiếu mới.",
+                    "MAPPING_FAILED");
+            }
+
+            mappedNewSeatIds.Add(newSeatId);
+            seatMapResult[oldSts.ShowtimeSeatId] = newSeatId;
+        }
+
+        var affectedBookings = new System.Collections.Generic.HashSet<string>();
+
+        // 2. Cập nhật trực tiếp (In-place Update) SeatId của các ghế đã được bán
+        var oldShowtimeSeatsList = showtime.ShowtimeSeats.ToList();
+        foreach (var oldSts in oldShowtimeSeatsList)
+        {
+            if (seatMapResult.TryGetValue(oldSts.ShowtimeSeatId, out var newSeatId))
+            {
+                var newSeatObj = activeNewSeats.FirstOrDefault(s => s.SeatId == newSeatId);
+                if (newSeatObj != null)
+                {
+                    // Đổi SeatId của ghế sang SeatId phòng chiếu mới (Giữ nguyên PK ShowtimeSeatId -> Không lỗi FK!)
+                    oldSts.SeatId = newSeatObj.SeatId;
+                }
+            }
+            else
+            {
+                // Ghế chưa bán: Xóa an toàn không vi phạm FK
+                _dbContext.ShowtimeSeats.Remove(oldSts);
             }
         }
 
-        // Bắt đầu xóa toàn bộ bản ghi ghế của suất chiếu (thuộc phòng cũ)
-        _dbContext.ShowtimeSeats.RemoveRange(showtime.ShowtimeSeats.ToList());
+        // 3. Tạo bản ghi ShowtimeSeat mới cho các ghế chưa được map trong phòng mới
+        foreach (var newSeat in activeNewSeats)
+        {
+            if (!mappedNewSeatIds.Contains(newSeat.SeatId))
+            {
+                var newSts = CreateShowtimeSeat(showtime.ShowtimeId, newSeat.SeatId);
+                _dbContext.ShowtimeSeats.Add(newSts);
+            }
+        }
 
-        // Cập nhật ID phòng mới cho suất chiếu
+        // 4. Cập nhật phòng chiếu mới và giữ trạng thái OPEN cho suất chiếu để khách hàng mới xem được
         showtime.RoomId = request.NewRoomId;
-        // Đặt trạng thái của suất chiếu về Mở bán (Open) hoặc ProcessingUnstable nếu có ghế bị xung đột loại
-        showtime.Status = affectedBookings.Any() 
-            ? DomainConstants.EntityStatus.ProcessingUnstable 
-            : DomainConstants.EntityStatus.Open;
+        showtime.Status = DomainConstants.EntityStatus.Open;
 
         // Lưu toàn bộ thay đổi xuống DB
         await _dbContext.SaveChangesAsync(cancellationToken);
-        
-        // Gửi email thông báo sơ đồ ghế mới cho các khách hàng không bị ảnh hưởng (giữ nguyên loại ghế)
+
+        // Gửi email thông báo đổi phòng chiếu & quà đền bù (voucher / nâng hạng ghế) trực tiếp cho khách hàng
         var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
         
-        // Lặp qua từng Booking ổn định
         foreach(var booking in paidBookings)
         {
-            // Lấy Email khách (ưu tiên email account)
             var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
             
-            // Nếu có email
             if (!string.IsNullOrEmpty(email))
             {
-                // Lấy tiêu đề từ cấu hình template cho việc đổi phòng
-                string subject = _emailTemplates.ShowtimeRoomChangeSubject;
+                string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                 var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
-                var roomName = newRoom.RoomName;
+                var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
                 
-                // Đẩy job nền gửi email qua dịch vụ AI
                 _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                    ai.SendAiApologyEmailAsync(
+                    ai.SendAiRoomChangeEmailAsync(
                         email, 
                         subject, 
-                        "Thay đổi phòng chiếu của suất chiếu", 
-                        $"Suất chiếu phim {movieTitle} của bạn đã được chuyển sang phòng chiếu mới: {roomName}. Vui lòng kiểm tra lại vé để xem vị trí ghế mới của bạn.", 
-                        CancellationToken.None));
-            }
-        }
-
-        // Gửi email AI thông báo và xin lỗi song ngữ cho các khách hàng có vé bị ảnh hưởng (ProcessingUnstable)
-        var unstableBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.ProcessingUnstable).ToList();
-        foreach (var booking in unstableBookings)
-        {
-            var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
-            if (!string.IsNullOrEmpty(email))
-            {
-                var secret = _securitySettings.ConfirmationTokenSecret;
-                using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
-                var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
-                var token = Convert.ToBase64String(hash);
-                var encodedToken = System.Uri.EscapeDataString(token);
-
-                string subject = "Thông báo đổi phòng chiếu và loại ghế / Showtime Room and Seat Type Change Notice";
-                string reason = "Thay đổi phòng chiếu dẫn đến thay đổi loại ghế của bạn (Hạ cấp/Thay đổi loại ghế)";
-                string details = $"Suất chiếu của phim {showtime.Movie.Title} đã chuyển sang phòng mới: {newRoom.RoomName}. Do đó ghế của bạn bị thay đổi loại ghế. Vui lòng bấm vào Link xác nhận để chấp nhận thay đổi hoặc yêu cầu hủy hoàn tiền.";
-
-                // Đẩy job gửi Email AI ngầm qua Hangfire
-                _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                    ai.SendAiApologyEmailAsync(email, subject, reason, details, CancellationToken.None));
+                        movieTitle, 
+                        oldRoomName, 
+                        newRoomName, 
+                        timeStr, 
+                        booking.BookingId, 
+                        CancellationToken.None,
+                        request.CompensationVoucherCode,
+                        request.CompensationNote,
+                        request.TargetSeatType));
             }
         }
 
@@ -820,49 +808,11 @@ public sealed class ShowtimeService : IShowtimeService
         // Nếu suất chiếu này đã có Booking
         if (existing.Bookings.Any())
         {
-            if (_showtimeCancellationService is null)
-            {
-                return ServiceResult<object>.Fail(
-                    500,
-                    "Showtime cancellation service is not configured.",
-                    "SHOWTIME_CANCELLATION_SERVICE_UNAVAILABLE");
-            }
-
-            var user = _httpContextAccessor.HttpContext?.User;
-            var userId = user?.FindFirst(AuthConstants.Claims.UserId)?.Value
-                ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                ?? user?.FindFirst("sub")?.Value;
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return ServiceResult<object>.Fail(
-                    401,
-                    "Unauthorized.",
-                    "UNAUTHORIZED");
-            }
-
-            // Preserve the legacy DELETE endpoint for the existing Admin UI,
-            // but route every showtime with booking history to the one
-            // authoritative cancellation use case.
-            var cancellationResult = await _showtimeCancellationService
-                .CancelShowtimeAsync(
-                    showtimeId,
-                    userId,
-                    new CancelShowtimeRequest
-                    {
-                        Reason = "Cancelled through the legacy admin delete action."
-                    },
-                    cancellationToken);
-
-            return cancellationResult.Success
-                ? ServiceResult<object>.Ok(
-                    cancellationResult.Data,
-                    cancellationResult.Message,
-                    cancellationResult.StatusCode)
-                : ServiceResult<object>.Fail(
-                    cancellationResult.StatusCode,
-                    cancellationResult.Message,
-                    cancellationResult.ErrorCode ?? "SHOWTIME_CANCELLATION_FAILED",
-                    cancellationResult.Errors);
+            // Không thể xóa cứng ngay: hủy suất chiếu và khởi tạo hoàn tiền.
+            await CancelShowtimeAndTriggerRefundsAsync(existing, cancellationToken);
+            return ServiceResult<object>.Ok(
+                new { showtimeId, deleted = true },
+                "Showtime softly deleted and refunds initiated.");
         }
 
         // Kiểm tra xem lịch sử Hủy của suất chiếu này đã có phát sinh bản ghi Refunds nào chưa
@@ -918,14 +868,8 @@ public sealed class ShowtimeService : IShowtimeService
         // Định nghĩa lý do Hủy mặc định
         var cancelReason = DomainConstants.ShowtimeCancellationReason.AdministrativeUpdate;
         
-        // Lấy UserId của người đang thao tác từ JWT Token.
-        var userId = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            throw new InvalidOperationException(
-                "An authenticated user is required to cancel a showtime.");
-        }
+        // Lấy UserId của người đang thao tác từ JWT Token (fallback về admin hệ thống nếu gọi từ background job/service)
+        var userId = _httpContextAccessor?.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "USR_SYSTEM_ADMIN";
 
         // Lấy thông tin bản ghi Hủy hiện tại (nếu có)
         var cancellation = showtime.ShowtimeCancellation;
@@ -1166,27 +1110,30 @@ public sealed class ShowtimeService : IShowtimeService
         // Tính toán giờ kết thúc = giờ bắt đầu + (thời lượng phim + thời gian dọn rạp quy định)
         var endTime = normalizedStartTime.AddMinutes(movie.DurationMinutes + _settings.ScreeningRoomCleaningMinutes);
         
-        // Truy vấn DB kiểm tra xem có bất kì suất chiếu nào bị đè giờ lên suất chiếu chuẩn bị tạo này không
-        var hasOverlap = await _dbContext.Showtimes.AnyAsync(
-            // Cùng phòng chiếu
-            item => item.RoomId == roomId
-                // Khác ID (để loại trừ trường hợp tự đụng chính nó lúc Update)
-                && item.ShowtimeId != excludeShowtimeId
-                // Bỏ qua các suất chiếu đã Hủy
-                && item.Status != DomainConstants.EntityStatus.Cancelled
-                // Điều kiện đụng độ: Giờ bắt đầu mới phải nhỏ hơn giờ kết thúc cũ
-                && normalizedStartTime < item.EndTime // strict inequality allows touching ends
-                // Và Giờ kết thúc mới phải lớn hơn giờ bắt đầu cũ
-                && endTime > item.StartTime,
-            cancellationToken);
+        // Truy vấn DB kiểm tra xem có suất chiếu nào bị đè giờ không và lấy thông tin suất chiếu xung đột đầu tiên
+        var conflictingShowtime = await _dbContext.Showtimes
+            .Include(item => item.Movie)
+            .FirstOrDefaultAsync(
+                item => item.RoomId == roomId
+                    && item.ShowtimeId != excludeShowtimeId
+                    && item.Status != DomainConstants.EntityStatus.Cancelled
+                    && normalizedStartTime < item.EndTime // strict inequality allows touching ends
+                    && endTime > item.StartTime,
+                cancellationToken);
 
         // Nếu có trùng thời gian
-        if (hasOverlap)
+        if (conflictingShowtime is not null)
         {
-            // Trả lỗi 409 Xung đột
+            var conflictMovieTitle = conflictingShowtime.Movie?.Title ?? "khác";
+            var conflictStartStr = conflictingShowtime.StartTime.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            var conflictEndStr = conflictingShowtime.EndTime.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+            var detailedMessage = $"Suất chiếu bị trùng lịch với phim \"{conflictMovieTitle}\" ({conflictStartStr} - {conflictEndStr}) tại phòng này (bao gồm 15 phút dọn rạp).";
+
+            // Trả lỗi 409 Xung đột kèm chi tiết
             return ShowtimeValidationResult.Fail(
                 409,
-                "Showtime overlaps with an existing showtime in the same room.",
+                detailedMessage,
                 "SHOWTIME_OVERLAP",
                 endTime);
         }
@@ -1214,7 +1161,8 @@ public sealed class ShowtimeService : IShowtimeService
             BasePrice = showtime.BasePrice,
             Status = showtime.Status,
             // Đếm số ghế của suất chiếu
-            ShowtimeSeatCount = showtime.ShowtimeSeats.Count
+            ShowtimeSeatCount = showtime.ShowtimeSeats.Count,
+            HasBookings = showtime.Bookings.Any(b => b.BookingStatus != DomainConstants.BookingStatus.Cancelled) || showtime.ShowtimeSeats.Any(sts => sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Booked || sts.SeatStatus == DomainConstants.ShowtimeSeatStatus.Locked || sts.SeatStatus == "BOOKED" || sts.SeatStatus == "Booked")
         };
     }
 
@@ -1242,7 +1190,7 @@ public sealed class ShowtimeService : IShowtimeService
     // Hàm private tạo ID chuẩn ngẫu nhiên (Tiền tố + Guid)
     private static string NewId(string prefix)
     {
-        return $"{prefix}_{Guid.NewGuid():N}";
+        return CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
     }
 
     // Hàm private khởi tạo Entity ghế cho một suất chiếu từ thông tin ID

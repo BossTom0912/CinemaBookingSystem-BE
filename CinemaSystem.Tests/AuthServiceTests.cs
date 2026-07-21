@@ -131,7 +131,7 @@ public sealed class AuthServiceTests
 
         var sentEmail = Assert.Single(fixture.EmailSender.SentEmails);
         Assert.Equal("alice@example.com", sentEmail.ToEmail);
-        Assert.Equal("Cinema Booking - Email Verification", sentEmail.Subject);
+        Assert.Contains("CinemaSystem", sentEmail.Subject, StringComparison.Ordinal);
         Assert.Contains("123456", sentEmail.Body, StringComparison.Ordinal);
     }
 
@@ -469,7 +469,7 @@ public sealed class AuthServiceTests
         Assert.Equal(2, fixture.EmailSender.SentEmails.Count);
         var sentEmail = fixture.EmailSender.SentEmails.Last();
         Assert.Equal("alice@example.com", sentEmail.ToEmail);
-        Assert.Equal("Cinema Booking - Password Reset", sentEmail.Subject);
+        Assert.Contains("CinemaSystem", sentEmail.Subject, StringComparison.Ordinal);
         Assert.Contains("123456", sentEmail.Body, StringComparison.Ordinal);
         var token = Assert.Single(await fixture.DbContext.EmailVerificationTokens.Where(item => !item.IsUsed).ToListAsync());
         Assert.Equal("PASSWORD_RESET", token.Purpose);

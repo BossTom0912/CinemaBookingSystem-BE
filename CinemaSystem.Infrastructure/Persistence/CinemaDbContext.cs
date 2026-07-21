@@ -67,6 +67,8 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<ManualRefundProcess> ManualRefundProcesses { get; set; }
 
+    public virtual DbSet<RefundCustomerConfirmation> RefundCustomerConfirmations { get; set; }
+
     public virtual DbSet<Payment> Payments { get; set; }
 
     public virtual DbSet<PaymentProvider> PaymentProviders { get; set; }
@@ -210,6 +212,8 @@ public partial class CinemaDbContext : DbContext
             entity.HasIndex(e => e.ShowtimeId, "IX_BOOKING_SHOWTIME_ID");
 
             entity.HasIndex(e => e.BookingStatus, "IX_BOOKING_STATUS");
+
+            entity.HasIndex(e => new { e.BookingStatus, e.ExpiredAt }, "IX_BOOKING_STATUS_EXPIRED_AT");
 
             entity.Property(e => e.BookingId)
                 .HasMaxLength(50)
@@ -1096,6 +1100,27 @@ public partial class CinemaDbContext : DbContext
             entity.HasOne(e => e.AssignedToUser).WithMany(e => e.AssignedManualRefundProcesses)
                 .HasForeignKey(e => e.AssignedToUserId)
                 .HasConstraintName("FK_MANUAL_REFUND_PROCESS_ASSIGNED_USER");
+          });
+
+        modelBuilder.Entity<RefundCustomerConfirmation>(entity =>
+        {
+            entity.HasKey(e => e.RefundCustomerConfirmationId);
+            entity.ToTable("REFUND_CUSTOMER_CONFIRMATION");
+            entity.HasIndex(e => e.ManualRefundProcessId, "UQ_REFUND_CUSTOMER_CONFIRMATION_PROCESS").IsUnique();
+            entity.HasIndex(e => e.TokenHash, "UQ_REFUND_CUSTOMER_CONFIRMATION_TOKEN").IsUnique();
+            entity.HasIndex(e => new { e.Status, e.ExpiresAt }, "IX_REFUND_CUSTOMER_CONFIRMATION_STATUS");
+            entity.Property(e => e.RefundCustomerConfirmationId).HasMaxLength(50).HasColumnName("refundCustomerConfirmationId");
+            entity.Property(e => e.ManualRefundProcessId).HasMaxLength(50).HasColumnName("manualRefundProcessId");
+            entity.Property(e => e.TokenHash).HasMaxLength(64).IsFixedLength().HasColumnName("tokenHash");
+            entity.Property(e => e.Status).HasMaxLength(30).HasColumnName("status");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expiresAt");
+            entity.Property(e => e.ConfirmedAt).HasColumnName("confirmedAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
+            entity.Property(e => e.RevokedAt).HasColumnName("revokedAt");
+            entity.HasOne(e => e.ManualRefundProcess).WithOne(e => e.CustomerConfirmation)
+                .HasForeignKey<RefundCustomerConfirmation>(e => e.ManualRefundProcessId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_REFUND_CUSTOMER_CONFIRMATION_PROCESS");
         });
 
         modelBuilder.Entity<Review>(entity =>
@@ -1470,6 +1495,10 @@ public partial class CinemaDbContext : DbContext
             entity.HasIndex(e => new { e.ShowtimeId, e.SeatStatus }, "IX_SHOWTIME_SEAT_STATUS");
 
             entity.HasIndex(e => new { e.ShowtimeId, e.SeatId }, "UQ_SHOWTIME_SEAT_SHOWTIME_SEAT").IsUnique();
+
+            entity.HasIndex(e => new { e.LockedByUserId, e.LockedUntil }, "IX_SHOWTIME_SEAT_LOCKED_USER_UNTIL");
+
+            entity.HasIndex(e => new { e.ShowtimeId, e.SeatStatus, e.LockedUntil }, "IX_SHOWTIME_SEAT_SHOWTIME_STATUS_LOCKED");
 
             entity.Property(e => e.ShowtimeSeatId)
                 .HasMaxLength(50)

@@ -450,5 +450,5 @@ public sealed class RefundClaimService : IRefundClaimService
     private static ServiceResult<RefundClaimResponse> FailClaim(int status, string message, string code)
         => ServiceResult<RefundClaimResponse>.Fail(status, message, code);
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 }

@@ -263,7 +263,7 @@ public sealed class TicketScanApiIntegrationTests
     }
 
     [Fact]
-    public async Task Scan_AfterConfiguredWindow_ReturnsConflictAndWritesFailedLog()
+    public async Task Scan_AfterShowtimeEnds_ReturnsConflictAndWritesFailedLog()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedAsync(factory);

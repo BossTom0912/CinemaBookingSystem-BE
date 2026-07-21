@@ -391,7 +391,7 @@ public sealed class MovieService : IMovieService
         }
 
         // Tạo ID mới cho bộ phim với tiền tố MOV_
-        var movieId = $"{DomainConstants.EntityIdPrefix.Movie}_{Guid.NewGuid():N}";
+        var movieId = CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Movie);
 
         // Khởi tạo biến lưu đường dẫn poster
         string? posterUrl = null;
@@ -588,7 +588,7 @@ public sealed class MovieService : IMovieService
         movie.AgeRating = request.AgeRating;
         movie.Description = request.Description;
         movie.TrailerUrl = request.TrailerUrl;
-        movie.BannerUrl = request.BannerUrl;
+        movie.BannerUrl = string.IsNullOrWhiteSpace(request.BannerUrl) || request.BannerUrl == "none" ? null : request.BannerUrl;
         movie.Highlight = request.Highlight;
         movie.Director = request.Director;
         movie.MovieStatus = request.MovieStatus;
@@ -930,7 +930,7 @@ public sealed class MovieService : IMovieService
                 }
             }
 
-            movie.BannerUrl = "none";
+            movie.BannerUrl = null;
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             return ServiceResult<object>.Ok(new object(), "Movie banner deleted successfully.");

@@ -1218,7 +1218,7 @@ public sealed class AuthService : IAuthService
             _backgroundJobClient.Enqueue<IEmailSender>(emailSender => 
                 emailSender.SendEmailAsync(
                     email,
-                    _emailTemplates.VerificationSubject,
+                    string.Format(_emailTemplates.VerificationSubject, otp),
                     body,
                     CancellationToken.None));
         }
@@ -1278,7 +1278,6 @@ public sealed class AuthService : IAuthService
 
     private static string NewId(string prefix)
     {
-        // Sinh ra ID chuỗi bao gồm Tiền tố (Prefix) nối với một đoạn mã Guid ở định dạng N (No hyphens)
-        return $"{prefix}_{Guid.NewGuid():N}";
+        return CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
     }
 }

@@ -204,6 +204,7 @@ public static class DomainConstants
         public const string AuditLog = "AUD";
         public const string RewardPointTransaction = "RPT";
         public const string ManualRefundProcess = "MRP";
+        public const string RefundCustomerConfirmation = "RCC";
         public const string CustomerRefundRequest = "CRR";
         public const string Ticket = "TCK";
         public const string CheckInLog = "CIL";
@@ -288,6 +289,14 @@ public static class DomainConstants
         public const string InProgress = "IN_PROGRESS";
         public const string Confirmed = "CONFIRMED";
         public const string Rejected = "REJECTED";
+    }
+
+    public static class RefundCustomerConfirmationStatus
+    {
+        public const string AwaitingCustomer = "AWAITING_CUSTOMER";
+        public const string ConfirmedByCustomer = "CONFIRMED_BY_CUSTOMER";
+        public const string Expired = "EXPIRED";
+        public const string Revoked = "REVOKED";
     }
 
     public static class CustomerRefundRequestStatus

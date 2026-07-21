@@ -21,4 +21,6 @@ public sealed class ManualRefundResponse
     public string? ProofUrl { get; init; }
     public DateTime RequestedAt { get; init; }
     public DateTime? ConfirmedAt { get; init; }
+    public string? CustomerConfirmationStatus { get; init; }
+    public DateTime? CustomerConfirmationExpiresAt { get; init; }
 }

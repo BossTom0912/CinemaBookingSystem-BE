@@ -148,7 +148,7 @@ public sealed class BannerService : IBannerService
             // 2. Tạo entity Banner mới
             var banner = new Banner
             {
-                BannerId = $"BN_{Guid.NewGuid():N}",
+                BannerId = CinemaSystem.Domain.Utilities.IdGenerator.NewId("BN"),
                 Title = request.Title,
                 ImageUrl = imageUrl,
                 LinkUrl = request.LinkUrl,

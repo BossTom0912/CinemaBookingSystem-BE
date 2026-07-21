@@ -310,7 +310,7 @@ public sealed class VoucherService : IVoucherService
         return ServiceResult<IReadOnlyList<VoucherResponse>>.Ok(responseList, "Active vouchers retrieved successfully.");
     }
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 
     public async Task<ServiceResult<bool>> ClaimVoucherForCustomerAsync(
         string voucherId,

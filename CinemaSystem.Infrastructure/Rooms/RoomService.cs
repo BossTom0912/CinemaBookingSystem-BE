@@ -537,7 +537,6 @@ public sealed class RoomService : IRoomService
     // Hàm tiện ích tạo ID mới với tiền tố được cung cấp
     private static string NewId(string prefix)
     {
-        // Trả về định dạng chuỗi: TiềnTố_GuidKhongDauGachNgang
-        return $"{prefix}_{Guid.NewGuid():N}";
+        return CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
     }
 }

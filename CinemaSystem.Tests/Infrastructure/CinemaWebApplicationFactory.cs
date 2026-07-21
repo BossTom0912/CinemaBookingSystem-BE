@@ -189,7 +189,6 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("RefundSettings:FrontendBaseUrl", "https://frontend.test");
         builder.UseSetting("RefundSettings:ClaimTokenMinutes", "5");
         builder.UseSetting("TicketScanSettings:OpenBeforeStartMinutes", "30");
-        builder.UseSetting("TicketScanSettings:CloseAfterEndMinutes", "0");
         builder.UseSetting("Redis:ConnectionString", string.Empty);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
@@ -210,7 +209,6 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["RefundSettings:FrontendBaseUrl"] = "https://frontend.test",
                 ["RefundSettings:ClaimTokenMinutes"] = "5",
                 ["TicketScanSettings:OpenBeforeStartMinutes"] = "30",
-                ["TicketScanSettings:CloseAfterEndMinutes"] = "0",
                 ["Redis:ConnectionString"] = string.Empty,
                 ["SecuritySettings:ConfirmationTokenSecret"] =
                     "test-confirmation-token-secret-32-characters",
@@ -428,12 +426,34 @@ public sealed class FakeAiEmailService : IAiEmailService
         string toEmail,
         string subject,
         string movieTitle,
+        string oldTime,
         string newTime,
+        string cutoffTime,
         string bookingId,
         string token,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null)
     {
-        var body = $"Movie {movieTitle}. Start time changed to {newTime}. Booking {bookingId}. Token {token}. Please wait for the cinema to handle it.";
+        var body = $"Movie {movieTitle}. Old time: {oldTime}, New time: {newTime}. Cutoff: {cutoffTime}. Booking {bookingId}. Token {token}. Voucher {compensationVoucherCode}. Seat {targetSeatType}. Note {compensationNote}.";
+        return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
+    }
+
+    public Task SendAiRoomChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string oldRoomName,
+        string newRoomName,
+        string timeStr,
+        string bookingId,
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null)
+    {
+        var body = $"Movie {movieTitle}. Time: {timeStr}, Old Room: {oldRoomName}, New Room: {newRoomName}. Booking {bookingId}. Voucher {compensationVoucherCode}. Seat {targetSeatType}. Note {compensationNote}.";
         return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 }
