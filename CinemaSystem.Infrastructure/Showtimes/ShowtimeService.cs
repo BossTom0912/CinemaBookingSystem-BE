@@ -74,11 +74,10 @@ public sealed class ShowtimeService : IShowtimeService
     public async Task<ServiceResult<IReadOnlyList<ShowtimeResponse>>> GetShowtimesAsync(
         CancellationToken cancellationToken)
     {
-        // Truy vấn bảng Showtimes
+        var nowThreshold = DateTime.UtcNow.AddDays(-1);
         var showtimes = await _dbContext.Showtimes
-            // Không tracking để tăng hiệu suất do chỉ đọc dữ liệu
             .AsNoTracking()
-            // Sắp xếp tăng dần theo thời gian bắt đầu
+            .Where(item => item.EndTime >= nowThreshold)
             .OrderBy(item => item.StartTime)
             // Ánh xạ sang đối tượng ShowtimeResponse (DTO trả về)
             .Select(item => new ShowtimeResponse
