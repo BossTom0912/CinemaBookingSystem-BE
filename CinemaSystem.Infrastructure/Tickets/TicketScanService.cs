@@ -149,15 +149,14 @@ public sealed class TicketScanService : ITicketScanService
         var strategy = _dbContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync(
-                IsolationLevel.Serializable,
-                cancellationToken);
-
             var ticket = await LoadTicketAsync(normalizedQrCode, cancellationToken);
             if (ticket is null)
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     null,
@@ -179,8 +178,11 @@ public sealed class TicketScanService : ITicketScanService
                     room.CinemaId,
                     StringComparison.OrdinalIgnoreCase))
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -197,8 +199,11 @@ public sealed class TicketScanService : ITicketScanService
                     room.RoomId,
                     StringComparison.OrdinalIgnoreCase))
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -213,8 +218,11 @@ public sealed class TicketScanService : ITicketScanService
             var ticketStateFailure = GetTicketStateFailure(ticket.TicketStatus);
             if (ticketStateFailure is not null)
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -229,8 +237,11 @@ public sealed class TicketScanService : ITicketScanService
             if (booking.BookingStatus is not BookingConstants.BookingStatus.Paid
                 and not BookingConstants.BookingStatus.Completed)
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -244,8 +255,11 @@ public sealed class TicketScanService : ITicketScanService
 
             if (!string.Equals(room.RoomStatus, BookingConstants.ResourceStatus.Active, StringComparison.OrdinalIgnoreCase))
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -259,8 +273,11 @@ public sealed class TicketScanService : ITicketScanService
 
             if (showtime.Status == BookingConstants.ShowtimeStatus.Cancelled )
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -277,8 +294,11 @@ public sealed class TicketScanService : ITicketScanService
                 .AddMinutes(-_settings.OpenBeforeStartMinutes!.Value);
             if (now < checkInOpensAt)
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -294,8 +314,11 @@ public sealed class TicketScanService : ITicketScanService
                 .AddMinutes(_settings.CloseAfterEndMinutes!.Value);
             if (now > checkInClosesAt)
             {
+                await using var failTx = await _dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
                 return await FailAndCommitAsync(
-                    transaction,
+                    failTx,
                     actorUserId,
                     staffProfileId,
                     ticket.TicketId,
@@ -306,6 +329,10 @@ public sealed class TicketScanService : ITicketScanService
                     FailureReasons.InvalidTime,
                     cancellationToken);
             }
+
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
 
             var affectedRows = await MarkTicketCheckedInAsync(
                 ticket.TicketId,
@@ -355,6 +382,7 @@ public sealed class TicketScanService : ITicketScanService
     {
         return await _dbContext.Tickets
             .AsNoTracking()
+            .AsSingleQuery()
             .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.Booking)
                     .ThenInclude(booking => booking.Showtime)
