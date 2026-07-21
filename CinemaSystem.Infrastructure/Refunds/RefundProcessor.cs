@@ -526,7 +526,7 @@ public sealed class RefundProcessor : IRefundProcessor
 
     private static string NewId(string prefix)
     {
-        return $"{prefix}_{Guid.NewGuid():N}";
+        return CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
     }
 
     private sealed record RefundSnapshot(

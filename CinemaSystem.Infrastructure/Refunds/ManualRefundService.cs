@@ -440,5 +440,5 @@ public sealed class ManualRefundService : IManualRefundService
     private static ServiceResult<RefundProcessingResponse> FailConfirm(int status, string message, string code)
         => ServiceResult<RefundProcessingResponse>.Fail(status, message, code);
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 }

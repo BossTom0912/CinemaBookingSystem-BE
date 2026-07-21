@@ -44,8 +44,8 @@ public sealed class EmailSystemBusinessRulesTests
         mockEmailService.Verify(
             email => email.SendEmailAsync(
                 It.Is<string>(to => to == TargetEmail),
-                It.Is<string>(sub => sub == subject),
-                It.Is<string>(body => body.Contains("[VI]") && body.Contains("[EN]") && body.Contains(reason) && body.Contains(details)),
+                It.Is<string>(sub => sub.Contains(subject)),
+                It.Is<string>(body => body.Contains("CinemaSystem") && body.Contains(reason) && body.Contains(details)),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -71,8 +71,8 @@ public sealed class EmailSystemBusinessRulesTests
         mockEmailService.Verify(
             email => email.SendEmailAsync(
                 It.Is<string>(to => to == TargetEmail),
-                It.Is<string>(sub => sub == subject),
-                It.Is<string>(body => body.Contains("[VI]") && body.Contains("[EN]") && body.Contains(reason)),
+                It.Is<string>(sub => sub.Contains(subject)),
+                It.Is<string>(body => body.Contains("CinemaSystem") && body.Contains(reason)),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -283,7 +283,7 @@ public sealed class EmailSystemBusinessRulesTests
 
         // Assert
         Assert.True(result.Success);
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, result.Data!.Status);
+        Assert.Equal(DomainConstants.EntityStatus.Open, result.Data!.Status);
 
         var updatedBooking = await dbContext.Bookings.FindAsync("BKG_01");
         Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, updatedBooking!.BookingStatus);

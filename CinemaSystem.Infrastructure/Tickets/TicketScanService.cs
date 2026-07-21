@@ -513,7 +513,7 @@ public sealed class TicketScanService : ITicketScanService
         };
     }
 
-    private static string NewId(string prefix) => $"{prefix}_{Guid.NewGuid():N}";
+    private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
 
     private sealed record ScanActor(
         string UserId,

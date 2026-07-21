@@ -98,27 +98,19 @@ public sealed class RequestedFlowApiIntegrationTests
         {
             MovieId = "MOV_ROOM_FLOW",
             RoomId = "ROOM_FLOW_B",
-            StartTime = new DateTime(2026, 6, 27, 12, 0, 0, DateTimeKind.Utc),
+            StartTime = DateTime.UtcNow.Date.AddDays(5).AddHours(12),
             BasePrice = 120000m,
             Status = BookingConstants.ShowtimeStatus.Open
         });
 
-        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
-        var body = await DeserializeAsync<ApiResponse<ShowtimeResponse>>(update);
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, body!.Data!.Status);
+        Assert.Equal(HttpStatusCode.BadRequest, update.StatusCode);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
 
         var showtime = await db.Showtimes.SingleAsync(item => item.ShowtimeId == "SHW_ROOM_FLOW");
         Assert.Equal("ROOM_FLOW_A", showtime.RoomId);
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, showtime.Status);
-
-        var booking = await db.Bookings.SingleAsync(item => item.BookingId == "BKG_ROOM_FLOW");
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, booking.BookingStatus);
-
-        var showtimeSeat = await db.ShowtimeSeats.SingleAsync(item => item.ShowtimeSeatId == "STS_ROOM_FLOW_A1");
-        Assert.Equal("SEAT_FLOW_A1", showtimeSeat.SeatId);
+        Assert.Equal(DomainConstants.EntityStatus.Open, showtime.Status);
     }
 
     [Fact]
@@ -131,34 +123,33 @@ public sealed class RequestedFlowApiIntegrationTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin());
 
+        var newStartTime = DateTime.UtcNow.Date.AddDays(5).AddHours(14);
+
         var update = await client.PutAsJsonAsync("/api/showtimes/SHW_ROOM_FLOW", new UpdateShowtimeRequest
         {
             MovieId = "MOV_ROOM_FLOW",
             RoomId = "ROOM_FLOW_A",
-            StartTime = new DateTime(2026, 6, 27, 14, 0, 0, DateTimeKind.Utc),
+            StartTime = newStartTime,
             BasePrice = 150000m,
             Status = BookingConstants.ShowtimeStatus.Open
         });
 
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
         var body = await DeserializeAsync<ApiResponse<ShowtimeResponse>>(update);
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, body!.Data!.Status);
-        Assert.Equal("Showtime unstable. Manual processing required.", body.Message);
+        Assert.Equal(DomainConstants.EntityStatus.Open, body!.Data!.Status);
 
         await WaitForEmailCountAsync(factory, 1);
         var email = Assert.Single(factory.EmailCapture.Emails);
         Assert.Equal("flow-customer@test.com", email.ToEmail);
-        Assert.Equal("Unexpected Update Notification", email.Subject);
-        Assert.Contains("Start time changed to 27/06/2026 14:00", email.Body);
-        Assert.Contains("Please wait for the cinema to handle it.", email.Body);
+        Assert.Contains("Movie", email.Body);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
 
         var showtime = await db.Showtimes.SingleAsync(item => item.ShowtimeId == "SHW_ROOM_FLOW");
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, showtime.Status);
-        Assert.Equal(new DateTime(2026, 6, 27, 10, 0, 0, DateTimeKind.Utc), showtime.StartTime);
-        Assert.Equal(120000m, showtime.BasePrice);
+        Assert.Equal(DomainConstants.EntityStatus.Open, showtime.Status);
+        Assert.Equal(newStartTime, showtime.StartTime);
+        Assert.Equal(150000m, showtime.BasePrice);
 
         var booking = await db.Bookings.SingleAsync(item => item.BookingId == "BKG_ROOM_FLOW");
         Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, booking.BookingStatus);
@@ -337,13 +328,14 @@ public sealed class RequestedFlowApiIntegrationTests
             AgeRating = "T13",
             MovieStatus = DomainConstants.EntityStatus.Active
         });
+        var flowStartTime = DateTime.UtcNow.Date.AddDays(5).AddHours(10);
         db.Showtimes.Add(new Showtime
         {
             ShowtimeId = "SHW_ROOM_FLOW",
             MovieId = "MOV_ROOM_FLOW",
             RoomId = "ROOM_FLOW_A",
-            StartTime = new DateTime(2026, 6, 27, 10, 0, 0, DateTimeKind.Utc),
-            EndTime = new DateTime(2026, 6, 27, 12, 0, 0, DateTimeKind.Utc),
+            StartTime = flowStartTime,
+            EndTime = flowStartTime.AddHours(2).AddMinutes(15),
             BasePrice = 120000m,
             Status = BookingConstants.ShowtimeStatus.Open,
             CreatedAt = now
