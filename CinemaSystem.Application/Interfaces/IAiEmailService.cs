@@ -25,4 +25,17 @@ public interface IAiEmailService
         string? compensationVoucherCode = null,
         string? compensationNote = null,
         string? targetSeatType = null);
+
+    Task SendAiRoomChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string oldRoomName,
+        string newRoomName,
+        string timeStr,
+        string bookingId,
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null);
 }

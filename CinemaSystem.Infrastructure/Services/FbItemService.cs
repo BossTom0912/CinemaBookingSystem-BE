@@ -235,7 +235,12 @@ public sealed class FbItemService : IFbItemService
         {
             return await executionStrategy.ExecuteAsync(async () =>
             {
-                await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+                Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction = null;
+                if (_dbContext.Database.IsRelational())
+                {
+                    transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+                }
+
                 try
                 {
                     decimal grossAmount = 0;
@@ -248,23 +253,42 @@ public sealed class FbItemService : IFbItemService
                         var fbItem = await _dbContext.FbItems.FirstOrDefaultAsync(x => x.FbItemId == itemId, cancellationToken);
                         if (fbItem == null || fbItem.ItemStatus == FbConstants.ItemStatus.Inactive)
                         {
-                            await transaction.RollbackAsync(cancellationToken);
+                            if (transaction != null) await transaction.RollbackAsync(cancellationToken);
                             return ServiceResult<FbFulfillmentResponse>.Fail(404, $"F&B item '{itemId}' is unavailable.", FbConstants.ErrorCodes.ItemUnavailable);
                         }
 
-                        // Pure SQL Atomic Update to prevent concurrency overselling
-                        int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
-                            "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
-                            new object[] { itemReq.Quantity, cinemaId, itemId, itemReq.Quantity },
-                            cancellationToken);
-
-                        if (rowsAffected == 0)
+                        if (_dbContext.Database.IsRelational())
                         {
-                            await transaction.RollbackAsync(cancellationToken);
-                            return ServiceResult<FbFulfillmentResponse>.Fail(
-                                409,
-                                $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
-                                FbConstants.ErrorCodes.InsufficientStock);
+                            // Pure SQL Atomic Update to prevent concurrency overselling
+                            int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
+                                "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
+                                new object[] { itemReq.Quantity, cinemaId, itemId, itemReq.Quantity },
+                                cancellationToken);
+
+                            if (rowsAffected == 0)
+                            {
+                                if (transaction != null) await transaction.RollbackAsync(cancellationToken);
+                                return ServiceResult<FbFulfillmentResponse>.Fail(
+                                    409,
+                                    $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
+                                    FbConstants.ErrorCodes.InsufficientStock);
+                            }
+                        }
+                        else
+                        {
+                            var inventory = await _dbContext.CinemaFbInventories
+                                .FirstOrDefaultAsync(x => x.CinemaId == cinemaId && x.FbItemId == itemId, cancellationToken);
+
+                            if (inventory == null || inventory.Quantity < itemReq.Quantity)
+                            {
+                                if (transaction != null) await transaction.RollbackAsync(cancellationToken);
+                                return ServiceResult<FbFulfillmentResponse>.Fail(
+                                    409,
+                                    $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
+                                    FbConstants.ErrorCodes.InsufficientStock);
+                            }
+
+                            inventory.Quantity -= itemReq.Quantity;
                         }
 
                         // Support Modifiers/Toppings/Flavors extra fees
@@ -378,7 +402,7 @@ public sealed class FbItemService : IFbItemService
                     _dbContext.Payments.Add(payment);
 
                     await _dbContext.SaveChangesAsync(cancellationToken);
-                    await transaction.CommitAsync(cancellationToken);
+                    if (transaction != null) await transaction.CommitAsync(cancellationToken);
 
                     var response = new FbFulfillmentResponse
                     {
@@ -406,7 +430,7 @@ public sealed class FbItemService : IFbItemService
                 }
                 catch
                 {
-                    await transaction.RollbackAsync(CancellationToken.None);
+                    if (transaction != null) await transaction.RollbackAsync(CancellationToken.None);
                     throw;
                 }
             });

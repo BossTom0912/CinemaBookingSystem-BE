@@ -338,4 +338,179 @@ public class GeminiAiEmailService : IAiEmailService
 
         await _emailService.SendEmailAsync(toEmail, formattedSubject, fallbackBody, cancellationToken);
     }
+
+    public async Task SendAiRoomChangeEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string oldRoomName,
+        string newRoomName,
+        string timeStr,
+        string bookingId,
+        CancellationToken cancellationToken,
+        string? compensationVoucherCode = null,
+        string? compensationNote = null,
+        string? targetSeatType = null)
+    {
+        var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh phòng chiếu - Mã vé: #{bookingId}";
+
+        var compRows = "";
+        if (!string.IsNullOrWhiteSpace(compensationVoucherCode))
+        {
+            compRows += $"""
+                <tr>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Mã Voucher Tặng Kèm</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #d97706; font-family: monospace; font-weight: bold;' colspan='2'>[{compensationVoucherCode.Trim()}]</td>
+                </tr>
+                """;
+        }
+        if (!string.IsNullOrWhiteSpace(targetSeatType))
+        {
+            compRows += $"""
+                <tr>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Nâng Hạng Ghế Tự Động</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #2563eb; font-weight: bold;' colspan='2'>Đã ưu tiên nâng hạng lên loại ghế [{targetSeatType.Trim()}] tại phòng mới</td>
+                </tr>
+                """;
+        }
+        if (!string.IsNullOrWhiteSpace(compensationNote))
+        {
+            compRows += $"""
+                <tr>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Quyền Lợi Đền Bù</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #059669; font-weight: bold;' colspan='2'>{compensationNote.Trim()}</td>
+                </tr>
+                """;
+        }
+
+        var fallbackBody = $"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset='utf-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+            </head>
+            <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
+                <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                    <!-- HEADER -->
+                    <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
+                        <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                        <p style='color: #94a3b8; margin: 5px 0 0 0; font-size: 13px;'>Hệ thống Rạp chiếu phim Hiện đại & Đẳng cấp</p>
+                    </div>
+
+                    <!-- BODY CONTENT -->
+                    <div style='padding: 30px;'>
+                        <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+
+                        <!-- 1. LỜI MỞ ĐẦU -->
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 20px;'>
+                            Chúng tôi xin trân trọng thông báo về việc điều chỉnh <strong>phòng chiếu</strong> cho suất chiếu bộ phim <strong>{movieTitle}</strong> lúc <strong>{timeStr}</strong> trong đơn hàng của Quý khách.
+                        </p>
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 20px;'>
+                            <strong>Lưu ý: Giờ chiếu của phim hoàn toàn GIỮ NGUYÊN ({timeStr})</strong>. Đơn hàng và Mã vé/QR Code của Quý khách đã được hệ thống tự động cập nhật vị trí ghế tương đương/tốt hơn tại phòng chiếu mới. Quý khách chỉ cần quét Mã vé cũ để vào rạp như bình thường.
+                        </p>
+
+                        <!-- 2. CHI TIẾT THÔNG TIN -->
+                        <div style='margin: 20px 0;'>
+                            <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
+                                <thead>
+                                    <tr style='background-color: #f1f5f9; color: #0f172a;'>
+                                        <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Thông tin</th>
+                                        <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Chi tiết</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phim & Giờ chiếu</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0;'>{movieTitle} ({timeStr})</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phòng chiếu cũ</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #ef4444; font-weight: bold;'>{oldRoomName}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phòng chiếu mới</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #10b981; font-weight: bold;'>{newRoomName}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Mã đặt vé</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;'>#{bookingId}</td>
+                                    </tr>
+                                    {compRows}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p style='font-size: 13px; color: #475569;'>Chúng tôi chân thành cảm ơn sự thông cảm của Quý khách. Nếu cần hỗ trợ thêm, vui lòng liên hệ Hotline 1900 6868 hoặc phản hồi email này.</p>
+                    </div>
+
+                    <!-- FOOTER -->
+                    <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                        <p style='margin: 0 0 5px 0; font-weight: bold; color: #0f172a;'>Đội ngũ Vận hành & CSKH CinemaSystem</p>
+                        <p style='margin: 0 0 5px 0;'>Hotline: 1900 6868 | Email: cskh@cinemasystem.vn | Fanpage: fb.com/cinemasystem</p>
+                        <p style='margin: 0;'>Địa chỉ: 123 Đường Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh | Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """;
+
+        if (string.IsNullOrEmpty(_settings.ApiKey))
+        {
+            await _emailService.SendEmailAsync(toEmail, formattedSubject, fallbackBody, cancellationToken);
+            return;
+        }
+
+        try
+        {
+            var prompt = $"""
+                Write a formal, polite, and empathetic bilingual informative email in HTML format for a cinema AUDITORIUM / ROOM CHANGE.
+                Movie: {movieTitle}
+                Booking ID: {bookingId}
+                Showtime Time: {timeStr} (STAYS UNCHANGED)
+                OLD Auditorium / Room: {oldRoomName}
+                NEW Auditorium / Room: {newRoomName}
+                Compensation Info: Voucher: {compensationVoucherCode}, Seat Upgrade: {targetSeatType}, Note: {compensationNote}
+                Requirements:
+                1. EXPLICITLY STATE THAT THE SHOWTIME TIME IS UNCHANGED ({timeStr}), BUT the SCREENING ROOM / AUDITORIUM is updated from {oldRoomName} to {newRoomName}.
+                2. Explicitly state that NO ACTION IS REQUIRED from the customer — their ticket/QR code is automatically updated for the new room.
+                3. Include a clean HTML details table showing Old Room vs New Room, showtime time, and any gifted compensation.
+                4. DO NOT INCLUDE ANY CONFIRMATION OR REFUND BUTTONS.
+                5. Cinema Name: CinemaSystem, Hotline: 1900 6868, Email: cskh@cinemasystem.vn.
+                6. Do not include any Markdown wrappers. Return pure HTML.
+                """;
+
+            var payload = new
+            {
+                contents = new[]
+                {
+                    new { role = "user", parts = new[] { new { text = prompt } } }
+                }
+            };
+
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={_settings.ApiKey}";
+            var response = await _httpClient.PostAsJsonAsync(url, payload, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var jsonDoc = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+                var aiReply = jsonDoc.GetProperty("candidates")[0]
+                                   .GetProperty("content")
+                                   .GetProperty("parts")[0]
+                                   .GetProperty("text").GetString();
+
+                if (!string.IsNullOrWhiteSpace(aiReply))
+                {
+                    await _emailService.SendEmailAsync(toEmail, formattedSubject, aiReply.Trim(), cancellationToken);
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore AI exception and send fallback
+        }
+
+        await _emailService.SendEmailAsync(toEmail, formattedSubject, fallbackBody, cancellationToken);
+    }
 }

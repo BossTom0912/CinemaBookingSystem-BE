@@ -37,6 +37,7 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddMemoryCache();
         services.AddOptions<JwtSettings>()
             .Configure(options =>
             {
