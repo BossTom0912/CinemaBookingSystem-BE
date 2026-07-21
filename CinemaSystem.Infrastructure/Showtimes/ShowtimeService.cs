@@ -420,6 +420,17 @@ public sealed class ShowtimeService : IShowtimeService
 
         var originalStartTime = showtime.StartTime;
         var oldStartTimeStr = originalStartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        var oldRoomName = showtime.Room?.RoomName ?? showtime.RoomId;
+        
+        string newRoomName = request.RoomId;
+        if (roomChanged)
+        {
+            var newRoomObj = await _dbContext.Rooms.AsNoTracking().FirstOrDefaultAsync(r => r.RoomId == request.RoomId, cancellationToken);
+            if (newRoomObj != null)
+            {
+                newRoomName = newRoomObj.RoomName;
+            }
+        }
 
         // 3. Luôn luôn cập nhật thông tin Suất chiếu (Giờ chiếu mới, Phòng chiếu, Giá vé)
         showtime.MovieId = request.MovieId;
@@ -477,8 +488,6 @@ public sealed class ShowtimeService : IShowtimeService
                         string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                         var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                         var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
-                        var oldRoomName = showtime.Room?.RoomName ?? "Phòng cũ";
-                        var newRoomName = request.RoomId;
 
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
                             ai.SendAiRoomChangeEmailAsync(
@@ -540,33 +549,31 @@ public sealed class ShowtimeService : IShowtimeService
         ChangeRoomRequest request,
         CancellationToken cancellationToken)
     {
-        // Tải suất chiếu lên bao gồm các ghế của nó và đơn đặt vé
+        // Tải suất chiếu lên bao gồm phòng chiếu, phim, các ghế của nó và đơn đặt vé
         var showtime = await _dbContext.Showtimes
-            // Bao gồm danh sách ghế của suất chiếu (ShowtimeSeats)
+            .Include(s => s.Room)
+            .Include(s => s.Movie)
             .Include(s => s.ShowtimeSeats)
-                // Từ ShowtimeSeat lấy thông tin Seat thật (ở bảng Seats)
                 .ThenInclude(sts => sts.Seat)
-            // Bao gồm danh sách Booking của suất chiếu
             .Include(s => s.Bookings)
-            // Lấy dòng đầu tiên khớp ID suất chiếu
             .FirstOrDefaultAsync(s => s.ShowtimeId == showtimeId, cancellationToken);
 
         // Nếu không tìm thấy suất chiếu
         if (showtime == null)
-            // Báo lỗi 404
             return ServiceResult<ShowtimeResponse>.Fail(404, "Showtime not found.", "NOT_FOUND");
+
+        // Lưu tên phòng cũ TRƯỚC KHI cập nhật entity sang phòng mới
+        var oldRoomName = showtime.Room?.RoomName ?? showtime.RoomId;
 
         // Lấy thông tin phòng chiếu mới bao gồm cả danh sách ghế (Seats)
         var newRoom = await _dbContext.Rooms
-            // Bao gồm danh sách ghế
             .Include(r => r.Seats)
-            // Tìm theo ID phòng chiếu mới yêu cầu
             .FirstOrDefaultAsync(r => r.RoomId == request.NewRoomId, cancellationToken);
 
-        // Nếu không tìm thấy phòng mới
         if (newRoom == null)
-            // Báo lỗi 404
             return ServiceResult<ShowtimeResponse>.Fail(404, "New room not found.", "NOT_FOUND");
+
+        var newRoomName = newRoom.RoomName;
 
         // Nếu phòng mới không ở trạng thái Active
         if (newRoom.RoomStatus != DomainConstants.EntityStatus.Active)
@@ -734,8 +741,6 @@ public sealed class ShowtimeService : IShowtimeService
                 string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                 var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                 var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
-                var oldRoomName = showtime.Room?.RoomName ?? "Phòng cũ";
-                var newRoomName = newRoom.RoomName;
                 
                 _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
                     ai.SendAiRoomChangeEmailAsync(
