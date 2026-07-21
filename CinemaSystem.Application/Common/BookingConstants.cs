@@ -13,6 +13,7 @@ public static class BookingConstants
         public const string RefundPending = DomainConstants.BookingStatus.RefundPending;
         public const string Refunded = DomainConstants.BookingStatus.Refunded;
         public const string Completed = DomainConstants.BookingStatus.Completed;
+
     }
 
     public static class BookingChannel

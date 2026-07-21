@@ -48,6 +48,7 @@ public static class FbConstants
         public const string InventoryUpdatedSuccess = "Cinema inventory updated successfully.";
         public const string OrderPlacedSuccess = "Counter F&B order placed and fulfilled successfully.";
         public const string OrderCompleted = "Order completed.";
+        public const string CounterOrderProcessingFailed = "Unable to process the counter F&B order. Please try again.";
         public const string FulfillmentCompleted = "F&B items successfully handed over to customer.";
         public const string RestockSuccess = "Restocked F&B items successfully.";
 

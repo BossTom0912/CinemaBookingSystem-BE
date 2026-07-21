@@ -109,6 +109,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
             .Include(item => item.VoucherUsage)
             .Include(item => item.CustomerProfile)
                 .ThenInclude(cp => cp.User)
+            .AsSplitQuery()
             .Where(item =>
                 item.BookingStatus == "ProcessingUnstable" &&
                 item.Showtime.StartTime <= twoHoursLater)
@@ -203,9 +204,9 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
         var expiredBookings = await dbContext.Bookings
             .Include(item => item.BookingSeats)
                 .ThenInclude(item => item.ShowtimeSeat)
-            .Include(item => item.BookingFbItems)
             .Include(item => item.Payments)
             .Include(item => item.VoucherUsage)
+            .AsSplitQuery()
             .Where(item =>
                 item.BookingStatus == BookingConstants.BookingStatus.PendingPayment &&
                 ((item.ExpiredAt.HasValue && item.ExpiredAt <= now) ||

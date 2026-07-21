@@ -239,7 +239,7 @@ public sealed class TicketScanService : ITicketScanService
                 cancellationToken);
         }
 
-        if (showtime.Status == BookingConstants.ShowtimeStatus.Cancelled)
+        if (!string.Equals(room.RoomStatus, BookingConstants.ResourceStatus.Active, StringComparison.OrdinalIgnoreCase))
         {
             return await FailAndCommitAsync(
                 transaction,
@@ -248,7 +248,22 @@ public sealed class TicketScanService : ITicketScanService
                 ticket.TicketId,
                 normalizedQrCode,
                 HttpStatusCode.Conflict,
-                "The showtime was cancelled.",
+                "The screening room is currently unavailable or under maintenance.",
+                BookingConstants.TicketScanErrorCodes.TicketNotUsable,
+                FailureReasons.TicketNotUsable,
+                cancellationToken);
+        }
+
+        if (showtime.Status == BookingConstants.ShowtimeStatus.Cancelled )
+        {
+            return await FailAndCommitAsync(
+                transaction,
+                actorUserId,
+                staffProfileId,
+                ticket.TicketId,
+                normalizedQrCode,
+                HttpStatusCode.Conflict,
+                "The showtime was cancelled or suspended.",
                 BookingConstants.TicketScanErrorCodes.ShowtimeCancelled,
                 FailureReasons.ShowtimeCancelled,
                 cancellationToken);

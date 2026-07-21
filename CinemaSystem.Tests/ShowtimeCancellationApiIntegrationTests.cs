@@ -188,7 +188,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
     }
 
     [Fact]
-    public async Task LegacyDeleteShowtime_WithPaidBooking_DelegatesToCompensationCancellation()
+    public async Task LegacyDeleteShowtime_WithPaidBooking_TriggersRefundWorkflow()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedCancellationDataAsync(factory);
@@ -197,8 +197,8 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
 
-        // The existing Admin UI uses DELETE /api/showtimes/{id}. It must not
-        // fall back to the legacy REFUND_PENDING workflow for a paid booking.
+        // The legacy Admin UI uses DELETE /api/showtimes/{id}; main keeps its
+        // paid-booking cancellation contract on the REFUND_PENDING workflow.
         var response = await client.DeleteAsync("/api/showtimes/SHW_CANCEL_A");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -210,11 +210,11 @@ public sealed class ShowtimeCancellationApiIntegrationTests
 
         var booking = await db.Bookings.SingleAsync(item =>
             item.BookingId == "BKG_CANCEL_A_PAID");
-        Assert.Equal(BookingConstants.BookingStatus.Cancelled, booking.BookingStatus);
-        Assert.False(await db.Refunds.AnyAsync(item =>
+        Assert.Equal(BookingConstants.BookingStatus.RefundPending, booking.BookingStatus);
+        Assert.True(await db.Refunds.AnyAsync(item =>
             item.BookingId == booking.BookingId));
-        Assert.Single(await db.CancellationCompensations.Where(item =>
-            item.SourceBookingId == booking.BookingId).ToListAsync());
+        Assert.False(await db.CancellationCompensations.AnyAsync(item =>
+            item.SourceBookingId == booking.BookingId));
     }
 
     [Fact]

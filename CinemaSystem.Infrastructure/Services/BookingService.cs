@@ -445,6 +445,12 @@ public sealed class BookingService : IBookingService
                 "CHECKOUT_CONFLICT");
         }
 
+        // Release temporary selection locks from Redis since DB now holds the authoritative lock (LockedUntil = booking.ExpiredAt)
+        foreach (var ss in showtimeSeats)
+        {
+            await _seatLockStore.ReleaseAsync($"seat_lock_{showtime.ShowtimeId}_{ss.SeatId}", cancellationToken);
+        }
+
         return ServiceResult<BookingResponse>.Ok(new BookingResponse
         {
             BookingId = booking.BookingId,
