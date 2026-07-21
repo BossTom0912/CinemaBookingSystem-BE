@@ -367,9 +367,10 @@ public sealed class FbItemService : IFbItemService
                         PaymentId = $"PAY_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
                         BookingId = targetBookingId,
                         PaymentProviderId = paymentProvider,
+                        Amount = totalAmount,
                         PaymentStatus = DomainConstants.PaymentStatus.Success,
-                        PaymentAmount = totalAmount,
-                        PaymentChannel = DomainConstants.PaymentChannel.Counter,
+                        PaidAt = now,
+                        PaymentMethod = paymentMethod,
                         TransactionCode = $"POS_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
                         CreatedAt = now,
                         UpdatedAt = now
