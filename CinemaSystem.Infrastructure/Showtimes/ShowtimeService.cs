@@ -50,7 +50,6 @@ public sealed class ShowtimeService : IShowtimeService
     private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
     // Khai báo biến dịch vụ AI viết thư xin lỗi
     private readonly IAiEmailService _aiEmailService;
-
     public ShowtimeService(
         CinemaDbContext dbContext,
         IClock clock,
@@ -842,10 +841,11 @@ public sealed class ShowtimeService : IShowtimeService
         // Nếu suất chiếu này đã có Booking
         if (existing.Bookings.Any())
         {
-             // Thì không thể xóa cứng ngay, mà phải thực hiện Cancel suất chiếu và tiến hành thủ tục Refund
-             await CancelShowtimeAndTriggerRefundsAsync(existing, cancellationToken);
-             // Trả về kết quả Xóa mềm
-             return ServiceResult<object>.Ok(new { showtimeId = showtimeId, deleted = true }, "Showtime softly deleted and refunds initiated.");
+            // Không thể xóa cứng ngay: hủy suất chiếu và khởi tạo hoàn tiền.
+            await CancelShowtimeAndTriggerRefundsAsync(existing, cancellationToken);
+            return ServiceResult<object>.Ok(
+                new { showtimeId, deleted = true },
+                "Showtime softly deleted and refunds initiated.");
         }
 
         // Kiểm tra xem lịch sử Hủy của suất chiếu này đã có phát sinh bản ghi Refunds nào chưa

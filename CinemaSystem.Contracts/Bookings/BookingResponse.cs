@@ -12,6 +12,7 @@ public sealed class BookingResponse
     public string RoomName { get; init; } = string.Empty;
     public DateTime? StartTime { get; init; }
     public decimal TotalAmount { get; init; }
+    public decimal CompensationDiscountAmount { get; init; }
     public string Status { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
     public DateTime? ExpiredAt { get; init; }

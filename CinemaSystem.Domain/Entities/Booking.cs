@@ -23,6 +23,8 @@ public partial class Booking
 
     public decimal TotalAmount { get; set; }
 
+    public decimal CompensationDiscountAmount { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime? ExpiredAt { get; set; }
@@ -60,6 +62,10 @@ public partial class Booking
     public virtual Review? Review { get; set; }
 
     public virtual ICollection<RewardPointTransaction> RewardPointTransactions { get; set; } = new List<RewardPointTransaction>();
+
+    public virtual CancellationCompensation? SourceCancellationCompensation { get; set; }
+
+    public virtual ICollection<CompensationTicket> ReservedCompensationTickets { get; set; } = new List<CompensationTicket>();
 
     public virtual Showtime? Showtime { get; set; }
 

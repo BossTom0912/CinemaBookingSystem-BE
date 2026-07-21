@@ -384,7 +384,10 @@ public sealed class VoucherService : IVoucherService
 
         var claimedVouchers = await _dbContext.CustomerVouchers
             .Include(cv => cv.Voucher)
-            .Where(cv => cv.CustomerProfileId == customerProfile.CustomerProfileId && !cv.IsUsed)
+            .Where(cv => cv.CustomerProfileId == customerProfile.CustomerProfileId
+                && !cv.IsUsed
+                && !cv.VoucherUsages.Any(usage =>
+                    usage.UsageStatus != DomainConstants.VoucherUsageStatus.Cancelled))
             .Select(cv => cv.Voucher)
             .ToListAsync(cancellationToken);
 
