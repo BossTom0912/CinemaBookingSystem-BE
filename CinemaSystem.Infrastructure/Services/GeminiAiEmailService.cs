@@ -346,9 +346,7 @@ public class GeminiAiEmailService : IAiEmailService
         string oldRoomName,
         string newRoomName,
         string timeStr,
-        string cutoffTime,
         string bookingId,
-        string token,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
         string? compensationNote = null,
@@ -356,15 +354,12 @@ public class GeminiAiEmailService : IAiEmailService
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh phòng chiếu - Mã vé: #{bookingId}";
 
-        var confirmAcceptUrl = $"http://localhost:5173/api/booking/{bookingId}/confirm-time-change?accept=true&token={token}";
-        var confirmRefundUrl = $"http://localhost:5173/api/booking/{bookingId}/confirm-time-change?accept=false&token={token}";
-
         var compRows = "";
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode))
         {
             compRows += $"""
                 <tr>
-                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Mã Voucher Đền Bù</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Mã Voucher Tặng Kèm</td>
                     <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #d97706; font-family: monospace; font-weight: bold;' colspan='2'>[{compensationVoucherCode.Trim()}]</td>
                 </tr>
                 """;
@@ -373,8 +368,8 @@ public class GeminiAiEmailService : IAiEmailService
         {
             compRows += $"""
                 <tr>
-                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Nâng Hạng Ghế Miễn Phí</td>
-                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #2563eb; font-weight: bold;' colspan='2'>Ưu tiên nâng hạng lên loại ghế [{targetSeatType.Trim()}] tại phòng mới</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Nâng Hạng Ghế Tự Động</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #2563eb; font-weight: bold;' colspan='2'>Đã ưu tiên nâng hạng lên loại ghế [{targetSeatType.Trim()}] tại phòng mới</td>
                 </tr>
                 """;
         }
@@ -382,7 +377,7 @@ public class GeminiAiEmailService : IAiEmailService
         {
             compRows += $"""
                 <tr>
-                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Quyền Lợi Đền Bù Kèm Theo</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Quyền Lợi Đền Bù</td>
                     <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #059669; font-weight: bold;' colspan='2'>{compensationNote.Trim()}</td>
                 </tr>
                 """;
@@ -409,61 +404,44 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- 1. LỜI MỞ ĐẦU -->
                         <p style='font-size: 14px; color: #334155; margin-bottom: 20px;'>
-                            Lời đầu tiên, chúng tôi xin chân thành cảm ơn Quý khách đã lựa chọn dịch vụ của <strong>CinemaSystem</strong>. Chúng tôi xin thông báo về việc điều chỉnh <strong>phòng chiếu</strong> đối với suất chiếu bộ phim <strong>{movieTitle}</strong> lúc <strong>{timeStr}</strong> trong đơn hàng của Quý khách.
+                            Chúng tôi xin trân trọng thông báo về việc điều chỉnh <strong>phòng chiếu</strong> cho suất chiếu bộ phim <strong>{movieTitle}</strong> lúc <strong>{timeStr}</strong> trong đơn hàng của Quý khách.
+                        </p>
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 20px;'>
+                            <strong>Lưu ý: Giờ chiếu của phim hoàn toàn GIỮ NGUYÊN ({timeStr})</strong>. Đơn hàng và Mã vé/QR Code của Quý khách đã được hệ thống tự động cập nhật vị trí ghế tương đương/tốt hơn tại phòng chiếu mới. Quý khách chỉ cần quét Mã vé cũ để vào rạp như bình thường.
                         </p>
 
-                        <!-- 2. CHI TIẾT THÔNG TIN (BẢNG SO SÁNH PHÒNG CHIẾU) -->
+                        <!-- 2. CHI TIẾT THÔNG TIN -->
                         <div style='margin: 20px 0;'>
                             <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
                                 <thead>
                                     <tr style='background-color: #f1f5f9; color: #0f172a;'>
                                         <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Thông tin</th>
-                                        <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Phòng Cũ</th>
-                                        <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Phòng Mới</th>
+                                        <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Chi tiết</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr>
                                         <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phim & Giờ chiếu</td>
-                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0;' colspan='2'>{movieTitle} ({timeStr})</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0;'>{movieTitle} ({timeStr})</td>
                                     </tr>
                                     <tr>
-                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phòng chiếu</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phòng chiếu cũ</td>
                                         <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #ef4444; font-weight: bold;'>{oldRoomName}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Phòng chiếu mới</td>
                                         <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #10b981; font-weight: bold;'>{newRoomName}</td>
                                     </tr>
                                     <tr>
                                         <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Mã đặt vé</td>
-                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;' colspan='2'>#{bookingId}</td>
+                                        <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;'>#{bookingId}</td>
                                     </tr>
                                     {compRows}
                                 </tbody>
                             </table>
                         </div>
 
-                        <!-- 3. PHƯƠNG ÁN XỬ LÝ & QUYỀN LỢI KHÁCH HÀNG -->
-                        <p style='font-size: 14px; color: #0f172a; font-weight: bold; margin-top: 25px;'>Để đảm bảo trải nghiệm tốt nhất, vui lòng lựa chọn phương án trước <strong>{cutoffTime}</strong> (Hạn chót):</p>
-                        
-                        <div style='margin: 15px 0 25px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px;'>
-                            <p style='margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #0f172a;'>Phương án 1: Đồng ý xem tại Phòng chiếu mới ({newRoomName})</p>
-                            <p style='margin: 0 0 12px 0; font-size: 13px; color: #475569;'>Bấm nút xác nhận bên dưới. Chúng tôi đã tự động gán vị trí ghế tương đương/tốt hơn và áp dụng quyền lợi đền bù cho Quý khách.</p>
-                            <a href='{confirmAcceptUrl}' style='display: inline-block; padding: 12px 22px; background-color: #ffffff; color: #16a34a; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>XÁC NHẬN PHÒNG CHIẾU MỚI (NHẬN VOUCHER)</a>
-                        </div>
-
-                        <div style='margin: 15px 0 25px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px;'>
-                            <p style='margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #0f172a;'>Phương án 2: Đổi suất chiếu khác / Hoàn tiền 100%</p>
-                            <p style='margin: 0 0 12px 0; font-size: 13px; color: #475569;'>Nếu không thuận tiện với phòng chiếu mới, Quý khách có thể đổi suất chiếu khác hoặc nhận lại 100% tiền vé tự động.</p>
-                            <a href='{confirmRefundUrl}' style='display: inline-block; padding: 12px 22px; background-color: #ffffff; color: #ea580c; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>ĐỔI SUẤT CHIẾU KHÁC HOẶC HOÀN TIỀN 100%</a>
-                        </div>
-
-                        <!-- 4. LƯU Ý VÀ THÔNG TIN LIÊN HỆ -->
-                        <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 12px 15px; border-radius: 8px; margin: 20px 0;'>
-                            <p style='margin: 0; font-size: 12px; color: #856404; font-weight: bold;'>
-                                Lưu ý quan trọng: Nếu sau {cutoffTime} Quý khách chưa đưa ra lựa chọn, hệ thống sẽ tự động hủy vé và hoàn tiền 100% vào tài khoản của Quý khách để đảm bảo quyền lợi.
-                            </p>
-                        </div>
-
-                        <p style='font-size: 13px; color: #475569;'>Nếu cần hỗ trợ thêm, Quý khách vui lòng liên hệ CSKH qua Hotline 1900 6868 hoặc phản hồi trực tiếp email này.</p>
+                        <p style='font-size: 13px; color: #475569;'>Chúng tôi chân thành cảm ơn sự thông cảm của Quý khách. Nếu cần hỗ trợ thêm, vui lòng liên hệ Hotline 1900 6868 hoặc phản hồi email này.</p>
                     </div>
 
                     <!-- FOOTER -->
@@ -486,24 +464,18 @@ public class GeminiAiEmailService : IAiEmailService
         try
         {
             var prompt = $"""
-                Write a formal, polite, and empathetic bilingual apology email in HTML format for a cinema AUDITORIUM / ROOM CHANGE.
+                Write a formal, polite, and empathetic bilingual informative email in HTML format for a cinema AUDITORIUM / ROOM CHANGE.
                 Movie: {movieTitle}
                 Booking ID: {bookingId}
-                Showtime Time: {timeStr}
+                Showtime Time: {timeStr} (STAYS UNCHANGED)
                 OLD Auditorium / Room: {oldRoomName}
                 NEW Auditorium / Room: {newRoomName}
-                Confirmation Deadline / Cut-off Time: {cutoffTime}
                 Compensation Info: Voucher: {compensationVoucherCode}, Seat Upgrade: {targetSeatType}, Note: {compensationNote}
-                Accept CTA URL: {confirmAcceptUrl}
-                Refund CTA URL: {confirmRefundUrl}
                 Requirements:
-                1. Explicitly state that the SHOWTIME TIME REMAINS THE SAME ({timeStr}), BUT the SCREENING ROOM / AUDITORIUM is changed from {oldRoomName} to {newRoomName}.
-                2. Include a clean HTML Comparison Table showing OLD Room vs NEW Room, showtime time, and compensation info.
-                3. Provide 2 clear Call-To-Action buttons with the EXACT URLs provided above.
-                   CRITICAL BUTTON STYLING REQUIREMENT:
-                   - Accept / Confirm Button MUST use style: background-color: #ffffff; border: 2px solid #000000; color: #16a34a; font-weight: bold; (White background, Black border, Green text).
-                   - Cancel / Refund Button MUST use style: background-color: #ffffff; border: 2px solid #000000; color: #ea580c; font-weight: bold; (White background, Black border, Orange text).
-                4. Include the Fallback 100% refund rule after deadline {cutoffTime}.
+                1. EXPLICITLY STATE THAT THE SHOWTIME TIME IS UNCHANGED ({timeStr}), BUT the SCREENING ROOM / AUDITORIUM is updated from {oldRoomName} to {newRoomName}.
+                2. Explicitly state that NO ACTION IS REQUIRED from the customer — their ticket/QR code is automatically updated for the new room.
+                3. Include a clean HTML details table showing Old Room vs New Room, showtime time, and any gifted compensation.
+                4. DO NOT INCLUDE ANY CONFIRMATION OR REFUND BUTTONS.
                 5. Cinema Name: CinemaSystem, Hotline: 1900 6868, Email: cskh@cinemasystem.vn.
                 6. Do not include any Markdown wrappers. Return pure HTML.
                 """;
