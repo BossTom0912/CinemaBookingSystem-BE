@@ -197,9 +197,6 @@ public static class DependencyInjection
                 options.OpenBeforeStartMinutes = ReadNullableInt(
                     configuration[
                         $"{TicketScanSettings.SectionName}:OpenBeforeStartMinutes"]);
-                options.CloseAfterEndMinutes = ReadNullableInt(
-                    configuration[
-                        $"{TicketScanSettings.SectionName}:CloseAfterEndMinutes"]);
             })
             .Validate(
                 options => options.OpenBeforeStartMinutes.HasValue,
@@ -207,12 +204,6 @@ public static class DependencyInjection
             .Validate(
                 options => options.OpenBeforeStartMinutes >= 0,
                 "Ticket scan opening window cannot be negative.")
-            .Validate(
-                options => options.CloseAfterEndMinutes.HasValue,
-                "Ticket scan closing window must be configured.")
-            .Validate(
-                options => options.CloseAfterEndMinutes >= 0,
-                "Ticket scan closing window cannot be negative.")
             .ValidateOnStart();
 
         services.AddDataProtection();

@@ -310,9 +310,7 @@ public sealed class TicketScanService : ITicketScanService
                     cancellationToken);
             }
 
-            var checkInClosesAt = EnsureUtc(showtime.EndTime)
-                .AddMinutes(_settings.CloseAfterEndMinutes!.Value);
-            if (now > checkInClosesAt)
+            if (now >= EnsureUtc(showtime.EndTime))
             {
                 await using var failTx = await _dbContext.Database.BeginTransactionAsync(
                     IsolationLevel.Serializable,
@@ -324,7 +322,7 @@ public sealed class TicketScanService : ITicketScanService
                     ticket.TicketId,
                     normalizedQrCode,
                     HttpStatusCode.Conflict,
-                    "The check-in window has closed.",
+                    "The showtime has ended; ticket check-in is no longer available.",
                     BookingConstants.TicketScanErrorCodes.CheckInWindowClosed,
                     FailureReasons.InvalidTime,
                     cancellationToken);
