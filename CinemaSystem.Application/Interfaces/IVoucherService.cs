@@ -57,4 +57,8 @@ public interface IVoucherService
     Task<ServiceResult<int>> IssueCompensationVoucherAsync(
         IssueCompensationRequest request,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<int>> CheckAndAwardTicketMilestoneVouchersAsync(
+        string customerProfileId,
+        CancellationToken cancellationToken);
 }

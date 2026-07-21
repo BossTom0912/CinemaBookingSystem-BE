@@ -62,7 +62,9 @@ public sealed class VoucherService : IVoucherService
             ApplicableScope = string.IsNullOrWhiteSpace(request.ApplicableScope) ? "TOTAL_ORDER" : request.ApplicableScope.Trim().ToUpperInvariant(),
             TargetType = string.IsNullOrWhiteSpace(request.TargetType) ? "ALL_CUSTOMERS" : request.TargetType.Trim().ToUpperInvariant(),
             TargetCustomerIds = request.TargetCustomerIds,
-            SpecificFbItemIds = request.SpecificFbItemIds
+            SpecificFbItemIds = request.SpecificFbItemIds,
+            IsPrivate = request.IsPrivate,
+            RequiredTicketCount = request.RequiredTicketCount
         };
 
         _dbContext.Vouchers.Add(voucher);
@@ -149,6 +151,8 @@ public sealed class VoucherService : IVoucherService
         if (!string.IsNullOrWhiteSpace(request.TargetType)) voucher.TargetType = request.TargetType.Trim().ToUpperInvariant();
         if (request.TargetCustomerIds != null) voucher.TargetCustomerIds = request.TargetCustomerIds;
         if (request.SpecificFbItemIds != null) voucher.SpecificFbItemIds = request.SpecificFbItemIds;
+        voucher.IsPrivate = request.IsPrivate;
+        voucher.RequiredTicketCount = request.RequiredTicketCount;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -167,13 +171,21 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<bool>.Fail(404, "Voucher not found.", "VOUCHER_NOT_FOUND");
         }
 
-        // Instead of hard deleting, we soft deactivate it if it has usages, or delete if not used
-        var hasUsages = await _dbContext.VoucherUsages.AnyAsync(vu => vu.VoucherId == voucherId, cancellationToken);
-        if (hasUsages)
+        // Hard delete: Remove linked CustomerVoucher and VoucherUsage records first
+        var customerVouchers = await _dbContext.CustomerVouchers
+            .Where(cv => cv.VoucherId == voucherId)
+            .ToListAsync(cancellationToken);
+        if (customerVouchers.Count > 0)
         {
-            voucher.VoucherStatus = DomainConstants.VoucherStatus.Inactive;
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Voucher deactivated successfully (retained due to usage records).");
+            _dbContext.CustomerVouchers.RemoveRange(customerVouchers);
+        }
+
+        var usages = await _dbContext.VoucherUsages
+            .Where(vu => vu.VoucherId == voucherId)
+            .ToListAsync(cancellationToken);
+        if (usages.Count > 0)
+        {
+            _dbContext.VoucherUsages.RemoveRange(usages);
         }
 
         _dbContext.Vouchers.Remove(voucher);
@@ -323,6 +335,7 @@ public sealed class VoucherService : IVoucherService
         var now = _clock.UtcNow;
         var activeVouchers = await _dbContext.Vouchers.AsNoTracking()
             .Where(v => v.VoucherStatus == DomainConstants.VoucherStatus.Active
+                && !v.IsPrivate
                 && v.StartDate <= now
                 && v.EndDate >= now
                 && v.UsedCount < v.UsageLimit)
@@ -404,6 +417,9 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<IReadOnlyList<VoucherResponse>>.Fail(403, "Only customers have voucher wallets.", "CUSTOMER_PROFILE_NOT_FOUND");
         }
 
+        // Auto check & award any eligible ticket milestone vouchers
+        await CheckAndAwardTicketMilestoneVouchersAsync(customerProfile.CustomerProfileId, cancellationToken);
+
         var claimedVouchers = await _dbContext.CustomerVouchers
             .Include(cv => cv.Voucher)
             .Where(cv => cv.CustomerProfileId == customerProfile.CustomerProfileId
@@ -415,6 +431,82 @@ public sealed class VoucherService : IVoucherService
 
         var responseList = claimedVouchers.Select(MapToResponse).ToList();
         return ServiceResult<IReadOnlyList<VoucherResponse>>.Ok(responseList, "Claimed vouchers retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<int>> CheckAndAwardTicketMilestoneVouchersAsync(
+        string customerProfileId,
+        CancellationToken cancellationToken)
+    {
+        var customerProfile = await _dbContext.CustomerProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cp => cp.CustomerProfileId == customerProfileId, cancellationToken);
+
+        if (customerProfile == null)
+        {
+            return ServiceResult<int>.Ok(0, "Customer profile not found.");
+        }
+
+        // Total tickets booked by this customer across valid bookings
+        var totalTicketsCount = await _dbContext.Tickets
+            .AsNoTracking()
+            .CountAsync(t => t.BookingSeat.Booking.CustomerProfileId == customerProfileId
+                && (t.BookingSeat.Booking.BookingStatus == DomainConstants.EntityStatus.Paid
+                    || t.BookingSeat.Booking.BookingStatus == DomainConstants.EntityStatus.Completed)
+                && (t.TicketStatus == DomainConstants.TicketStatus.Unused
+                    || t.TicketStatus == DomainConstants.TicketStatus.CheckedIn
+                    || t.TicketStatus == DomainConstants.TicketStatus.Generated), cancellationToken);
+
+        var now = _clock.UtcNow;
+
+        // Find active milestone vouchers requiring ticket count <= user's total tickets
+        var milestoneVouchers = await _dbContext.Vouchers
+            .Where(v => v.VoucherStatus == DomainConstants.VoucherStatus.Active
+                && v.RequiredTicketCount.HasValue
+                && v.RequiredTicketCount.Value > 0
+                && v.RequiredTicketCount.Value <= totalTicketsCount
+                && v.StartDate <= now
+                && v.EndDate >= now
+                && v.UsedCount < v.UsageLimit)
+            .ToListAsync(cancellationToken);
+
+        int awardedCount = 0;
+        foreach (var voucher in milestoneVouchers)
+        {
+            var alreadyClaimed = await _dbContext.CustomerVouchers
+                .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == customerProfileId, cancellationToken);
+
+            if (!alreadyClaimed)
+            {
+                _dbContext.CustomerVouchers.Add(new CustomerVoucher
+                {
+                    CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                    CustomerProfileId = customerProfileId,
+                    VoucherId = voucher.VoucherId,
+                    ClaimedAt = now,
+                    IsUsed = false
+                });
+
+                var notifId = CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification);
+                _dbContext.Notifications.Add(new Notification
+                {
+                    NotificationId = notifId,
+                    UserId = customerProfile.UserId,
+                    Title = "🎁 Tặng Voucher tích lũy vé!",
+                    Message = $"Chúc mừng! Bạn đã đạt mốc đặt {voucher.RequiredTicketCount} vé và được tặng voucher: {voucher.Title ?? voucher.VoucherCode}!",
+                    IsRead = false,
+                    CreatedAt = now
+                });
+
+                awardedCount++;
+            }
+        }
+
+        if (awardedCount > 0)
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return ServiceResult<int>.Ok(awardedCount, $"Awarded {awardedCount} milestone vouchers.");
     }
 
     public async Task<ServiceResult<int>> IssueCompensationVoucherAsync(
@@ -474,7 +566,9 @@ public sealed class VoucherService : IVoucherService
             ApplicableScope = voucher.ApplicableScope ?? "TOTAL_ORDER",
             TargetType = voucher.TargetType ?? "ALL_CUSTOMERS",
             TargetCustomerIds = voucher.TargetCustomerIds,
-            SpecificFbItemIds = voucher.SpecificFbItemIds
+            SpecificFbItemIds = voucher.SpecificFbItemIds,
+            IsPrivate = voucher.IsPrivate,
+            RequiredTicketCount = voucher.RequiredTicketCount
         };
     }
 }

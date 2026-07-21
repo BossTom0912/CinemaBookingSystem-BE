@@ -45,5 +45,9 @@ public partial class Voucher
 
     public string? SpecificFbItemIds { get; set; }
 
+    public bool IsPrivate { get; set; } = false;
+
+    public int? RequiredTicketCount { get; set; }
+
     public virtual ICollection<VoucherUsage> VoucherUsages { get; set; } = new List<VoucherUsage>();
 }
