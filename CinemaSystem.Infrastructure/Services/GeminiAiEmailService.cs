@@ -155,8 +155,8 @@ public class GeminiAiEmailService : IAiEmailService
     {
         var formattedSubject = $"[CinemaSystem] Điều chỉnh giờ chiếu phim - Mã vé: #{bookingId}";
 
-        var confirmAcceptUrl = $"http://localhost:5173/api/booking/{bookingId}/confirm-time-change?accept=true&token={token}";
-        var confirmRefundUrl = $"http://localhost:5173/api/booking/{bookingId}/confirm-time-change?accept=false&token={token}";
+        var confirmAcceptUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=true&token={token}";
+        var confirmRefundUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=false&token={token}";
 
         var compRows = "";
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode))
@@ -249,10 +249,10 @@ public class GeminiAiEmailService : IAiEmailService
                             <a href='{confirmAcceptUrl}' style='display: inline-block; padding: 12px 22px; background-color: #ffffff; color: #16a34a; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>XÁC NHẬN XEM SUẤT CHIẾU MỚI (TẶNG VOUCHER)</a>
                         </div>
 
-                        <div style='margin: 15px 0 25px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px;'>
-                            <p style='margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #0f172a;'>Phương án 2: Đổi suất chiếu khác / Hoàn tiền 100%</p>
-                            <p style='margin: 0 0 12px 0; font-size: 13px; color: #475569;'>Nếu khung giờ mới không thuận tiện, Quý khách có thể đổi suất chiếu khác hoặc nhận lại 100% tiền vé tự động.</p>
-                            <a href='{confirmRefundUrl}' style='display: inline-block; padding: 12px 22px; background-color: #ffffff; color: #ea580c; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>ĐỔI SUẤT CHIẾU KHÁC HOẶC HOÀN TIỀN 100%</a>
+                        <div style='margin: 15px 0 25px 0; background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 15px;'>
+                            <p style='margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #b91c1c;'>Phương án 2: Yêu cầu hoàn tiền 100%</p>
+                            <p style='margin: 0 0 12px 0; font-size: 13px; color: #7f1d1d;'>Nếu khung giờ mới không thuận tiện, Quý khách có thể nhận lại 100% tiền vé tự động kèm theo Voucher đền bù (như trên).</p>
+                            <a href='{confirmRefundUrl}' style='display: inline-block; padding: 12px 22px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #991b1b;'>YÊU CẦU HOÀN TIỀN 100%</a>
                         </div>
 
                         <!-- 4. LƯU Ý VÀ THÔNG TIN LIÊN HỆ -->
