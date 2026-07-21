@@ -232,7 +232,7 @@ public class GeminiAiEmailService : IAiEmailService
                             <!-- LƯU Ý QUAN TRỌNG -->
                             <div style='background-color: #fffbe6; border: 1px solid #ffe58f; border-left: 4px solid #d97706; padding: 14px 16px; border-radius: 6px; margin: 20px 0;'>
                                 <p style='margin: 0; font-size: 13px; color: #856404; font-weight: bold;'>
-                                    ⏰ Lưu ý quan trọng: Vui lòng đưa ra lựa chọn trước {cutoffTime}.
+                                    Lưu ý quan trọng: Vui lòng đưa ra lựa chọn trước {cutoffTime}.
                                 </p>
                             </div>
 
@@ -242,14 +242,14 @@ public class GeminiAiEmailService : IAiEmailService
                             <div style='margin: 15px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;'>
                                 <p style='margin: 0 0 6px 0; font-size: 14px; font-weight: bold; color: #0f172a;'>Phương án 1: Đồng ý xem suất chiếu mới</p>
                                 <p style='margin: 0 0 14px 0; font-size: 13px; color: #475569;'>Hệ thống sẽ tự động cập nhật vé theo giờ chiếu mới và gửi kèm ưu đãi đền bù tới tài khoản của Quý khách.</p>
-                                <a href='{confirmAcceptUrl}' style='display: inline-block; padding: 12px 24px; background-color: #ffffff; color: #16a34a; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>👉 [ XÁC NHẬN XEM SUẤT CHIẾU MỚI ]</a>
+                                <a href='{confirmAcceptUrl}' style='display: inline-block; padding: 12px 24px; background-color: #ffffff; color: #16a34a; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>[ XÁC NHẬN XEM SUẤT CHIẾU MỚI ]</a>
                             </div>
 
                             <!-- PHƯƠNG ÁN 2 -->
                             <div style='margin: 15px 0; background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 16px;'>
                                 <p style='margin: 0 0 6px 0; font-size: 14px; font-weight: bold; color: #b91c1c;'>Phương án 2: Yêu cầu hoàn tiền 100%</p>
                                 <p style='margin: 0 0 14px 0; font-size: 13px; color: #7f1d1d;'>Nếu khung giờ mới không phù hợp với lịch trình, Quý khách có thể yêu cầu hoàn trả 100% giá trị tiền vé.</p>
-                                <a href='{confirmRefundUrl}' style='display: inline-block; padding: 12px 24px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #991b1b;'>👉 [ YÊU CẦU HOÀN TIỀN 100% ]</a>
+                                <a href='{confirmRefundUrl}' style='display: inline-block; padding: 12px 24px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #991b1b;'>[ YÊU CẦU HOÀN TIỀN 100% ]</a>
                             </div>
 
                             <p style='font-size: 13px; color: #334155; margin-top: 20px;'>
@@ -313,7 +313,7 @@ public class GeminiAiEmailService : IAiEmailService
                             <!-- IMPORTANT NOTE BOX EN -->
                             <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #d97706; padding: 12px; border-radius: 6px; margin: 15px 0;'>
                                 <p style='margin: 0; font-size: 12px; color: #856404; font-weight: bold;'>
-                                    ⏰ Important Note: Please select your preference before {cutoffTime}.
+                                    Important Note: Please select your preference before {cutoffTime}.
                                 </p>
                             </div>
 
@@ -323,14 +323,14 @@ public class GeminiAiEmailService : IAiEmailService
                             <div style='margin: 12px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;'>
                                 <p style='margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #0f172a;'>Option 1: Accept New Showtime</p>
                                 <p style='margin: 0 0 10px 0; font-size: 12px; color: #475569;'>Your ticket will be updated to the new showtime, and the compensation voucher will be automatically applied.</p>
-                                <a href='{confirmAcceptUrl}' style='display: inline-block; padding: 10px 20px; background-color: #ffffff; color: #16a34a; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px; border: 2px solid #000000;'>👉 [ CONFIRM NEW SHOWTIME ]</a>
+                                <a href='{confirmAcceptUrl}' style='display: inline-block; padding: 10px 20px; background-color: #ffffff; color: #16a34a; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px; border: 2px solid #000000;'>[ CONFIRM NEW SHOWTIME ]</a>
                             </div>
 
                             <!-- OPTION 2 EN -->
                             <div style='margin: 12px 0; background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 14px;'>
                                 <p style='margin: 0 0 4px 0; font-size: 13px; font-weight: bold; color: #b91c1c;'>Option 2: Request 100% Refund</p>
                                 <p style='margin: 0 0 10px 0; font-size: 12px; color: #7f1d1d;'>If the new time is inconvenient, you can request a full refund for your booking.</p>
-                                <a href='{confirmRefundUrl}' style='display: inline-block; padding: 10px 20px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px; border: 2px solid #991b1b;'>👉 [ REQUEST 100% REFUND ]</a>
+                                <a href='{confirmRefundUrl}' style='display: inline-block; padding: 10px 20px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px; border: 2px solid #991b1b;'>[ REQUEST 100% REFUND ]</a>
                             </div>
 
                             <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
@@ -465,10 +465,44 @@ public class GeminiAiEmailService : IAiEmailService
                                 We regret to inform you that your screening room for <strong>{movieTitle}</strong> has been changed from {oldRoomName} to {newRoomName}.
                             </p>
 
-                            <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin: 15px 0;'>
+                            <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; padding: 12px; border-radius: 6px; margin: 15px 0;'>
                                 <p style='margin: 0; font-size: 12px; color: #475569;'>
                                     <strong>Important Note:</strong> Your showtime remains unchanged at <strong>{timeStr}</strong>. Your ticket and QR code have been automatically updated for the new auditorium.
                                 </p>
+                            </div>
+
+                            <!-- BẢNG CHI TIẾT TIẾNG ANH -->
+                            <div style='margin: 20px 0;'>
+                                <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 12px; text-align: left;'>
+                                    <thead>
+                                        <tr style='background-color: #f8fafc; color: #475569;'>
+                                            <th style='padding: 8px 12px; border-bottom: 1px solid #cbd5e1; width: 40%;'>Information</th>
+                                            <th style='padding: 8px 12px; border-bottom: 1px solid #cbd5e1;'>Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Movie Title</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0;'>{movieTitle}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Showtime</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{timeStr} (Unchanged)</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Previous Auditorium</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #dc2626; text-decoration: line-through;'>{oldRoomName}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>New Auditorium</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #2563eb; font-weight: bold;'>{newRoomName}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Compensation Benefit</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #d97706; font-weight: bold;'>{compensationText}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
 
                             <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>

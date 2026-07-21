@@ -53,4 +53,8 @@ public interface IVoucherService
     Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetMyVouchersAsync(
         string userId,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<int>> IssueCompensationVoucherAsync(
+        IssueCompensationRequest request,
+        CancellationToken cancellationToken);
 }

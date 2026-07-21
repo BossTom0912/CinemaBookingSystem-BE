@@ -35,4 +35,14 @@ public sealed class UpdateVoucherRequest
 
     [Required]
     public DateTime EndDate { get; init; }
+
+    public string? Category { get; init; }
+
+    public string? ApplicableScope { get; init; }
+
+    public string? TargetType { get; init; }
+
+    public string? TargetCustomerIds { get; init; }
+
+    public string? SpecificFbItemIds { get; init; }
 }

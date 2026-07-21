@@ -57,7 +57,12 @@ public sealed class VoucherService : IVoucherService
             UsedCount = 0,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
-            VoucherStatus = DomainConstants.VoucherStatus.Active
+            VoucherStatus = DomainConstants.VoucherStatus.Active,
+            Category = string.IsNullOrWhiteSpace(request.Category) ? "EVENT" : request.Category.Trim().ToUpperInvariant(),
+            ApplicableScope = string.IsNullOrWhiteSpace(request.ApplicableScope) ? "TOTAL_ORDER" : request.ApplicableScope.Trim().ToUpperInvariant(),
+            TargetType = string.IsNullOrWhiteSpace(request.TargetType) ? "ALL_CUSTOMERS" : request.TargetType.Trim().ToUpperInvariant(),
+            TargetCustomerIds = request.TargetCustomerIds,
+            SpecificFbItemIds = request.SpecificFbItemIds
         };
 
         _dbContext.Vouchers.Add(voucher);
@@ -139,6 +144,11 @@ public sealed class VoucherService : IVoucherService
         voucher.PerCustomerLimit = request.PerCustomerLimit;
         voucher.StartDate = request.StartDate;
         voucher.EndDate = request.EndDate;
+        if (!string.IsNullOrWhiteSpace(request.Category)) voucher.Category = request.Category.Trim().ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(request.ApplicableScope)) voucher.ApplicableScope = request.ApplicableScope.Trim().ToUpperInvariant();
+        if (!string.IsNullOrWhiteSpace(request.TargetType)) voucher.TargetType = request.TargetType.Trim().ToUpperInvariant();
+        if (request.TargetCustomerIds != null) voucher.TargetCustomerIds = request.TargetCustomerIds;
+        if (request.SpecificFbItemIds != null) voucher.SpecificFbItemIds = request.SpecificFbItemIds;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -261,9 +271,21 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
         }
 
-        // 5. Check Customer Limit (count active customer usages)
+        // 5. Check Customer Limit & Target Type
         if (!string.IsNullOrEmpty(customerProfileId))
         {
+            if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase))
+            {
+                var isClaimed = await _dbContext.CustomerVouchers
+                    .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == customerProfileId, cancellationToken);
+                var isExplicitlyTargeted = !string.IsNullOrEmpty(voucher.TargetCustomerIds) && voucher.TargetCustomerIds.Contains(customerProfileId, StringComparison.OrdinalIgnoreCase);
+
+                if (!isClaimed && !isExplicitlyTargeted)
+                {
+                    return ServiceResult<VoucherValidationResult>.Fail(403, "Voucher này không dành cho tài khoản của bạn.", "VOUCHER_NOT_TARGETED");
+                }
+            }
+
             var customerUsagesCount = await _dbContext.VoucherUsages
                 .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
                     && vu.CustomerProfileId == customerProfileId 
@@ -395,6 +417,40 @@ public sealed class VoucherService : IVoucherService
         return ServiceResult<IReadOnlyList<VoucherResponse>>.Ok(responseList, "Claimed vouchers retrieved successfully.");
     }
 
+    public async Task<ServiceResult<int>> IssueCompensationVoucherAsync(
+        IssueCompensationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var voucher = await _dbContext.Vouchers.FirstOrDefaultAsync(v => v.VoucherId == request.VoucherId, cancellationToken);
+        if (voucher == null)
+        {
+            return ServiceResult<int>.Fail(404, "Voucher not found.", "VOUCHER_NOT_FOUND");
+        }
+
+        var now = _clock.UtcNow;
+        int count = 0;
+        foreach (var customerId in request.CustomerProfileIds.Distinct())
+        {
+            var exists = await _dbContext.CustomerVouchers
+                .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == customerId, cancellationToken);
+            if (!exists)
+            {
+                _dbContext.CustomerVouchers.Add(new CustomerVoucher
+                {
+                    CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                    CustomerProfileId = customerId,
+                    VoucherId = voucher.VoucherId,
+                    ClaimedAt = now,
+                    IsUsed = false
+                });
+                count++;
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return ServiceResult<int>.Ok(count, $"Successfully issued compensation voucher to {count} customers.");
+    }
+
     private static VoucherResponse MapToResponse(Voucher voucher)
     {
         return new VoucherResponse
@@ -413,7 +469,12 @@ public sealed class VoucherService : IVoucherService
             UsedCount = voucher.UsedCount,
             StartDate = voucher.StartDate,
             EndDate = voucher.EndDate,
-            VoucherStatus = voucher.VoucherStatus
+            VoucherStatus = voucher.VoucherStatus,
+            Category = voucher.Category ?? "EVENT",
+            ApplicableScope = voucher.ApplicableScope ?? "TOTAL_ORDER",
+            TargetType = voucher.TargetType ?? "ALL_CUSTOMERS",
+            TargetCustomerIds = voucher.TargetCustomerIds,
+            SpecificFbItemIds = voucher.SpecificFbItemIds
         };
     }
 }
