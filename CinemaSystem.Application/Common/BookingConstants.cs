@@ -105,6 +105,7 @@ public static class BookingConstants
         public const string AuditLog = DomainConstants.EntityIdPrefix.AuditLog;
         public const string RewardPointTransaction = DomainConstants.EntityIdPrefix.RewardPointTransaction;
         public const string ManualRefundProcess = DomainConstants.EntityIdPrefix.ManualRefundProcess;
+        public const string RefundCustomerConfirmation = DomainConstants.EntityIdPrefix.RefundCustomerConfirmation;
         public const string CustomerRefundRequest = DomainConstants.EntityIdPrefix.CustomerRefundRequest;
         public const string CheckInLog = DomainConstants.EntityIdPrefix.CheckInLog;
     }
@@ -193,6 +194,14 @@ public static class BookingConstants
         public const string InProgress = DomainConstants.ManualRefundProcessStatus.InProgress;
         public const string Confirmed = DomainConstants.ManualRefundProcessStatus.Confirmed;
         public const string Rejected = DomainConstants.ManualRefundProcessStatus.Rejected;
+    }
+
+    public static class RefundCustomerConfirmationStatus
+    {
+        public const string AwaitingCustomer = DomainConstants.RefundCustomerConfirmationStatus.AwaitingCustomer;
+        public const string ConfirmedByCustomer = DomainConstants.RefundCustomerConfirmationStatus.ConfirmedByCustomer;
+        public const string Expired = DomainConstants.RefundCustomerConfirmationStatus.Expired;
+        public const string Revoked = DomainConstants.RefundCustomerConfirmationStatus.Revoked;
     }
 
     public static class CustomerRefundRequestStatus

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,6 +34,10 @@ public sealed class BookingService : IBookingService
     private readonly IVoucherService _voucherService;
     private readonly IVoucherReservationService _voucherReservationService;
     private readonly ICancellationCompensationService _cancellationCompensationService;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
+    private readonly RefundSettings _refundSettings;
+    private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
     public BookingService(
         CinemaDbContext dbContext,
@@ -45,6 +50,10 @@ public sealed class BookingService : IBookingService
         IVoucherService voucherService,
         IVoucherReservationService voucherReservationService,
         ICancellationCompensationService cancellationCompensationService,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
+        IOptions<RefundSettings> refundSettings,
+        IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplates,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
@@ -57,6 +66,10 @@ public sealed class BookingService : IBookingService
         _voucherService = voucherService;
         _voucherReservationService = voucherReservationService;
         _cancellationCompensationService = cancellationCompensationService;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
+        _refundSettings = refundSettings.Value;
+        _emailTemplates = emailTemplates.Value;
         _backgroundJobClient = backgroundJobClient!;
     }
 
@@ -719,7 +732,10 @@ public sealed class BookingService : IBookingService
 
         var booking = await _dbContext.Bookings
             .Include(b => b.Payments)
+            .Include(b => b.CustomerProfile)
+                .ThenInclude(profile => profile!.User)
             .Include(b => b.Showtime)
+                .ThenInclude(showtime => showtime.Movie)
             .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
 
         if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
@@ -755,8 +771,11 @@ public sealed class BookingService : IBookingService
         if (accept)
         {
             booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+            await IssueRescheduleAcceptanceVoucherAsync(booking, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change accepted successfully.");
+            return ServiceResult<bool>.Ok(
+                true,
+                "Time change accepted successfully. A 20% ticket voucher valid for one month was added to your compensation vouchers.");
         }
         else
         {
@@ -797,8 +816,152 @@ public sealed class BookingService : IBookingService
                 RequestedAt = _clock.UtcNow
             };
             _dbContext.Refunds.Add(refund);
+            RefundClaimIssue? claimIssue = null;
+            if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+            {
+                claimIssue = _refundClaimIssuer.Create(
+                    refund.RefundId,
+                    booking.CustomerProfileId,
+                    _clock.UtcNow);
+                _dbContext.RefundClaims.Add(claimIssue.Claim);
+            }
+            await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund initiated.");
+            await TrySendTimeChangeRefundClaimEmailAsync(booking, claimIssue, cancellationToken);
+            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund claim initiated.");
+        }
+    }
+
+    private async Task TrySendTimeChangeRefundClaimEmailAsync(
+        Booking booking,
+        RefundClaimIssue? claimIssue,
+        CancellationToken cancellationToken)
+    {
+        var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+        if (claimIssue is null || string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        try
+        {
+            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(claimIssue.RawToken)}";
+            await _emailSender.SendEmailAsync(
+                email,
+                _emailTemplates.ShowtimeCancelledRefundSubject,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    _emailTemplates.ShowtimeCancelledRefundBody,
+                    booking.Showtime.Movie.Title,
+                    booking.Showtime.StartTime,
+                    booking.TotalAmount,
+                    claimIssue.Token.ExpiresAt,
+                    link),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Refund claim email could not be sent for booking {BookingId}.", booking.BookingId);
+        }
+    }
+
+    private async Task IssueRescheduleAcceptanceVoucherAsync(
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return;
+        }
+
+        var voucherCode = $"VOUCHER_REFUND_20PCT_{booking.BookingId}".ToUpperInvariant();
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(item => item.VoucherCode == voucherCode, cancellationToken);
+        if (voucher is null)
+        {
+            var now = _clock.UtcNow;
+            voucher = new Voucher
+            {
+                VoucherId = NewId(DomainConstants.EntityIdPrefix.Voucher),
+                VoucherCode = voucherCode,
+                Title = "VOUCHER_REFUND_20_PERCENT_RESCHEDULE",
+                Description = "Voucher bồi thường giảm 20% giá vé phim khi khách đồng ý đổi suất chiếu.",
+                DiscountType = DomainConstants.DiscountType.Percent,
+                DiscountValue = 20m,
+                UsageLimit = 1,
+                PerCustomerLimit = 1,
+                UsedCount = 0,
+                StartDate = now,
+                EndDate = now.AddMonths(1),
+                VoucherStatus = DomainConstants.VoucherStatus.Active
+            };
+            _dbContext.Vouchers.Add(voucher);
+        }
+
+        var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
+            item => item.CustomerProfileId == booking.CustomerProfileId
+                && item.VoucherId == voucher.VoucherId,
+            cancellationToken);
+        if (!alreadyAssigned)
+        {
+            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+            {
+                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                CustomerProfileId = booking.CustomerProfileId,
+                VoucherId = voucher.VoucherId,
+                ClaimedAt = _clock.UtcNow,
+                IsUsed = false
+            });
+        }
+    }
+
+    private async Task IssueRescheduleRejectionVoucherAsync(
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return;
+        }
+
+        var voucherCode = $"VOUCHER_REFUND_100PCT_{booking.BookingId}".ToUpperInvariant();
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(item => item.VoucherCode == voucherCode, cancellationToken);
+        if (voucher is null)
+        {
+            var now = _clock.UtcNow;
+            voucher = new Voucher
+            {
+                VoucherId = NewId(DomainConstants.EntityIdPrefix.Voucher),
+                VoucherCode = voucherCode,
+                Title = "VOUCHER_REFUND_100_PERCENT_RESCHEDULE_CANCEL",
+                Description = "Voucher bồi thường 100% khi khách từ chối đổi suất chiếu.",
+                DiscountType = DomainConstants.DiscountType.Percent,
+                DiscountValue = 100m,
+                UsageLimit = 1,
+                PerCustomerLimit = 1,
+                UsedCount = 0,
+                StartDate = now,
+                EndDate = now.AddDays(180),
+                VoucherStatus = DomainConstants.VoucherStatus.Active
+            };
+            _dbContext.Vouchers.Add(voucher);
+        }
+
+        var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
+            item => item.CustomerProfileId == booking.CustomerProfileId
+                && item.VoucherId == voucher.VoucherId,
+            cancellationToken);
+        if (!alreadyAssigned)
+        {
+            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+            {
+                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                CustomerProfileId = booking.CustomerProfileId,
+                VoucherId = voucher.VoucherId,
+                ClaimedAt = _clock.UtcNow,
+                IsUsed = false
+            });
         }
     }
 

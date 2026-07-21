@@ -28,13 +28,16 @@ public class AdminRefundsController : ControllerBase
 {
     private readonly IAdminRefundService _adminRefundService;
     private readonly IManualRefundService _manualRefundService;
+    private readonly IRefundCustomerConfirmationService _customerConfirmationService;
 
     public AdminRefundsController(
         IAdminRefundService adminRefundService,
-        IManualRefundService manualRefundService)
+        IManualRefundService manualRefundService,
+        IRefundCustomerConfirmationService customerConfirmationService)
     {
         _adminRefundService = adminRefundService;
         _manualRefundService = manualRefundService;
+        _customerConfirmationService = customerConfirmationService;
     }
 
     [HttpGet]
@@ -107,6 +110,15 @@ public class AdminRefundsController : ControllerBase
                 userId,
                 request,
                 cancellationToken));
+    }
+
+    [HttpPost("{refundId}/request-customer-confirmation")]
+    public async Task<IActionResult> RequestCustomerConfirmation(
+        string refundId,
+        CancellationToken cancellationToken)
+    {
+        return await WithAdminId(userId =>
+            _customerConfirmationService.SendAsync(refundId, userId, cancellationToken));
     }
 
     private async Task<IActionResult> WithAdminId<T>(

@@ -273,6 +273,7 @@ public static class DependencyInjection
         services.AddScoped<IRefundService, RefundService>();
         services.AddScoped<IRefundClaimService, RefundClaimService>();
         services.AddScoped<IManualRefundService, ManualRefundService>();
+        services.AddScoped<IRefundCustomerConfirmationService, RefundCustomerConfirmationService>();
         services.AddScoped<IRefundProcessor, RefundProcessor>();
         services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
         services.AddScoped<IStaffShiftReportService, StaffShiftReportService>();

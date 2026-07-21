@@ -14,10 +14,14 @@ namespace CinemaSystem.Controllers;
 public sealed class CustomerRefundClaimsController : ControllerBase
 {
     private readonly IRefundClaimService _service;
+    private readonly IRefundCustomerConfirmationService _customerConfirmationService;
 
-    public CustomerRefundClaimsController(IRefundClaimService service)
+    public CustomerRefundClaimsController(
+        IRefundClaimService service,
+        IRefundCustomerConfirmationService customerConfirmationService)
     {
         _service = service;
+        _customerConfirmationService = customerConfirmationService;
     }
 
     [HttpGet("banks")]
@@ -48,6 +52,18 @@ public sealed class CustomerRefundClaimsController : ControllerBase
         RequestRefundLinkRequest request,
         CancellationToken cancellationToken)
         => await WithUserId(userId => _service.RequestNewLinkAsync(userId, request, cancellationToken));
+
+    [HttpGet("refund-confirmations/preview")]
+    public async Task<IActionResult> PreviewRefundConfirmation(
+        [FromQuery] ConfirmRefundByCustomerRequest request,
+        CancellationToken cancellationToken)
+        => await WithUserId(userId => _customerConfirmationService.PreviewAsync(userId, request.Token, cancellationToken));
+
+    [HttpPost("refund-confirmations/confirm")]
+    public async Task<IActionResult> ConfirmRefundByCustomer(
+        ConfirmRefundByCustomerRequest request,
+        CancellationToken cancellationToken)
+        => await WithUserId(userId => _customerConfirmationService.ConfirmAsync(userId, request, cancellationToken));
 
     private async Task<IActionResult> WithUserId<T>(
         Func<string, Task<ServiceResult<T>>> operation)

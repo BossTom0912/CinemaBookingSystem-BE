@@ -169,5 +169,10 @@ public sealed class EmailTemplatesSettings
     public string ManualRefundCompletedSubject { get; set; } =
         "Cinema Booking - Refund Transfer Completed";
     public string ManualRefundCompletedBody { get; set; } =
-        "Your refund of {0:N0} for {1} has been transferred successfully.";
+        "Your refund of {0:N0} for {1} has been transferred successfully. Bank transaction code: {2}.";
+
+    public string RefundCustomerConfirmationSubject { get; set; } =
+        "Cinema Booking - Confirm Manual Refund Details";
+    public string RefundCustomerConfirmationBody { get; set; } =
+        "Confirm manual refund details before {9:O}: refund {0:N0}; movie {1}; cinema {2}; room {3}; showtime {4:O}; seats {5}; bank {6}; account {7}; account holder {8}. Confirm here: {10}";
 }

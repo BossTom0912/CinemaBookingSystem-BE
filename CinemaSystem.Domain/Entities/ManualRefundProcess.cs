@@ -19,4 +19,5 @@ public sealed class ManualRefundProcess
     public Refund Refund { get; set; } = null!;
     public RefundClaim RefundClaim { get; set; } = null!;
     public User? AssignedToUser { get; set; }
+    public RefundCustomerConfirmation? CustomerConfirmation { get; set; }
 }

@@ -45,6 +45,7 @@ public sealed class ManualRefundService : IManualRefundService
     {
         var processes = await _db.ManualRefundProcesses
             .AsNoTracking()
+            .Include(item => item.CustomerConfirmation)
             .Include(item => item.RefundClaim)
                 .ThenInclude(item => item.Bank)
             .Include(item => item.Refund)
@@ -144,6 +145,7 @@ public sealed class ManualRefundService : IManualRefundService
             try
             {
                 var process = await _db.ManualRefundProcesses
+                    .Include(item => item.CustomerConfirmation)
                     .Include(item => item.RefundClaim)
                     .Include(item => item.Refund)
                         .ThenInclude(item => item.Payment)
@@ -195,6 +197,15 @@ public sealed class ManualRefundService : IManualRefundService
                         (int)HttpStatusCode.Conflict,
                         "Refund is not awaiting manual processing.",
                         BookingConstants.RefundErrorCodes.RefundNotManualRequired);
+                }
+                if (process.CustomerConfirmation is not null
+                    && process.CustomerConfirmation.Status != BookingConstants.RefundCustomerConfirmationStatus.ConfirmedByCustomer)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return FailConfirm(
+                        (int)HttpStatusCode.Conflict,
+                        "Wait for the customer to confirm the refund details before recording the transfer.",
+                        "REFUND_CUSTOMER_CONFIRMATION_REQUIRED");
                 }
                 if (request.TransferredAmount != process.Refund.RefundAmount)
                 {
@@ -303,6 +314,7 @@ public sealed class ManualRefundService : IManualRefundService
                         email,
                         process.Refund.Booking.Showtime.Movie.Title,
                         process.Refund.RefundAmount,
+                        transactionCode,
                         cancellationToken);
                 }
                 return ServiceResult<RefundProcessingResponse>.Ok(
@@ -343,7 +355,9 @@ public sealed class ManualRefundService : IManualRefundService
             BankTransactionCode = process.BankTransactionCode,
             ProofUrl = process.ProofUrl,
             RequestedAt = process.Refund.RequestedAt,
-            ConfirmedAt = process.ConfirmedAt
+            ConfirmedAt = process.ConfirmedAt,
+            CustomerConfirmationStatus = process.CustomerConfirmation?.Status,
+            CustomerConfirmationExpiresAt = process.CustomerConfirmation?.ExpiresAt
         };
     }
 
@@ -400,6 +414,7 @@ public sealed class ManualRefundService : IManualRefundService
         string email,
         string movieTitle,
         decimal amount,
+        string transactionCode,
         CancellationToken cancellationToken)
     {
         try
@@ -411,7 +426,8 @@ public sealed class ManualRefundService : IManualRefundService
                     CultureInfo.InvariantCulture,
                     _emailTemplates.ManualRefundCompletedBody,
                     amount,
-                    movieTitle),
+                    movieTitle,
+                    transactionCode),
                 cancellationToken);
         }
         catch (Exception exception)
