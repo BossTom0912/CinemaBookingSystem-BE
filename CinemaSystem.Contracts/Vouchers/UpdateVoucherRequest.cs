@@ -45,4 +45,9 @@ public sealed class UpdateVoucherRequest
     public string? TargetCustomerIds { get; init; }
 
     public string? SpecificFbItemIds { get; init; }
+
+    public bool IsPrivate { get; init; } = false;
+
+    [Range(1, int.MaxValue, ErrorMessage = "RequiredTicketCount must be greater than zero.")]
+    public int? RequiredTicketCount { get; init; }
 }

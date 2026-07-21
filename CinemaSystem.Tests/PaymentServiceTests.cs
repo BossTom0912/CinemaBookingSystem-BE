@@ -173,7 +173,8 @@ public sealed class PaymentServiceTests
                 new CancellationCompensationService(
                     dbContext,
                     Options.Create(new CancellationCompensationSettings()),
-                    new CinemaSystem.Infrastructure.Time.SystemClock()));
+                    new CinemaSystem.Infrastructure.Time.SystemClock()),
+                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()));
 
             return new Fixture(dbContext, service);
         }

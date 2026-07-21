@@ -1580,6 +1580,18 @@ public sealed class BookingService : IBookingService
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
+            if (!string.IsNullOrEmpty(request.CustomerProfileId))
+            {
+                try
+                {
+                    await _voucherService.CheckAndAwardTicketMilestoneVouchersAsync(request.CustomerProfileId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to check milestone vouchers for CustomerProfileId {CustomerProfileId}", request.CustomerProfileId);
+                }
+            }
+
             // Generate detailed response body
             var seatResponses = new List<BookedSeatDetailsResponse>();
             foreach (var bs in bookingSeats)

@@ -1740,6 +1740,11 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("targetCustomerIds");
             entity.Property(e => e.SpecificFbItemIds)
                 .HasColumnName("specificFbItemIds");
+            entity.Property(e => e.IsPrivate)
+                .HasDefaultValue(false)
+                .HasColumnName("isPrivate");
+            entity.Property(e => e.RequiredTicketCount)
+                .HasColumnName("requiredTicketCount");
         });
 
         modelBuilder.Entity<VoucherUsage>(entity =>

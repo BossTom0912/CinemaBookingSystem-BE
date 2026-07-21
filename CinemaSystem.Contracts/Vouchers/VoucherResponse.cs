@@ -43,4 +43,8 @@ public sealed class VoucherResponse
     public string? TargetCustomerIds { get; init; }
 
     public string? SpecificFbItemIds { get; init; }
+
+    public bool IsPrivate { get; init; }
+
+    public int? RequiredTicketCount { get; init; }
 }

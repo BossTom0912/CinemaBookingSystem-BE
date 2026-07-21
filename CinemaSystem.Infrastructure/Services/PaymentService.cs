@@ -35,6 +35,7 @@ public class PaymentService : IPaymentService
     private readonly ILogger<PaymentService> _logger;
     private readonly IVoucherReservationService _voucherReservationService;
     private readonly ICancellationCompensationService _cancellationCompensationService;
+    private readonly IVoucherService _voucherService;
     // Biểu thức chính quy (Regex) để trích xuất mã giao dịch (Bắt đầu bằng chữ T và theo sau là 10 ký tự chữ/số)
     private static readonly Regex TransactionCodeRegex = new(
         DomainConstants.PaymentTransactionCode.Pattern,
@@ -51,7 +52,8 @@ public class PaymentService : IPaymentService
         IClock clock,
         ILogger<PaymentService> logger,
         IVoucherReservationService voucherReservationService,
-        ICancellationCompensationService cancellationCompensationService)
+        ICancellationCompensationService cancellationCompensationService,
+        IVoucherService voucherService)
     {
         // Gán DbContext được tiêm vào biến private
         _db = db;
@@ -65,6 +67,7 @@ public class PaymentService : IPaymentService
         _logger = logger;
         _voucherReservationService = voucherReservationService;
         _cancellationCompensationService = cancellationCompensationService;
+        _voucherService = voucherService;
     }
 
     // Phương thức tạo bản ghi thanh toán cho một đặt vé và trả về thông tin ngân hàng kèm mã giao dịch
@@ -488,6 +491,18 @@ public class PaymentService : IPaymentService
                 await _db.SaveChangesAsync(cancellationToken);
                 // Xác nhận thành công (Commit) transaction
                 await tx.CommitAsync(cancellationToken);
+
+                if (!string.IsNullOrEmpty(booking.CustomerProfileId))
+                {
+                    try
+                    {
+                        await _voucherService.CheckAndAwardTicketMilestoneVouchersAsync(booking.CustomerProfileId, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to award ticket milestone vouchers for customer {CustomerProfileId}", booking.CustomerProfileId);
+                    }
+                }
             }
             catch
             {
