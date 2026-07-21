@@ -472,6 +472,37 @@ public sealed class ShowtimeService : IShowtimeService
                                 request.CompensationNote,
                                 request.TargetSeatType));
                     }
+                    else if (roomChanged && !timeChanged)
+                    {
+                        var secret = _securitySettings.ConfirmationTokenSecret;
+                        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+                        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(booking.BookingId));
+                        var token = Convert.ToBase64String(hash);
+                        var encodedToken = System.Uri.EscapeDataString(token);
+
+                        string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
+                        var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                        var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                        var cutoffTimeStr = showtime.StartTime.AddHours(-2).ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                        var oldRoomName = showtime.Room?.RoomName ?? "Phòng cũ";
+                        var newRoomName = request.RoomId;
+
+                        _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
+                            ai.SendAiRoomChangeEmailAsync(
+                                customerEmail, 
+                                subject, 
+                                movieTitle,
+                                oldRoomName,
+                                newRoomName,
+                                timeStr,
+                                cutoffTimeStr,
+                                booking.BookingId, 
+                                encodedToken, 
+                                CancellationToken.None,
+                                request.CompensationVoucherCode,
+                                request.CompensationNote,
+                                request.TargetSeatType));
+                    }
                     else
                     {
                         string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
@@ -767,18 +798,21 @@ public sealed class ShowtimeService : IShowtimeService
                 var token = Convert.ToBase64String(hash);
                 var encodedToken = System.Uri.EscapeDataString(token);
 
-                string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Schedule & Room Update";
+                string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                 var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                 var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
                 var cutoffTimeStr = showtime.StartTime.AddHours(-2).ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                var oldRoomName = showtime.Room?.RoomName ?? "Phòng cũ";
+                var newRoomName = newRoom.RoomName;
 
-                // Đẩy job gửi Email AI ngầm qua Hangfire với đầy đủ nút bấm xác nhận/hoàn tiền và voucher đền bù
+                // Đẩy job gửi Email AI ngầm qua Hangfire với nội dung thông báo đổi phòng chiếu chuẩn xác
                 _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                    ai.SendAiTimeChangeEmailAsync(
+                    ai.SendAiRoomChangeEmailAsync(
                         email, 
                         subject, 
                         movieTitle,
-                        timeStr,
+                        oldRoomName,
+                        newRoomName,
                         timeStr,
                         cutoffTimeStr,
                         booking.BookingId, 
