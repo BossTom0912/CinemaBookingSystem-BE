@@ -18,4 +18,6 @@ public partial class BookingSeat
     public virtual ShowtimeSeat ShowtimeSeat { get; set; } = null!;
 
     public virtual Ticket? Ticket { get; set; }
+
+    public virtual CompensationTicket? CompensationTicket { get; set; }
 }

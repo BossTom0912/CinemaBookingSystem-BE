@@ -21,4 +21,10 @@ public sealed class CancelShowtimeResponse
     public int RefundsManualRequired { get; init; }
 
     public int RefundsPending { get; init; }
+
+    public int PaidBookingsCompensated { get; init; }
+
+    public int TicketVouchersIssued { get; init; }
+
+    public int ComboVouchersIssued { get; init; }
 }

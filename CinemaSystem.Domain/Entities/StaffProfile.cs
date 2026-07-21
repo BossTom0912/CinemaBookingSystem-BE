@@ -33,6 +33,8 @@ public partial class StaffProfile
 
     public virtual ICollection<CheckinLog> CheckinLogs { get; set; } = new List<CheckinLog>();
 
+    public virtual ICollection<CompensationCombo> RedeemedCompensationCombos { get; set; } = new List<CompensationCombo>();
+
     public virtual Cinema Cinema { get; set; } = null!;
 
     public virtual ICollection<ShowtimeCancellation> ShowtimeCancellations { get; set; } = new List<ShowtimeCancellation>();

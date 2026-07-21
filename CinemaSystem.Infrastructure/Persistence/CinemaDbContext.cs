@@ -31,6 +31,12 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<CustomerProfile> CustomerProfiles { get; set; }
 
+    public virtual DbSet<CancellationCompensation> CancellationCompensations { get; set; }
+
+    public virtual DbSet<CompensationTicket> CompensationTickets { get; set; }
+
+    public virtual DbSet<CompensationCombo> CompensationCombos { get; set; }
+
     public virtual DbSet<CustomerRefundRequest> CustomerRefundRequests { get; set; }
 
     public virtual DbSet<EmailVerificationToken> EmailVerificationTokens { get; set; }
@@ -60,6 +66,8 @@ public partial class CinemaDbContext : DbContext
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<ManualRefundProcess> ManualRefundProcesses { get; set; }
+
+    public virtual DbSet<RefundCustomerConfirmation> RefundCustomerConfirmations { get; set; }
 
     public virtual DbSet<Payment> Payments { get; set; }
 
@@ -254,6 +262,10 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.TotalAmount)
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("totalAmount");
+            entity.Property(e => e.CompensationDiscountAmount)
+                .HasColumnType("decimal(18, 2)")
+                .HasDefaultValue(0m)
+                .HasColumnName("compensationDiscountAmount");
 
             entity.HasOne(d => d.CreatedByStaffProfile).WithMany(p => p.Bookings)
                 .HasForeignKey(d => d.CreatedByStaffProfileId)
@@ -1084,6 +1096,27 @@ public partial class CinemaDbContext : DbContext
             entity.HasOne(e => e.AssignedToUser).WithMany(e => e.AssignedManualRefundProcesses)
                 .HasForeignKey(e => e.AssignedToUserId)
                 .HasConstraintName("FK_MANUAL_REFUND_PROCESS_ASSIGNED_USER");
+          });
+
+        modelBuilder.Entity<RefundCustomerConfirmation>(entity =>
+        {
+            entity.HasKey(e => e.RefundCustomerConfirmationId);
+            entity.ToTable("REFUND_CUSTOMER_CONFIRMATION");
+            entity.HasIndex(e => e.ManualRefundProcessId, "UQ_REFUND_CUSTOMER_CONFIRMATION_PROCESS").IsUnique();
+            entity.HasIndex(e => e.TokenHash, "UQ_REFUND_CUSTOMER_CONFIRMATION_TOKEN").IsUnique();
+            entity.HasIndex(e => new { e.Status, e.ExpiresAt }, "IX_REFUND_CUSTOMER_CONFIRMATION_STATUS");
+            entity.Property(e => e.RefundCustomerConfirmationId).HasMaxLength(50).HasColumnName("refundCustomerConfirmationId");
+            entity.Property(e => e.ManualRefundProcessId).HasMaxLength(50).HasColumnName("manualRefundProcessId");
+            entity.Property(e => e.TokenHash).HasMaxLength(64).IsFixedLength().HasColumnName("tokenHash");
+            entity.Property(e => e.Status).HasMaxLength(30).HasColumnName("status");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expiresAt");
+            entity.Property(e => e.ConfirmedAt).HasColumnName("confirmedAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
+            entity.Property(e => e.RevokedAt).HasColumnName("revokedAt");
+            entity.HasOne(e => e.ManualRefundProcess).WithOne(e => e.CustomerConfirmation)
+                .HasForeignKey<RefundCustomerConfirmation>(e => e.ManualRefundProcessId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_REFUND_CUSTOMER_CONFIRMATION_PROCESS");
         });
 
         modelBuilder.Entity<Review>(entity =>
@@ -1628,6 +1661,10 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.BookingId, "UQ_VOUCHER_USAGE_BOOKING").IsUnique();
 
+            entity.HasIndex(e => e.CustomerVoucherId, "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER")
+                .IsUnique()
+                .HasFilter("[customerVoucherId] IS NOT NULL AND [usageStatus] <> 'CANCELLED'");
+
             entity.Property(e => e.VoucherUsageId)
                 .HasMaxLength(50)
                 .HasColumnName("voucherUsageId");
@@ -1637,6 +1674,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.CustomerProfileId)
                 .HasMaxLength(50)
                 .HasColumnName("customerProfileId");
+            entity.Property(e => e.CustomerVoucherId)
+                .HasMaxLength(50)
+                .HasColumnName("customerVoucherId");
             entity.Property(e => e.DiscountAmount)
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("discountAmount");
@@ -1658,6 +1698,11 @@ public partial class CinemaDbContext : DbContext
                 .HasForeignKey(d => d.CustomerProfileId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_VOUCHER_USAGE_CUSTOMER_PROFILE");
+
+            entity.HasOne(d => d.CustomerVoucher).WithMany(p => p.VoucherUsages)
+                .HasForeignKey(d => d.CustomerVoucherId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_VOUCHER_USAGE_CUSTOMER_VOUCHER");
 
             entity.HasOne(d => d.Voucher).WithMany(p => p.VoucherUsages)
                 .HasForeignKey(d => d.VoucherId)
@@ -1702,6 +1747,172 @@ public partial class CinemaDbContext : DbContext
                 .HasForeignKey(d => d.VoucherId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_CUSTOMER_VOUCHER_VOUCHER");
+        });
+
+        modelBuilder.Entity<CancellationCompensation>(entity =>
+        {
+            entity.HasKey(e => e.CancellationCompensationId);
+            entity.ToTable("CANCELLATION_COMPENSATION");
+
+            entity.HasIndex(e => e.SourceBookingId, "UQ_CANCELLATION_COMPENSATION_BOOKING")
+                .IsUnique();
+            entity.HasIndex(e => e.ShowtimeCancellationId, "IX_CANCELLATION_COMPENSATION_SHOWTIME_CANCELLATION");
+            entity.HasIndex(e => new { e.CustomerProfileId, e.Status }, "IX_CANCELLATION_COMPENSATION_CUSTOMER_STATUS");
+
+            entity.Property(e => e.CancellationCompensationId)
+                .HasMaxLength(50)
+                .HasColumnName("cancellationCompensationId");
+            entity.Property(e => e.SourceBookingId)
+                .HasMaxLength(50)
+                .HasColumnName("sourceBookingId");
+            entity.Property(e => e.ShowtimeCancellationId)
+                .HasMaxLength(50)
+                .HasColumnName("showtimeCancellationId");
+            entity.Property(e => e.CustomerProfileId)
+                .HasMaxLength(50)
+                .HasColumnName("customerProfileId");
+            entity.Property(e => e.Status)
+                .HasMaxLength(30)
+                .HasDefaultValue("ISSUED")
+                .HasColumnName("status");
+            entity.Property(e => e.PolicyVersion)
+                .HasMaxLength(50)
+                .HasColumnName("policyVersion");
+            entity.Property(e => e.IssuedAt)
+                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasColumnName("issuedAt");
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnName("expiresAt");
+
+            entity.HasOne(e => e.SourceBooking)
+                .WithOne(e => e.SourceCancellationCompensation)
+                .HasForeignKey<CancellationCompensation>(e => e.SourceBookingId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_CANCELLATION_COMPENSATION_BOOKING");
+            entity.HasOne(e => e.ShowtimeCancellation)
+                .WithMany(e => e.Compensations)
+                .HasForeignKey(e => e.ShowtimeCancellationId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_CANCELLATION_COMPENSATION_SHOWTIME_CANCELLATION");
+            entity.HasOne(e => e.CustomerProfile)
+                .WithMany(e => e.CancellationCompensations)
+                .HasForeignKey(e => e.CustomerProfileId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_CANCELLATION_COMPENSATION_CUSTOMER_PROFILE");
+        });
+
+        modelBuilder.Entity<CompensationTicket>(entity =>
+        {
+            entity.HasKey(e => e.CompensationTicketId);
+            entity.ToTable("COMPENSATION_TICKET");
+
+            entity.HasIndex(e => e.VoucherCode, "UQ_COMPENSATION_TICKET_CODE")
+                .IsUnique();
+            entity.HasIndex(e => e.CancellationCompensationId, "IX_COMPENSATION_TICKET_COMPENSATION");
+            entity.HasIndex(e => e.ReservedBookingId, "IX_COMPENSATION_TICKET_RESERVED_BOOKING");
+            entity.HasIndex(e => e.ReservedBookingSeatId, "UQ_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT")
+                .IsUnique()
+                .HasFilter("[reservedBookingSeatId] IS NOT NULL");
+
+            entity.Property(e => e.CompensationTicketId)
+                .HasMaxLength(50)
+                .HasColumnName("compensationTicketId");
+            entity.Property(e => e.CancellationCompensationId)
+                .HasMaxLength(50)
+                .HasColumnName("cancellationCompensationId");
+            entity.Property(e => e.VoucherCode)
+                .HasMaxLength(100)
+                .HasColumnName("voucherCode");
+            entity.Property(e => e.Status)
+                .HasMaxLength(30)
+                .HasDefaultValue("ISSUED")
+                .HasColumnName("status");
+            entity.Property(e => e.ReservedBookingId)
+                .HasMaxLength(50)
+                .HasColumnName("reservedBookingId");
+            entity.Property(e => e.ReservedBookingSeatId)
+                .HasMaxLength(50)
+                .HasColumnName("reservedBookingSeatId");
+            entity.Property(e => e.ReservedAt)
+                .HasColumnName("reservedAt");
+            entity.Property(e => e.RedeemedAt)
+                .HasColumnName("redeemedAt");
+            entity.Property(e => e.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken()
+                .HasColumnName("rowVersion");
+
+            entity.HasOne(e => e.CancellationCompensation)
+                .WithMany(e => e.Tickets)
+                .HasForeignKey(e => e.CancellationCompensationId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_COMPENSATION_TICKET_COMPENSATION");
+            entity.HasOne(e => e.ReservedBooking)
+                .WithMany(e => e.ReservedCompensationTickets)
+                .HasForeignKey(e => e.ReservedBookingId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_COMPENSATION_TICKET_RESERVED_BOOKING");
+            entity.HasOne(e => e.ReservedBookingSeat)
+                .WithOne(e => e.CompensationTicket)
+                .HasForeignKey<CompensationTicket>(e => e.ReservedBookingSeatId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT");
+        });
+
+        modelBuilder.Entity<CompensationCombo>(entity =>
+        {
+            entity.HasKey(e => e.CompensationComboId);
+            entity.ToTable("COMPENSATION_COMBO");
+
+            entity.HasIndex(e => e.CancellationCompensationId, "UQ_COMPENSATION_COMBO_COMPENSATION")
+                .IsUnique();
+            entity.HasIndex(e => e.VoucherCode, "UQ_COMPENSATION_COMBO_CODE")
+                .IsUnique();
+
+            entity.Property(e => e.CompensationComboId)
+                .HasMaxLength(50)
+                .HasColumnName("compensationComboId");
+            entity.Property(e => e.CancellationCompensationId)
+                .HasMaxLength(50)
+                .HasColumnName("cancellationCompensationId");
+            entity.Property(e => e.VoucherCode)
+                .HasMaxLength(100)
+                .HasColumnName("voucherCode");
+            entity.Property(e => e.DisplayName)
+                .HasMaxLength(255)
+                .HasColumnName("displayName");
+            entity.Property(e => e.Status)
+                .HasMaxLength(30)
+                .HasDefaultValue("ISSUED")
+                .HasColumnName("status");
+            entity.Property(e => e.RedeemedAt)
+                .HasColumnName("redeemedAt");
+            entity.Property(e => e.RedeemedAtCinemaId)
+                .HasMaxLength(50)
+                .HasColumnName("redeemedAtCinemaId");
+            entity.Property(e => e.RedeemedByStaffProfileId)
+                .HasMaxLength(50)
+                .HasColumnName("redeemedByStaffProfileId");
+            entity.Property(e => e.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken()
+                .HasColumnName("rowVersion");
+
+            entity.HasOne(e => e.CancellationCompensation)
+                .WithOne(e => e.Combo)
+                .HasForeignKey<CompensationCombo>(e => e.CancellationCompensationId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_COMPENSATION_COMBO_COMPENSATION");
+            entity.HasOne(e => e.RedeemedAtCinema)
+                .WithMany(e => e.RedeemedCompensationCombos)
+                .HasForeignKey(e => e.RedeemedAtCinemaId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_COMPENSATION_COMBO_CINEMA");
+            entity.HasOne(e => e.RedeemedByStaffProfile)
+                .WithMany(e => e.RedeemedCompensationCombos)
+                .HasForeignKey(e => e.RedeemedByStaffProfileId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_COMPENSATION_COMBO_STAFF_PROFILE");
         });
 
         var dateTimeConverter = new ValueConverter<DateTime, DateTime>(

@@ -116,6 +116,30 @@ public static class DomainConstants
         public const string Cancelled = "CANCELLED";
     }
 
+    public static class CancellationCompensationStatus
+    {
+        public const string Issued = "ISSUED";
+        public const string PartiallyUsed = "PARTIALLY_USED";
+        public const string Used = "USED";
+        public const string Expired = "EXPIRED";
+        public const string Voided = "VOIDED";
+    }
+
+    public static class CompensationEntitlementStatus
+    {
+        public const string Issued = "ISSUED";
+        public const string Reserved = "RESERVED";
+        public const string Redeemed = "REDEEMED";
+        public const string Expired = "EXPIRED";
+        public const string Voided = "VOIDED";
+    }
+
+    public static class CancellationCompensationPolicy
+    {
+        public const string Version = "SHOWTIME_CANCELLATION_V1";
+        public const string ComboDisplayName = "1 medium popcorn + 1 medium soft drink";
+    }
+
     public static class DiscountType
     {
         public const string Amount = "AMOUNT";
@@ -173,6 +197,7 @@ public static class DomainConstants
         public const string AuditLog = "AUD";
         public const string RewardPointTransaction = "RPT";
         public const string ManualRefundProcess = "MRP";
+        public const string RefundCustomerConfirmation = "RCC";
         public const string CustomerRefundRequest = "CRR";
         public const string Ticket = "TCK";
         public const string CheckInLog = "CIL";
@@ -182,6 +207,9 @@ public static class DomainConstants
         public const string ChatHistory = "CHT";
         public const string Voucher = "VOU";
         public const string VoucherUsage = "VUS";
+        public const string CancellationCompensation = "CCP";
+        public const string CompensationTicket = "CPT";
+        public const string CompensationCombo = "CPC";
     }
 
     public static class VerificationTokenPurpose
@@ -254,6 +282,14 @@ public static class DomainConstants
         public const string InProgress = "IN_PROGRESS";
         public const string Confirmed = "CONFIRMED";
         public const string Rejected = "REJECTED";
+    }
+
+    public static class RefundCustomerConfirmationStatus
+    {
+        public const string AwaitingCustomer = "AWAITING_CUSTOMER";
+        public const string ConfirmedByCustomer = "CONFIRMED_BY_CUSTOMER";
+        public const string Expired = "EXPIRED";
+        public const string Revoked = "REVOKED";
     }
 
     public static class CustomerRefundRequestStatus

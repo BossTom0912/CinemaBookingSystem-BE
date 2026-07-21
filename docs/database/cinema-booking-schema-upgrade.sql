@@ -8,6 +8,9 @@ Run this script against the existing target database, for example:
 Safety contract:
 - No DROP DATABASE, DROP TABLE, DELETE, TRUNCATE, or destructive data rewrite.
 - Every schema change is guarded, so the script is safe to re-run.
+- It contains every supported additive schema change and only idempotent
+  reference-data seeds (for example, BANK_DIRECTORY). It does not add dev
+  movies, bookings, payments, tickets, or compensation test fixtures.
 - Each upgrade phase runs in a transaction. The retry-safe checkout contract
   commits first, so an optional later migration cannot leave the running API
   without its required booking columns.
@@ -69,6 +72,7 @@ IF OBJECT_ID(N'dbo.BOOKING', N'U') IS NULL
    OR OBJECT_ID(N'dbo.FB_ITEM', N'U') IS NULL
    OR OBJECT_ID(N'dbo.CINEMA_FB_INVENTORY', N'U') IS NULL
    OR OBJECT_ID(N'dbo.VOUCHER', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.VOUCHER_USAGE', N'U') IS NULL
 BEGIN
     THROW 52001, 'Required base tables are missing. Use the reset schema only for a new local database.', 1;
 END;
@@ -171,6 +175,21 @@ BEGIN TRY
     )
         CREATE INDEX [IX_CHECKIN_LOG_SCANNED_BY_USER_TIME]
             ON dbo.[CHECKIN_LOG]([scannedByUserId], [scanTime]);
+
+    -- Banner module. Kept here instead of a standalone patch so an existing
+    -- database receives the same schema as the canonical reset script.
+    IF OBJECT_ID(N'dbo.BANNER', N'U') IS NULL
+        CREATE TABLE dbo.[BANNER]
+        (
+            [bannerId] VARCHAR(50) NOT NULL PRIMARY KEY,
+            [title] NVARCHAR(200) NOT NULL,
+            [imageUrl] NVARCHAR(1000) NOT NULL,
+            [linkUrl] NVARCHAR(1000) NULL,
+            [bannerType] VARCHAR(50) NOT NULL,
+            [displayOrder] INT NOT NULL CONSTRAINT [DF_BANNER_DISPLAY_ORDER] DEFAULT 0,
+            [isActive] BIT NOT NULL CONSTRAINT [DF_BANNER_IS_ACTIVE] DEFAULT 1,
+            [createdAt] DATETIME NOT NULL CONSTRAINT [DF_BANNER_CREATED_AT] DEFAULT GETDATE()
+        );
 
     -- Voucher wallet introduced by the customer voucher feature.
     IF OBJECT_ID(N'dbo.CUSTOMER_VOUCHER', N'U') IS NULL
@@ -433,9 +452,276 @@ BEGIN CATCH
 END CATCH;
 GO
 
+-- SQL Server resolves column names when a batch is compiled. Add the nullable
+-- column in its own harmless, rerunnable phase before compiling the backfill.
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    IF COL_LENGTH(N'dbo.VOUCHER_USAGE', N'customerVoucherId') IS NULL
+        ALTER TABLE dbo.[VOUCHER_USAGE]
+            ADD [customerVoucherId] NVARCHAR(50) NULL;
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+-- Link a checkout reservation to the exact claimed voucher. Existing rows are
+-- backfilled only when exactly one used wallet claim is a safe match.
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    ;WITH exactClaim AS
+    (
+        SELECT
+            usage.[voucherUsageId],
+            MIN(claim.[customerVoucherId]) AS [customerVoucherId]
+        FROM dbo.[VOUCHER_USAGE] AS usage
+        INNER JOIN dbo.[CUSTOMER_VOUCHER] AS claim
+            ON claim.[voucherId] = usage.[voucherId]
+           AND claim.[customerProfileId] = usage.[customerProfileId]
+           AND claim.[isUsed] = 1
+        WHERE usage.[customerVoucherId] IS NULL
+          AND usage.[usageStatus] IN (N'APPLIED', N'CONFIRMED')
+        GROUP BY usage.[voucherUsageId]
+        HAVING COUNT_BIG(*) = 1
+    )
+    UPDATE usage
+    SET [customerVoucherId] = exactClaim.[customerVoucherId]
+    FROM dbo.[VOUCHER_USAGE] AS usage
+    INNER JOIN exactClaim
+        ON exactClaim.[voucherUsageId] = usage.[voucherUsageId];
+
+    -- APPLIED is a temporary reservation, not a consumed wallet claim.
+    UPDATE claim
+    SET [isUsed] = 0,
+        [usedAt] = NULL
+    FROM dbo.[CUSTOMER_VOUCHER] AS claim
+    INNER JOIN dbo.[VOUCHER_USAGE] AS usage
+        ON usage.[customerVoucherId] = claim.[customerVoucherId]
+    WHERE usage.[usageStatus] = N'APPLIED'
+      AND claim.[isUsed] = 1;
+
+    IF EXISTS
+    (
+        SELECT usage.[customerVoucherId]
+        FROM dbo.[VOUCHER_USAGE] AS usage
+        WHERE usage.[customerVoucherId] IS NOT NULL
+          AND usage.[usageStatus] <> N'CANCELLED'
+        GROUP BY usage.[customerVoucherId]
+        HAVING COUNT_BIG(*) > 1
+    )
+        THROW 52004, 'A customer voucher is linked to multiple non-cancelled usages. Reconcile those rows, then re-run.', 1;
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE parent_object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
+          AND name = N'FK_VOUCHER_USAGE_CUSTOMER_VOUCHER'
+    )
+        ALTER TABLE dbo.[VOUCHER_USAGE] WITH CHECK
+            ADD CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_VOUCHER]
+            FOREIGN KEY ([customerVoucherId])
+            REFERENCES dbo.[CUSTOMER_VOUCHER]([customerVoucherId]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
+          AND name = N'UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER'
+    )
+        CREATE UNIQUE INDEX [UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER]
+            ON dbo.[VOUCHER_USAGE]([customerVoucherId])
+            WHERE [customerVoucherId] IS NOT NULL
+              AND [usageStatus] <> N'CANCELLED';
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+-- Showtime-cancellation compensation policy. The booking column is added in a
+-- separate batch because SQL Server resolves new column names at compile time.
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    IF COL_LENGTH(N'dbo.BOOKING', N'compensationDiscountAmount') IS NULL
+        ALTER TABLE dbo.[BOOKING]
+            ADD [compensationDiscountAmount] DECIMAL(18,2) NOT NULL
+                CONSTRAINT [DF_BOOKING_COMPENSATION_DISCOUNT_AMOUNT] DEFAULT 0;
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    IF NOT EXISTS
+    (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.BOOKING')
+          AND name = N'CK_BOOKING_COMPENSATION_DISCOUNT_AMOUNT'
+    )
+        ALTER TABLE dbo.[BOOKING] WITH CHECK
+            ADD CONSTRAINT [CK_BOOKING_COMPENSATION_DISCOUNT_AMOUNT]
+            CHECK ([compensationDiscountAmount] >= 0);
+
+    IF OBJECT_ID(N'dbo.CANCELLATION_COMPENSATION', N'U') IS NULL
+        CREATE TABLE dbo.[CANCELLATION_COMPENSATION]
+        (
+            [cancellationCompensationId] NVARCHAR(50) NOT NULL PRIMARY KEY,
+            [sourceBookingId] NVARCHAR(50) NOT NULL,
+            [showtimeCancellationId] NVARCHAR(50) NOT NULL,
+            [customerProfileId] NVARCHAR(50) NULL,
+            [status] NVARCHAR(30) NOT NULL
+                CONSTRAINT [DF_CANCELLATION_COMPENSATION_STATUS] DEFAULT 'ISSUED',
+            [policyVersion] NVARCHAR(50) NOT NULL,
+            [issuedAt] DATETIME2 NOT NULL
+                CONSTRAINT [DF_CANCELLATION_COMPENSATION_ISSUED_AT] DEFAULT SYSUTCDATETIME(),
+            [expiresAt] DATETIME2 NOT NULL,
+            CONSTRAINT [UQ_CANCELLATION_COMPENSATION_BOOKING] UNIQUE ([sourceBookingId]),
+            CONSTRAINT [CK_CANCELLATION_COMPENSATION_STATUS]
+                CHECK ([status] IN ('ISSUED', 'PARTIALLY_USED', 'USED', 'EXPIRED', 'VOIDED')),
+            CONSTRAINT [CK_CANCELLATION_COMPENSATION_EXPIRY]
+                CHECK ([expiresAt] > [issuedAt]),
+            CONSTRAINT [FK_CANCELLATION_COMPENSATION_BOOKING]
+                FOREIGN KEY ([sourceBookingId]) REFERENCES dbo.[BOOKING]([bookingId]),
+            CONSTRAINT [FK_CANCELLATION_COMPENSATION_SHOWTIME_CANCELLATION]
+                FOREIGN KEY ([showtimeCancellationId]) REFERENCES dbo.[SHOWTIME_CANCELLATION]([showtimeCancellationId]),
+            CONSTRAINT [FK_CANCELLATION_COMPENSATION_CUSTOMER_PROFILE]
+                FOREIGN KEY ([customerProfileId]) REFERENCES dbo.[CUSTOMER_PROFILE]([customerProfileId])
+        );
+
+    IF OBJECT_ID(N'dbo.COMPENSATION_TICKET', N'U') IS NULL
+        CREATE TABLE dbo.[COMPENSATION_TICKET]
+        (
+            [compensationTicketId] NVARCHAR(50) NOT NULL PRIMARY KEY,
+            [cancellationCompensationId] NVARCHAR(50) NOT NULL,
+            [voucherCode] NVARCHAR(100) NOT NULL,
+            [status] NVARCHAR(30) NOT NULL
+                CONSTRAINT [DF_COMPENSATION_TICKET_STATUS] DEFAULT 'ISSUED',
+            [reservedBookingId] NVARCHAR(50) NULL,
+            [reservedBookingSeatId] NVARCHAR(50) NULL,
+            [reservedAt] DATETIME2 NULL,
+            [redeemedAt] DATETIME2 NULL,
+            [rowVersion] ROWVERSION NOT NULL,
+            CONSTRAINT [UQ_COMPENSATION_TICKET_CODE] UNIQUE ([voucherCode]),
+            CONSTRAINT [CK_COMPENSATION_TICKET_STATUS]
+                CHECK ([status] IN ('ISSUED', 'RESERVED', 'REDEEMED', 'EXPIRED', 'VOIDED')),
+            CONSTRAINT [FK_COMPENSATION_TICKET_COMPENSATION]
+                FOREIGN KEY ([cancellationCompensationId])
+                REFERENCES dbo.[CANCELLATION_COMPENSATION]([cancellationCompensationId])
+                ON DELETE CASCADE,
+            CONSTRAINT [FK_COMPENSATION_TICKET_RESERVED_BOOKING]
+                FOREIGN KEY ([reservedBookingId]) REFERENCES dbo.[BOOKING]([bookingId]),
+            CONSTRAINT [FK_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT]
+                FOREIGN KEY ([reservedBookingSeatId]) REFERENCES dbo.[BOOKING_SEAT]([bookingSeatId])
+        );
+
+    IF OBJECT_ID(N'dbo.COMPENSATION_COMBO', N'U') IS NULL
+        CREATE TABLE dbo.[COMPENSATION_COMBO]
+        (
+            [compensationComboId] NVARCHAR(50) NOT NULL PRIMARY KEY,
+            [cancellationCompensationId] NVARCHAR(50) NOT NULL,
+            [voucherCode] NVARCHAR(100) NOT NULL,
+            [displayName] NVARCHAR(255) NOT NULL,
+            [status] NVARCHAR(30) NOT NULL
+                CONSTRAINT [DF_COMPENSATION_COMBO_STATUS] DEFAULT 'ISSUED',
+            [redeemedAt] DATETIME2 NULL,
+            [redeemedAtCinemaId] NVARCHAR(50) NULL,
+            [redeemedByStaffProfileId] NVARCHAR(50) NULL,
+            [rowVersion] ROWVERSION NOT NULL,
+            CONSTRAINT [UQ_COMPENSATION_COMBO_COMPENSATION] UNIQUE ([cancellationCompensationId]),
+            CONSTRAINT [UQ_COMPENSATION_COMBO_CODE] UNIQUE ([voucherCode]),
+            CONSTRAINT [CK_COMPENSATION_COMBO_STATUS]
+                CHECK ([status] IN ('ISSUED', 'REDEEMED', 'EXPIRED', 'VOIDED')),
+            CONSTRAINT [FK_COMPENSATION_COMBO_COMPENSATION]
+                FOREIGN KEY ([cancellationCompensationId])
+                REFERENCES dbo.[CANCELLATION_COMPENSATION]([cancellationCompensationId])
+                ON DELETE CASCADE,
+            CONSTRAINT [FK_COMPENSATION_COMBO_CINEMA]
+                FOREIGN KEY ([redeemedAtCinemaId]) REFERENCES dbo.[CINEMA]([cinemaId]),
+            CONSTRAINT [FK_COMPENSATION_COMBO_STAFF_PROFILE]
+                FOREIGN KEY ([redeemedByStaffProfileId]) REFERENCES dbo.[STAFF_PROFILE]([staffProfileId])
+        );
+
+    IF COL_LENGTH(N'dbo.COMPENSATION_TICKET', N'rowVersion') IS NULL
+        ALTER TABLE dbo.[COMPENSATION_TICKET]
+            ADD [rowVersion] ROWVERSION NOT NULL;
+
+    IF COL_LENGTH(N'dbo.COMPENSATION_COMBO', N'rowVersion') IS NULL
+        ALTER TABLE dbo.[COMPENSATION_COMBO]
+            ADD [rowVersion] ROWVERSION NOT NULL;
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.CANCELLATION_COMPENSATION')
+          AND name = N'IX_CANCELLATION_COMPENSATION_SHOWTIME_CANCELLATION'
+    )
+        CREATE INDEX [IX_CANCELLATION_COMPENSATION_SHOWTIME_CANCELLATION]
+            ON dbo.[CANCELLATION_COMPENSATION]([showtimeCancellationId]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.CANCELLATION_COMPENSATION')
+          AND name = N'IX_CANCELLATION_COMPENSATION_CUSTOMER_STATUS'
+    )
+        CREATE INDEX [IX_CANCELLATION_COMPENSATION_CUSTOMER_STATUS]
+            ON dbo.[CANCELLATION_COMPENSATION]([customerProfileId], [status]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.COMPENSATION_TICKET')
+          AND name = N'IX_COMPENSATION_TICKET_COMPENSATION'
+    )
+        CREATE INDEX [IX_COMPENSATION_TICKET_COMPENSATION]
+            ON dbo.[COMPENSATION_TICKET]([cancellationCompensationId]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.COMPENSATION_TICKET')
+          AND name = N'IX_COMPENSATION_TICKET_RESERVED_BOOKING'
+    )
+        CREATE INDEX [IX_COMPENSATION_TICKET_RESERVED_BOOKING]
+            ON dbo.[COMPENSATION_TICKET]([reservedBookingId]);
+
+    IF NOT EXISTS
+    (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.COMPENSATION_TICKET')
+          AND name = N'UQ_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT'
+    )
+        CREATE UNIQUE INDEX [UQ_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT]
+            ON dbo.[COMPENSATION_TICKET]([reservedBookingSeatId])
+            WHERE [reservedBookingSeatId] IS NOT NULL;
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
 SELECT N'DB_UPGRADE_APPLIED=1' AS [verification];
 SELECT [name] AS [tableName]
 FROM sys.tables
-WHERE [name] IN (N'BANK_DIRECTORY', N'CUSTOMER_VOUCHER', N'REFUND_CLAIM', N'REFUND_CLAIM_TOKEN', N'CUSTOMER_REFUND_REQUEST', N'MANUAL_REFUND_PROCESS', N'REFUND_PAYOUT_ATTEMPT', N'EMAIL_OUTBOX')
+WHERE [name] IN (N'BANK_DIRECTORY', N'CUSTOMER_VOUCHER', N'REFUND_CLAIM', N'REFUND_CLAIM_TOKEN', N'CUSTOMER_REFUND_REQUEST', N'MANUAL_REFUND_PROCESS', N'REFUND_PAYOUT_ATTEMPT', N'EMAIL_OUTBOX', N'CANCELLATION_COMPENSATION', N'COMPENSATION_TICKET', N'COMPENSATION_COMBO')
 ORDER BY [name];
 GO

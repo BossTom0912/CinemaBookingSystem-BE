@@ -116,6 +116,20 @@ public static class DependencyInjection
             .Validate(options => options.PendingPaymentCleanupBatchSize > 0, "Cleanup batch size must be positive.")
             .ValidateOnStart();
 
+        services.AddOptions<CancellationCompensationSettings>()
+            .Configure(options =>
+            {
+                options.ValidityDays = ReadInt(
+                    configuration[$"{CancellationCompensationSettings.SectionName}:ValidityDays"],
+                    options.ValidityDays);
+                options.ComboDisplayName = ReadString(
+                    configuration[$"{CancellationCompensationSettings.SectionName}:ComboDisplayName"],
+                    options.ComboDisplayName);
+            })
+            .Validate(options => options.ValidityDays > 0, "Compensation validity must be positive.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.ComboDisplayName), "Compensation combo name is required.")
+            .ValidateOnStart();
+
         services.AddOptions<InitialAdminSettings>()
             .Configure(options =>
             {
@@ -259,6 +273,7 @@ public static class DependencyInjection
         services.AddScoped<IRefundService, RefundService>();
         services.AddScoped<IRefundClaimService, RefundClaimService>();
         services.AddScoped<IManualRefundService, ManualRefundService>();
+        services.AddScoped<IRefundCustomerConfirmationService, RefundCustomerConfirmationService>();
         services.AddScoped<IRefundProcessor, RefundProcessor>();
         services.AddScoped<IManagerDashboardService, ManagerDashboardService>();
         services.AddScoped<IStaffShiftReportService, StaffShiftReportService>();
@@ -332,6 +347,8 @@ public static class DependencyInjection
         services.AddScoped<IFbItemService, FbItemService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IVoucherService, VoucherService>();
+        services.AddScoped<IVoucherReservationService, VoucherReservationService>();
+        services.AddScoped<ICancellationCompensationService, CancellationCompensationService>();
         services.AddScoped<IBannerService, CinemaSystem.Infrastructure.Banners.BannerService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
         

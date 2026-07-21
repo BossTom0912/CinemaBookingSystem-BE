@@ -225,7 +225,7 @@ public sealed class FbItemService : IFbItemService
 
         // Validate cinema scoping
         var cinemaId = request.CinemaId;
-        if (!string.Equals(cinemaId, currentStaffCinemaId, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(currentStaffCinemaId) && !string.Equals(cinemaId, currentStaffCinemaId, StringComparison.OrdinalIgnoreCase))
         {
             return ServiceResult<FbFulfillmentResponse>.Fail(403, FbConstants.Messages.ForbiddenBranchOrder, FbConstants.ErrorCodes.ForbiddenCinemaBranch);
         }
@@ -238,22 +238,24 @@ public sealed class FbItemService : IFbItemService
                 await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
                 try
                 {
-                    decimal totalFbAmount = 0;
+                    decimal grossAmount = 0;
                     var bookingFbItems = new List<BookingFbItem>();
+                    var responseItems = new List<CounterFbOrderItemResponse>();
 
                     foreach (var itemReq in request.Items)
                     {
-                        var fbItem = await _dbContext.FbItems.FirstOrDefaultAsync(x => x.FbItemId == itemReq.FbItemId, cancellationToken);
+                        var itemId = itemReq.FbItemId;
+                        var fbItem = await _dbContext.FbItems.FirstOrDefaultAsync(x => x.FbItemId == itemId, cancellationToken);
                         if (fbItem == null || fbItem.ItemStatus == FbConstants.ItemStatus.Inactive)
                         {
                             await transaction.RollbackAsync(cancellationToken);
-                            return ServiceResult<FbFulfillmentResponse>.Fail(404, $"F&B item '{itemReq.FbItemId}' is unavailable.", FbConstants.ErrorCodes.ItemUnavailable);
+                            return ServiceResult<FbFulfillmentResponse>.Fail(404, $"F&B item '{itemId}' is unavailable.", FbConstants.ErrorCodes.ItemUnavailable);
                         }
 
                         // Pure SQL Atomic Update to prevent concurrency overselling
                         int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
                             "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
-                            new object[] { itemReq.Quantity, cinemaId, itemReq.FbItemId, itemReq.Quantity },
+                            new object[] { itemReq.Quantity, cinemaId, itemId, itemReq.Quantity },
                             cancellationToken);
 
                         if (rowsAffected == 0)
@@ -265,49 +267,138 @@ public sealed class FbItemService : IFbItemService
                                 FbConstants.ErrorCodes.InsufficientStock);
                         }
 
-                        var subtotal = fbItem.Price * itemReq.Quantity;
-                        totalFbAmount += subtotal;
+                        // Support Modifiers/Toppings/Flavors extra fees
+                        decimal optionsExtraFee = itemReq.Options?.Sum(opt => opt.ExtraFee) ?? 0;
+                        decimal unitPrice = itemReq.UnitPrice ?? (fbItem.Price + optionsExtraFee);
+                        decimal subtotal = unitPrice * itemReq.Quantity;
+                        grossAmount += subtotal;
 
                         bookingFbItems.Add(new BookingFbItem
                         {
                             BookingFbitemId = $"BFI_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-                            FbItemId = itemReq.FbItemId,
+                            FbItemId = itemId,
+                            Quantity = itemReq.Quantity,
+                            UnitPrice = unitPrice,
+                            Subtotal = subtotal
+                        });
+
+                        responseItems.Add(new CounterFbOrderItemResponse
+                        {
+                            FbItemId = itemId,
+                            ItemName = fbItem.ItemName,
                             Quantity = itemReq.Quantity,
                             UnitPrice = fbItem.Price,
-                            Subtotal = subtotal
+                            ExtraFee = optionsExtraFee,
+                            Subtotal = subtotal,
+                            Options = itemReq.Options ?? new()
                         });
                     }
 
-                    var bookingId = $"BKG_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
-                    var booking = new Booking
-                    {
-                        BookingId = bookingId,
-                        ShowtimeId = request.ShowtimeId, // Can be NULL for standalone counter sale
-                        CustomerProfileId = request.CustomerProfileId,
-                        CreatedByStaffProfileId = staffProfileId,
-                        BookingChannel = FbConstants.Channel.Counter,
-                        GuestName = request.GuestName,
-                        GuestPhone = request.GuestPhone,
-                        GuestEmail = request.GuestEmail,
-                        BookingStatus = DomainConstants.EntityStatus.Paid,
-                        TotalAmount = totalFbAmount,
-                        FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled, // Handed directly over at counter POS
-                        FbFulfilledAt = DateTime.UtcNow,
-                        FbFulfilledByStaffProfileId = staffProfileId,
-                        CreatedAt = DateTime.UtcNow,
-                        BookingFbItems = bookingFbItems
-                    };
+                    // Calculate discount and total amount
+                    decimal discountAmount = request.DiscountAmount ?? 0;
+                    decimal totalAmount = request.TotalAmount ?? Math.Max(0, grossAmount - discountAmount);
 
-                    _dbContext.Bookings.Add(booking);
+                    // Payment Method & Cash change calculation
+                    var paymentMethod = string.IsNullOrWhiteSpace(request.PaymentMethod) ? "CASH" : request.PaymentMethod.Trim().ToUpperInvariant();
+                    decimal? receivedAmount = request.ReceivedAmount;
+                    decimal? changeAmount = request.ChangeAmount ?? (receivedAmount.HasValue ? Math.Max(0, receivedAmount.Value - totalAmount) : null);
+
+                    var now = DateTime.UtcNow;
+                    string targetBookingId;
+
+                    // Option A: Attach to existing Booking if BookingId is provided
+                    Booking? existingBooking = null;
+                    if (!string.IsNullOrWhiteSpace(request.BookingId))
+                    {
+                        existingBooking = await _dbContext.Bookings
+                            .Include(b => b.BookingFbItems)
+                            .FirstOrDefaultAsync(b => b.BookingId == request.BookingId, cancellationToken);
+                    }
+
+                    if (existingBooking != null)
+                    {
+                        targetBookingId = existingBooking.BookingId;
+                        foreach (var bfi in bookingFbItems)
+                        {
+                            bfi.BookingId = targetBookingId;
+                            _dbContext.BookingFbItems.Add(bfi);
+                        }
+
+                        existingBooking.TotalAmount += totalAmount;
+                        existingBooking.FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled;
+                        existingBooking.FbFulfilledAt = now;
+                        existingBooking.FbFulfilledByStaffProfileId = staffProfileId;
+                    }
+                    else
+                    {
+                        targetBookingId = !string.IsNullOrWhiteSpace(request.BookingId)
+                            ? request.BookingId
+                            : $"BKG_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+
+                        var booking = new Booking
+                        {
+                            BookingId = targetBookingId,
+                            ShowtimeId = request.ShowtimeId,
+                            CustomerProfileId = request.CustomerProfileId,
+                            CreatedByStaffProfileId = staffProfileId,
+                            BookingChannel = FbConstants.Channel.Counter,
+                            GuestName = request.GuestName,
+                            GuestPhone = request.GuestPhone,
+                            GuestEmail = request.GuestEmail,
+                            BookingStatus = DomainConstants.EntityStatus.Paid,
+                            TotalAmount = totalAmount,
+                            FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled,
+                            FbFulfilledAt = now,
+                            FbFulfilledByStaffProfileId = staffProfileId,
+                            CreatedAt = now,
+                            BookingFbItems = bookingFbItems
+                        };
+
+                        _dbContext.Bookings.Add(booking);
+                    }
+
+                    // Record Payment entry
+                    var paymentProvider = await _dbContext.PaymentProviders
+                        .Select(p => p.PaymentProviderId)
+                        .FirstOrDefaultAsync(cancellationToken) ?? "PAYPROV_POS";
+
+                    var payment = new Payment
+                    {
+                        PaymentId = $"PAY_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                        BookingId = targetBookingId,
+                        PaymentProviderId = paymentProvider,
+                        Amount = totalAmount,
+                        PaymentStatus = DomainConstants.PaymentStatus.Success,
+                        PaidAt = now,
+                        PaymentMethod = paymentMethod,
+                        TransactionCode = $"POS_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
+                    _dbContext.Payments.Add(payment);
+
                     await _dbContext.SaveChangesAsync(cancellationToken);
                     await transaction.CommitAsync(cancellationToken);
 
                     var response = new FbFulfillmentResponse
                     {
-                        BookingId = bookingId,
-                        FbFulfillmentStatus = booking.FbFulfillmentStatus,
-                        FbFulfilledAt = booking.FbFulfilledAt,
+                        BookingId = targetBookingId,
+                        CinemaId = cinemaId,
+                        ShiftId = request.ShiftId,
+                        CustomerProfileId = request.CustomerProfileId,
+                        GuestName = request.GuestName,
+                        GuestPhone = request.GuestPhone,
+                        GrossAmount = grossAmount,
+                        DiscountAmount = discountAmount,
+                        VoucherCode = request.VoucherCode,
+                        TotalAmount = totalAmount,
+                        PaymentMethod = paymentMethod,
+                        ReceivedAmount = receivedAmount,
+                        ChangeAmount = changeAmount,
+                        FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled,
+                        FbFulfilledAt = now,
                         StaffProfileId = staffProfileId,
+                        Items = responseItems,
                         Message = FbConstants.Messages.OrderPlacedSuccess
                     };
 

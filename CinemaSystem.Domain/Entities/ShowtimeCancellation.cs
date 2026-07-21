@@ -23,5 +23,7 @@ public partial class ShowtimeCancellation
 
     public virtual ICollection<Refund> Refunds { get; set; } = new List<Refund>();
 
+    public virtual ICollection<CancellationCompensation> Compensations { get; set; } = new List<CancellationCompensation>();
+
     public virtual Showtime Showtime { get; set; } = null!;
 }

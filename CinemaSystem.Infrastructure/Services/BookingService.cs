@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -31,6 +32,12 @@ public sealed class BookingService : IBookingService
     private readonly IAiEmailService _aiEmailService;
     private readonly BookingSettings _bookingSettings;
     private readonly IVoucherService _voucherService;
+    private readonly IVoucherReservationService _voucherReservationService;
+    private readonly ICancellationCompensationService _cancellationCompensationService;
+    private readonly IRefundClaimIssuer _refundClaimIssuer;
+    private readonly IEmailSender _emailSender;
+    private readonly RefundSettings _refundSettings;
+    private readonly CinemaSystem.Application.Settings.EmailTemplatesSettings _emailTemplates;
 
     public BookingService(
         CinemaDbContext dbContext,
@@ -41,6 +48,12 @@ public sealed class BookingService : IBookingService
         IAiEmailService aiEmailService,
         ILogger<BookingService> logger,
         IVoucherService voucherService,
+        IVoucherReservationService voucherReservationService,
+        ICancellationCompensationService cancellationCompensationService,
+        IRefundClaimIssuer refundClaimIssuer,
+        IEmailSender emailSender,
+        IOptions<RefundSettings> refundSettings,
+        IOptions<CinemaSystem.Application.Settings.EmailTemplatesSettings> emailTemplates,
         Hangfire.IBackgroundJobClient? backgroundJobClient = null)
     {
         _dbContext = dbContext;
@@ -51,6 +64,12 @@ public sealed class BookingService : IBookingService
         _bookingSettings = bookingOptions.Value;
         _aiEmailService = aiEmailService;
         _voucherService = voucherService;
+        _voucherReservationService = voucherReservationService;
+        _cancellationCompensationService = cancellationCompensationService;
+        _refundClaimIssuer = refundClaimIssuer;
+        _emailSender = emailSender;
+        _refundSettings = refundSettings.Value;
+        _emailTemplates = emailTemplates.Value;
         _backgroundJobClient = backgroundJobClient!;
     }
 
@@ -117,6 +136,16 @@ public sealed class BookingService : IBookingService
                 "MAX_SEATS_EXCEEDED");
         }
 
+        var compensationTicketCodes = request.CompensationTicketCodes ?? [];
+        if (compensationTicketCodes.Count > 0
+            && !string.IsNullOrWhiteSpace(request.VoucherCode))
+        {
+            return ServiceResult<BookingResponse>.Fail(
+                400,
+                "A standard voucher cannot be combined with compensation tickets.",
+                "VOUCHER_STACKING_NOT_ALLOWED");
+        }
+
         await ReleaseStaleBookingSeatsForShowtimeAsync(
             request.ShowtimeId,
             request.ShowtimeSeatIds,
@@ -165,11 +194,16 @@ public sealed class BookingService : IBookingService
             }
         }
 
-        // Calculate total amount
+        // Calculate total amount in the same order as the request so each
+        // compensation ticket deterministically maps to one selected seat.
         decimal totalAmount = 0;
         var bookingSeats = new List<BookingSeat>();
-        foreach (var ss in showtimeSeats)
+        var showtimeSeatsById = showtimeSeats.ToDictionary(
+            item => item.ShowtimeSeatId,
+            StringComparer.Ordinal);
+        foreach (var showtimeSeatId in request.ShowtimeSeatIds)
         {
+            var ss = showtimeSeatsById[showtimeSeatId];
             var seatPrice = showtime.BasePrice + ss.Seat.SeatType.ExtraFee;
             totalAmount += seatPrice;
             bookingSeats.Add(new BookingSeat
@@ -212,6 +246,31 @@ public sealed class BookingService : IBookingService
         VoucherUsage? voucherUsage = null;
         Voucher? voucher = null;
         var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
+        var compensationDiscountAmount = 0m;
+        if (compensationTicketCodes.Count > 0)
+        {
+            var reservationResult =
+                await _cancellationCompensationService.ReserveTicketsAsync(
+                    customerProfile.CustomerProfileId,
+                    null,
+                    null,
+                    compensationTicketCodes,
+                    bookingId,
+                    bookingSeats,
+                    now,
+                    cancellationToken);
+            if (!reservationResult.Success)
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    reservationResult.StatusCode,
+                    reservationResult.Message,
+                    reservationResult.ErrorCode ?? "COMPENSATION_TICKET_ERROR");
+            }
+
+            compensationDiscountAmount = reservationResult.Data;
+            totalAmount = Math.Max(0m, totalAmount - compensationDiscountAmount);
+        }
+
         if (!string.IsNullOrWhiteSpace(request.VoucherCode))
         {
             var validationResult = await _voucherService.ValidateAndGetVoucherAsync(
@@ -235,26 +294,30 @@ public sealed class BookingService : IBookingService
                 totalAmount = 0;
             }
 
+            var claimedVoucher = await _voucherReservationService.FindAvailableClaimAsync(
+                voucher.VoucherId,
+                customerProfile.CustomerProfileId,
+                cancellationToken);
+
             voucherUsage = new VoucherUsage
             {
                 VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
                 VoucherId = voucher.VoucherId,
                 CustomerProfileId = customerProfile.CustomerProfileId,
-                BookingId = bookingId, // Đã có ID chuẩn, không sợ lỗi Khóa ngoại nữa
+                BookingId = bookingId,
+                CustomerVoucherId = claimedVoucher?.CustomerVoucherId,
+                CustomerVoucher = claimedVoucher,
                 DiscountAmount = discountAmount,
-                UsageStatus = totalAmount == 0 ? DomainConstants.VoucherUsageStatus.Confirmed : DomainConstants.VoucherUsageStatus.Applied,
-                UsedAt = totalAmount == 0 ? now : null
+                UsageStatus = DomainConstants.VoucherUsageStatus.Applied,
+                UsedAt = null
             };
 
-            // Mark the customer's claimed voucher as used if it exists in their wallet
-            var claimedVoucher = await _dbContext.CustomerVouchers
-                .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId
-                    && cv.CustomerProfileId == customerProfile.CustomerProfileId
-                    && !cv.IsUsed, cancellationToken);
-            if (claimedVoucher != null)
+            if (totalAmount == 0)
             {
-                claimedVoucher.IsUsed = true;
-                claimedVoucher.UsedAt = now;
+                await _voucherReservationService.ConfirmAsync(
+                    voucherUsage,
+                    now,
+                    cancellationToken);
             }
         }
 
@@ -267,6 +330,7 @@ public sealed class BookingService : IBookingService
             ShowtimeId = showtime.ShowtimeId,
             BookingStatus = totalAmount == 0 ? DomainConstants.EntityStatus.Paid : DomainConstants.EntityStatus.PendingPayment,
             TotalAmount = totalAmount,
+            CompensationDiscountAmount = compensationDiscountAmount,
             CreatedAt = now,
             ExpiredAt = totalAmount == 0 ? null : now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
             ClientRequestId = clientRequestId,
@@ -306,6 +370,11 @@ public sealed class BookingService : IBookingService
             {
                 voucher.UsedCount += 1;
             }
+
+            await _cancellationCompensationService.ConfirmBookingReservationsAsync(
+                bookingId,
+                now,
+                cancellationToken);
         }
         else
         {
@@ -367,6 +436,22 @@ public sealed class BookingService : IBookingService
                     "Existing checkout returned successfully.");
             }
 
+            if (IsVoucherReservationConflict(exception))
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    409,
+                    "This claimed voucher is already reserved by another checkout.",
+                    "VOUCHER_ALREADY_RESERVED");
+            }
+
+            if (IsCompensationReservationConflict(exception))
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    409,
+                    "This compensation ticket is already reserved by another checkout.",
+                    "COMPENSATION_TICKET_ALREADY_RESERVED");
+            }
+
             return ServiceResult<BookingResponse>.Fail(
                 409,
                 "The selected seats were changed by another checkout. Please refresh the seat map.",
@@ -388,6 +473,7 @@ public sealed class BookingService : IBookingService
             RoomName = showtime.Room.RoomName,
             StartTime = showtime.StartTime,
             TotalAmount = booking.TotalAmount,
+            CompensationDiscountAmount = booking.CompensationDiscountAmount,
             Status = booking.BookingStatus,
             CreatedAt = booking.CreatedAt,
             ExpiredAt = booking.ExpiredAt
@@ -398,6 +484,22 @@ public sealed class BookingService : IBookingService
     {
         return exception is DbUpdateConcurrencyException
             || exception.InnerException is SqlException { Number: 2601 or 2627 };
+    }
+
+    private static bool IsVoucherReservationConflict(DbUpdateException exception)
+    {
+        return exception.InnerException is SqlException { Number: 2601 or 2627 } sqlException
+            && sqlException.Message.Contains(
+                "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER",
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCompensationReservationConflict(
+        DbUpdateException exception)
+    {
+        return exception is DbUpdateConcurrencyException concurrencyException
+            && concurrencyException.Entries.Any(entry =>
+                entry.Entity is CompensationTicket);
     }
 
     public async Task<ServiceResult<CheckoutRecoveryResponse>> GetCheckoutRecoveryAsync(
@@ -478,6 +580,7 @@ public sealed class BookingService : IBookingService
             StartTime = booking.Showtime.StartTime,
             TotalAmount = booking.TotalAmount,
             DiscountAmount = booking.VoucherUsage?.DiscountAmount ?? 0,
+            CompensationDiscountAmount = booking.CompensationDiscountAmount,
             VoucherCode = booking.VoucherUsage?.Voucher?.VoucherCode,
             Status = booking.BookingStatus,
             CreatedAt = booking.CreatedAt,
@@ -518,6 +621,7 @@ public sealed class BookingService : IBookingService
                 RoomName = b.Showtime.Room.RoomName,
                 StartTime = b.Showtime.StartTime,
                 TotalAmount = b.TotalAmount,
+                CompensationDiscountAmount = b.CompensationDiscountAmount,
                 Status = b.BookingStatus,
                 CreatedAt = b.CreatedAt,
                 ExpiredAt = b.ExpiredAt
@@ -575,6 +679,10 @@ public sealed class BookingService : IBookingService
             await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
             var now = _clock.UtcNow;
+            await _cancellationCompensationService.ReleaseBookingReservationsAsync(
+                booking.BookingId,
+                cancellationToken);
+
             await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
 
             foreach (var payment in booking.Payments)
@@ -592,17 +700,9 @@ public sealed class BookingService : IBookingService
 
             if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
             {
-                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
-                
-                var claimedVoucher = await _dbContext.CustomerVouchers
-                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId
-                        && cv.CustomerProfileId == booking.CustomerProfileId
-                        && cv.IsUsed, cancellationToken);
-                if (claimedVoucher != null)
-                {
-                    claimedVoucher.IsUsed = false;
-                    claimedVoucher.UsedAt = null;
-                }
+                await _voucherReservationService.CancelAsync(
+                    booking.VoucherUsage,
+                    cancellationToken);
             }
 
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -632,7 +732,10 @@ public sealed class BookingService : IBookingService
 
         var booking = await _dbContext.Bookings
             .Include(b => b.Payments)
+            .Include(b => b.CustomerProfile)
+                .ThenInclude(profile => profile!.User)
             .Include(b => b.Showtime)
+                .ThenInclude(showtime => showtime.Movie)
             .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
 
         if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
@@ -668,8 +771,11 @@ public sealed class BookingService : IBookingService
         if (accept)
         {
             booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+            await IssueRescheduleAcceptanceVoucherAsync(booking, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change accepted successfully.");
+            return ServiceResult<bool>.Ok(
+                true,
+                "Time change accepted successfully. A 20% ticket voucher valid for one month was added to your compensation vouchers.");
         }
         else
         {
@@ -710,10 +816,152 @@ public sealed class BookingService : IBookingService
                 RequestedAt = _clock.UtcNow
             };
             _dbContext.Refunds.Add(refund);
+            RefundClaimIssue? claimIssue = null;
+            if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+            {
+                claimIssue = _refundClaimIssuer.Create(
+                    refund.RefundId,
+                    booking.CustomerProfileId,
+                    _clock.UtcNow);
+                _dbContext.RefundClaims.Add(claimIssue.Claim);
+            }
+            await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            
-            var msg = booking.TotalAmount == 0 ? "ZERO_AMOUNT_REFUND" : "Time change rejected. Refund initiated.";
-            return ServiceResult<bool>.Ok(true, msg);
+            await TrySendTimeChangeRefundClaimEmailAsync(booking, claimIssue, cancellationToken);
+            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund claim initiated.");
+        }
+    }
+
+    private async Task TrySendTimeChangeRefundClaimEmailAsync(
+        Booking booking,
+        RefundClaimIssue? claimIssue,
+        CancellationToken cancellationToken)
+    {
+        var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+        if (claimIssue is null || string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        try
+        {
+            var link = $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(claimIssue.RawToken)}";
+            await _emailSender.SendEmailAsync(
+                email,
+                _emailTemplates.ShowtimeCancelledRefundSubject,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    _emailTemplates.ShowtimeCancelledRefundBody,
+                    booking.Showtime.Movie.Title,
+                    booking.Showtime.StartTime,
+                    booking.TotalAmount,
+                    claimIssue.Token.ExpiresAt,
+                    link),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Refund claim email could not be sent for booking {BookingId}.", booking.BookingId);
+        }
+    }
+
+    private async Task IssueRescheduleAcceptanceVoucherAsync(
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return;
+        }
+
+        var voucherCode = $"VOUCHER_REFUND_20PCT_{booking.BookingId}".ToUpperInvariant();
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(item => item.VoucherCode == voucherCode, cancellationToken);
+        if (voucher is null)
+        {
+            var now = _clock.UtcNow;
+            voucher = new Voucher
+            {
+                VoucherId = NewId(DomainConstants.EntityIdPrefix.Voucher),
+                VoucherCode = voucherCode,
+                Title = "VOUCHER_REFUND_20_PERCENT_RESCHEDULE",
+                Description = "Voucher bồi thường giảm 20% giá vé phim khi khách đồng ý đổi suất chiếu.",
+                DiscountType = DomainConstants.DiscountType.Percent,
+                DiscountValue = 20m,
+                UsageLimit = 1,
+                PerCustomerLimit = 1,
+                UsedCount = 0,
+                StartDate = now,
+                EndDate = now.AddMonths(1),
+                VoucherStatus = DomainConstants.VoucherStatus.Active
+            };
+            _dbContext.Vouchers.Add(voucher);
+        }
+
+        var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
+            item => item.CustomerProfileId == booking.CustomerProfileId
+                && item.VoucherId == voucher.VoucherId,
+            cancellationToken);
+        if (!alreadyAssigned)
+        {
+            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+            {
+                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                CustomerProfileId = booking.CustomerProfileId,
+                VoucherId = voucher.VoucherId,
+                ClaimedAt = _clock.UtcNow,
+                IsUsed = false
+            });
+        }
+    }
+
+    private async Task IssueRescheduleRejectionVoucherAsync(
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+        {
+            return;
+        }
+
+        var voucherCode = $"VOUCHER_REFUND_100PCT_{booking.BookingId}".ToUpperInvariant();
+        var voucher = await _dbContext.Vouchers
+            .FirstOrDefaultAsync(item => item.VoucherCode == voucherCode, cancellationToken);
+        if (voucher is null)
+        {
+            var now = _clock.UtcNow;
+            voucher = new Voucher
+            {
+                VoucherId = NewId(DomainConstants.EntityIdPrefix.Voucher),
+                VoucherCode = voucherCode,
+                Title = "VOUCHER_REFUND_100_PERCENT_RESCHEDULE_CANCEL",
+                Description = "Voucher bồi thường 100% khi khách từ chối đổi suất chiếu.",
+                DiscountType = DomainConstants.DiscountType.Percent,
+                DiscountValue = 100m,
+                UsageLimit = 1,
+                PerCustomerLimit = 1,
+                UsedCount = 0,
+                StartDate = now,
+                EndDate = now.AddDays(180),
+                VoucherStatus = DomainConstants.VoucherStatus.Active
+            };
+            _dbContext.Vouchers.Add(voucher);
+        }
+
+        var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
+            item => item.CustomerProfileId == booking.CustomerProfileId
+                && item.VoucherId == voucher.VoucherId,
+            cancellationToken);
+        if (!alreadyAssigned)
+        {
+            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+            {
+                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                CustomerProfileId = booking.CustomerProfileId,
+                VoucherId = voucher.VoucherId,
+                ClaimedAt = _clock.UtcNow,
+                IsUsed = false
+            });
         }
     }
 
@@ -745,6 +993,7 @@ public sealed class BookingService : IBookingService
             RoomName = booking.Showtime?.Room?.RoomName ?? string.Empty,
             StartTime = booking.Showtime?.StartTime,
             TotalAmount = booking.TotalAmount,
+            CompensationDiscountAmount = booking.CompensationDiscountAmount,
             Status = booking.BookingStatus,
             CreatedAt = booking.CreatedAt,
             ExpiredAt = booking.ExpiredAt
@@ -765,7 +1014,12 @@ public sealed class BookingService : IBookingService
             request.ShowtimeId.Trim(),
             string.Join(",", seatIds),
             (request.VoucherCode ?? string.Empty).Trim(),
-            string.Join(",", foodItems));
+            string.Join(",", foodItems),
+            string.Join(
+                ",",
+                (request.CompensationTicketCodes ?? [])
+                    .Select(item => item.Trim().ToUpperInvariant())
+                    .OrderBy(item => item, StringComparer.Ordinal)));
 
         return Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRequest)));
@@ -826,18 +1080,14 @@ public sealed class BookingService : IBookingService
 
             if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
             {
-                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
-                
-                var claimedVoucher = await _dbContext.CustomerVouchers
-                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId
-                        && cv.CustomerProfileId == booking.CustomerProfileId
-                        && cv.IsUsed, cancellationToken);
-                if (claimedVoucher != null)
-                {
-                    claimedVoucher.IsUsed = false;
-                    claimedVoucher.UsedAt = null;
-                }
+                await _voucherReservationService.CancelAsync(
+                    booking.VoucherUsage,
+                    cancellationToken);
             }
+
+            await _cancellationCompensationService.ReleaseBookingReservationsAsync(
+                booking.BookingId,
+                cancellationToken);
 
             await ReleaseBookingSeatsAsync(booking.BookingSeats.ToList(), cancellationToken);
         }
@@ -1060,6 +1310,16 @@ public sealed class BookingService : IBookingService
                 "MAX_SEATS_EXCEEDED");
         }
 
+        var counterCompensationCodes = request.CompensationTicketCodes ?? [];
+        if (counterCompensationCodes.Count > 0
+            && !string.IsNullOrWhiteSpace(request.VoucherCode))
+        {
+            return ServiceResult<BookingDetailsResponse>.Fail(
+                400,
+                "A standard voucher cannot be combined with compensation tickets.",
+                "VOUCHER_STACKING_NOT_ALLOWED");
+        }
+
         await ReleaseStaleBookingSeatsForShowtimeAsync(
             request.ShowtimeId,
             request.ShowtimeSeatIds,
@@ -1100,8 +1360,12 @@ public sealed class BookingService : IBookingService
             // Calculate total amount from seats
             decimal totalAmount = 0;
             var bookingSeats = new List<BookingSeat>();
-            foreach (var ss in showtimeSeats)
+            var showtimeSeatsById = showtimeSeats.ToDictionary(
+                item => item.ShowtimeSeatId,
+                StringComparer.Ordinal);
+            foreach (var showtimeSeatId in request.ShowtimeSeatIds)
             {
+                var ss = showtimeSeatsById[showtimeSeatId];
                 var seatPrice = showtime.BasePrice + ss.Seat.SeatType.ExtraFee;
                 totalAmount += seatPrice;
                 bookingSeats.Add(new BookingSeat
@@ -1159,13 +1423,61 @@ public sealed class BookingService : IBookingService
             decimal discountAmount = 0;
             VoucherUsage? voucherUsage = null;
             Voucher? voucher = null;
+            var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
+            var compensationDiscountAmount = 0m;
+
+            if (counterCompensationCodes.Count > 0)
+            {
+                if (string.IsNullOrWhiteSpace(request.CustomerProfileId)
+                    && (string.IsNullOrWhiteSpace(request.GuestEmail)
+                        || string.IsNullOrWhiteSpace(request.GuestPhone)))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(
+                        400,
+                        "A customer profile or the original guest email and phone is required to use compensation tickets at the counter.",
+                        "COMPENSATION_CUSTOMER_REQUIRED");
+                }
+
+                var reservationResult =
+                    await _cancellationCompensationService.ReserveTicketsAsync(
+                        request.CustomerProfileId,
+                        request.GuestEmail,
+                        request.GuestPhone,
+                        counterCompensationCodes,
+                        bookingId,
+                        bookingSeats,
+                        now,
+                        cancellationToken);
+                if (!reservationResult.Success)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(
+                        reservationResult.StatusCode,
+                        reservationResult.Message,
+                        reservationResult.ErrorCode
+                            ?? "COMPENSATION_TICKET_ERROR");
+                }
+
+                compensationDiscountAmount = reservationResult.Data;
+                totalAmount = Math.Max(0m, totalAmount - compensationDiscountAmount);
+            }
 
             if (!string.IsNullOrWhiteSpace(request.VoucherCode))
             {
+                if (string.IsNullOrWhiteSpace(request.CustomerProfileId))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return ServiceResult<BookingDetailsResponse>.Fail(
+                        400,
+                        "A customer profile is required to apply a voucher at the counter.",
+                        "VOUCHER_CUSTOMER_REQUIRED");
+                }
+
                 var validationResult = await _voucherService.ValidateAndGetVoucherAsync(
                     request.VoucherCode,
                     bookingSubtotal,
-                    request.CustomerProfileId ?? string.Empty,
+                    request.CustomerProfileId,
                     cancellationToken);
 
                 if (!validationResult.Success)
@@ -1183,33 +1495,30 @@ public sealed class BookingService : IBookingService
                     totalAmount = 0;
                 }
 
+                var claimedVoucher = await _voucherReservationService.FindAvailableClaimAsync(
+                    voucher.VoucherId,
+                    request.CustomerProfileId,
+                    cancellationToken);
+
                 voucherUsage = new VoucherUsage
                 {
                     VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
                     VoucherId = voucher.VoucherId,
-                    CustomerProfileId = !string.IsNullOrEmpty(request.CustomerProfileId) ? request.CustomerProfileId : null,
+                    CustomerProfileId = request.CustomerProfileId,
+                    CustomerVoucherId = claimedVoucher?.CustomerVoucherId,
+                    CustomerVoucher = claimedVoucher,
                     BookingId = string.Empty, // Set below
                     DiscountAmount = discountAmount,
-                    UsageStatus = DomainConstants.VoucherUsageStatus.Confirmed,
-                    UsedAt = now
+                    UsageStatus = DomainConstants.VoucherUsageStatus.Applied,
+                    UsedAt = null
                 };
 
-                // Mark claimed customer voucher as used if applicable
-                if (!string.IsNullOrEmpty(request.CustomerProfileId))
-                {
-                    var claimedVoucher = await _dbContext.CustomerVouchers
-                        .FirstOrDefaultAsync(cv => cv.VoucherId == voucher.VoucherId
-                            && cv.CustomerProfileId == request.CustomerProfileId
-                            && !cv.IsUsed, cancellationToken);
-                    if (claimedVoucher != null)
-                    {
-                        claimedVoucher.IsUsed = true;
-                        claimedVoucher.UsedAt = now;
-                    }
-                }
+                await _voucherReservationService.ConfirmAsync(
+                    voucherUsage,
+                    now,
+                    cancellationToken);
             }
 
-            var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
             if (voucherUsage != null)
             {
                 voucherUsage.BookingId = bookingId;
@@ -1222,6 +1531,7 @@ public sealed class BookingService : IBookingService
                 ShowtimeId = showtime.ShowtimeId,
                 BookingStatus = DomainConstants.EntityStatus.Paid, // Paid immediately at counter
                 TotalAmount = totalAmount,
+                CompensationDiscountAmount = compensationDiscountAmount,
                 CreatedAt = now,
                 ExpiredAt = null, // POS tickets never expire
                 BookingChannel = DomainConstants.BookingChannel.Counter,
@@ -1263,6 +1573,10 @@ public sealed class BookingService : IBookingService
             }
 
             _dbContext.Bookings.Add(booking);
+            await _cancellationCompensationService.ConfirmBookingReservationsAsync(
+                bookingId,
+                now,
+                cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
@@ -1314,6 +1628,7 @@ public sealed class BookingService : IBookingService
                 StartTime = showtime.StartTime,
                 TotalAmount = booking.TotalAmount,
                 DiscountAmount = discountAmount,
+                CompensationDiscountAmount = compensationDiscountAmount,
                 VoucherCode = request.VoucherCode,
                 Status = booking.BookingStatus,
                 CreatedAt = booking.CreatedAt,
@@ -1322,6 +1637,14 @@ public sealed class BookingService : IBookingService
             };
 
             return ServiceResult<BookingDetailsResponse>.Ok(response, "Counter ticket booking completed successfully.", 201);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ServiceResult<BookingDetailsResponse>.Fail(
+                409,
+                "This compensation ticket was used by another checkout.",
+                "COMPENSATION_TICKET_ALREADY_RESERVED");
         }
         catch (Exception ex)
         {
