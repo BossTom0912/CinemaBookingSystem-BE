@@ -80,6 +80,13 @@ public static class DomainConstants
         public const string Staff = "Staff";
     }
 
+    public static class AccountProfileKind
+    {
+        public const string Customer = "CUSTOMER";
+        public const string Staff = "STAFF";
+        public const string None = "NONE";
+    }
+
     public static class MemberLevel
     {
         public const string Standard = "STANDARD";

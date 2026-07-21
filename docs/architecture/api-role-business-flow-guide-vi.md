@@ -97,7 +97,7 @@ Role được lấy từ `USER -> ROLE`, sau đó
 | `CanSelectSeat` | Customer, Staff, Manager, Admin | Xem seat map |
 | `CanPayOnline` | Customer | Tạo payment |
 | `CanReviewAndFeedback` | Customer | Tạo/xem review cá nhân/sửa review |
-| `CanManageUserAndRole` | Admin | Tạo Staff |
+| `CanManageUserAndRole` | Admin | Lấy role có thể tạo và tạo Customer/Staff/Manager theo policy database |
 | `CanManageSystem` | Admin | Duyệt review, auth-test admin |
 | `CanScanTicket` | Staff, Manager, Admin | `POST /api/tickets/scan` |
 | `CanManageMovie` | Manager, Admin | Đã khai báo nhưng Controller đang dùng `Roles=` trực tiếp |
@@ -218,7 +218,7 @@ API với ID thuộc rạp khác nếu biết ID. Đây là khoảng trống sco
 
 Admin có toàn bộ API quản lý mà Manager có, đồng thời có thêm:
 
-- Tạo tài khoản Staff.
+- Tạo tài khoản Customer, Staff hoặc Manager theo policy database.
 - Xem danh sách refund.
 - Xác nhận refund.
 - Duyệt review bị AI flag/reject.
@@ -226,7 +226,6 @@ Admin có toàn bộ API quản lý mà Manager có, đồng thời có thêm:
 
 Admin chưa có:
 
-- API tạo Manager.
 - API dashboard hệ thống.
 - API quản lý role tổng quát.
 - API quản lý rạp Cinema CRUD.
@@ -566,21 +565,23 @@ ReviewsController.AdminApproveReview
   -> MovieService.UpdateMovieRatingAsync
 ```
 
-#### Nghiệp vụ 11 — Admin tạo Staff
+#### Nghiệp vụ 11 — Admin tạo tài khoản theo role cấu hình
 
 ```text
-AdminController.CreateStaff
-  -> IAdminService.CreateStaffAsync
-  -> AdminService.CreateStaffAsync
+AdminController.ProvisionAccount
+  -> IAccountProvisioningService.ProvisionAsync
+  -> AccountProvisioningService.ProvisionAsync
+      -> lấy role actor từ USER trong database
+      -> kiểm ROLE_ASSIGNMENT_RULE + ROLE_PROVISIONING_POLICY active
+      -> validate cinema theo requiresCinema và trạng thái ACTIVE
       -> kiểm email chưa tồn tại
-      -> query Cinema đầu tiên
-      -> query ROLE_STAFF
       -> IOtpGenerator.GenerateSixDigitOtp
       -> IPasswordHasher.HashSecret
-      -> thêm USER + STAFF_PROFILE + EMAIL_VERIFICATION_TOKEN
+      -> thêm USER + CUSTOMER_PROFILE hoặc STAFF_PROFILE + EMAIL_VERIFICATION_TOKEN
+      -> ghi AUDIT_LOG ACCOUNT_PROVISIONED
       -> CinemaDbContext.SaveChangesAsync
       -> IBackgroundJobClient.Enqueue<IEmailService>
-      -> IEmailService.SendInvitationAsync
+      -> IEmailService.SendAccountInvitationAsync
   -> ServiceResult 201
   -> AdminController.ToActionResult
 ```
@@ -832,20 +833,21 @@ Rule review:
 - Gemini trả `APPROVED`, `FLAGGED` hoặc `REJECTED`.
 - Thiếu Gemini key/lỗi AI thì review chuyển `FLAGGED` để Admin xử lý.
 
-### 5.11 Admin và refund — 3 API
+### 5.11 Admin account provisioning và refund — 4 API
 
 | Method | Route | Quyền | Input/query | Nghiệp vụ |
 |---|---|---|---|---|
-| POST | `/api/admin/staff` | Admin | `email`, `fullName?` | Tạo `USER` role Staff, `STAFF_PROFILE`, invitation OTP; gửi email nền |
+| GET | `/api/admin/account-provisioning/roles` | Admin | — | Trả role actor được tạo từ `ROLE_ASSIGNMENT_RULE` + metadata policy |
+| POST | `/api/admin/users` | Admin | `email`, `fullName`, `phoneNumber?`, `roleId`, `cinemaId?` | Tạo Customer/Staff/Manager theo policy, queue invitation email |
 | GET | `/api/admin/refunds` | Admin | `status=PENDING`, paging | Danh sách refund kèm booking/customer/movie/room |
 | POST | `/api/admin/refunds/{bookingId}/confirm` | Admin | `bookingId` | Booking `REFUND_PENDING -> REFUNDED`; refund `PENDING -> SUCCESS` |
 
-Lưu ý nghiệp vụ tạo Staff:
+Lưu ý nghiệp vụ provision account:
 
 - Email phải chưa tồn tại.
-- Role Staff phải tồn tại.
-- Service hiện lấy **rạp đầu tiên theo CinemaId**, không nhận `cinemaId` từ request.
-- User Staff được tạo `ACTIVE` nhưng `EmailVerified=false`.
+- Role và target role phải có rule active trong database; seed mặc định chặn `Admin -> Admin`.
+- Customer không nhận `cinemaId`; Staff/Manager bắt buộc chọn cinema `ACTIVE`.
+- User được tạo `ACTIVE` nhưng `EmailVerified=false`.
 - Invitation OTP được lưu với purpose `PASSWORD_RESET`.
 - Email được gửi bằng Hangfire.
 
@@ -1083,16 +1085,22 @@ Admin.
 
 ## 11. Luồng Admin
 
-### 11.1 Tạo Staff
+### 11.1 Tạo tài khoản theo role cấu hình
 
 ```text
-POST /api/admin/staff
+GET /api/admin/account-provisioning/roles
   -> Authorization: CanManageUserAndRole = ADMIN
   -> AdminController
-  -> IAdminService
-  -> AdminService
-  -> kiểm email + ROLE_STAFF + CINEMA
-  -> tạo USER + STAFF_PROFILE + invitation token
+  -> IAccountProvisioningService.GetAssignableRolesAsync
+  -> query rule + policy -> role select cho FE
+
+POST /api/admin/users
+  -> Authorization: CanManageUserAndRole = ADMIN
+  -> AdminController
+  -> IAccountProvisioningService.ProvisionAsync
+  -> AccountProvisioningService
+  -> kiểm rule actor -> target + policy/profile/cinema
+  -> tạo USER + profile tương ứng + invitation token + AUDIT_LOG
   -> SaveChanges
   -> Hangfire -> IEmailService -> email invitation
 ```
@@ -1161,7 +1169,7 @@ Job in-memory sẽ không bền qua restart ứng dụng.
 | Controller | Interface | Class chạy thật | Đích cuối |
 |---|---|---|---|
 | `AuthController` | `IAuthService` | `Infrastructure/Auth/AuthService` | USER, ROLE, token, email |
-| `AdminController` | `IAdminService` | `Infrastructure/Auth/AdminService` | USER, STAFF_PROFILE, Hangfire/email |
+| `AdminController` | `IAccountProvisioningService` | `Infrastructure/Auth/AccountProvisioningService` | USER, profile theo policy, invitation/audit/Hangfire |
 | `CustomersController` | `ICustomerService` | `Infrastructure/Services/CustomerService` | profile, OTP, booking history |
 | `MoviesController` | `IMovieService` | `Infrastructure/Movies/MovieService` | movie/genre/view/poster/refund |
 | `GenresController` | `IGenreService` | `Infrastructure/Services/GenreService` | GENRE |
@@ -1247,10 +1255,10 @@ REJECTED -> Admin APPROVED (nếu duyệt thủ công)
    - Chỉ dùng `[Authorize]`, không dùng role Customer.
    - Nên đổi sang policy phù hợp nếu chỉ Customer được phép gọi.
 
-5. Admin tạo Staff:
-   - Tự gán rạp đầu tiên trong DB.
-   - Request không có `cinemaId`.
-   - Chưa có API tạo Manager.
+5. Account provisioning:
+   - Role target, loại profile và quyền assign đã lấy từ policy/rule database.
+   - FE phải gọi API role metadata, không hardcode danh sách role.
+   - Seed mặc định không có rule tạo Admin; thay đổi quyền phải qua database policy/rule có kiểm soát.
 
 6. Refund:
    - Luồng hủy/refund đang tồn tại ở cả `ShowtimeService` và

@@ -44,6 +44,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Thiếu field email bắt buộc → model validation HTTP 400 VALIDATION_ERROR.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -63,6 +64,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Email sai định dạng → model validation HTTP 400.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -82,6 +84,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Email đã tồn tại và đã verify → 409 DUPLICATE_EMAIL.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         // Lần 1: Đăng ký + verify
@@ -115,6 +118,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Mật khẩu sai → 401 khi account đã verify.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -143,6 +147,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Email không tồn tại trong hệ thống → 401 (không tiết lộ lý do cụ thể).
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
@@ -159,6 +164,7 @@ public sealed class AuthMissingCoverageTests
     {
         // OTP sai → 400 INVALID_OTP qua HTTP.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -184,6 +190,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Forgot password cho tài khoản chưa verify email → 403 EMAIL_NOT_VERIFIED.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -209,6 +216,7 @@ public sealed class AuthMissingCoverageTests
         // Mật khẩu mới giống mật khẩu cũ → service phải từ chối (nếu business rule này tồn tại).
         // Test này xác nhận behavior hiện tại của service.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         // Đăng ký + verify + forgot
@@ -250,6 +258,7 @@ public sealed class AuthMissingCoverageTests
     {
         // Refresh token giả mạo → 401.
         await using var factory = new CinemaWebApplicationFactory();
+        await factory.SeedPublicRegistrationPolicyAsync();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
@@ -276,19 +285,19 @@ public sealed class AdminMissingCoverageTests
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     [Fact]
-    public async Task CreateStaff_MissingFullName_ReturnsValidationError()
+    public async Task ProvisionAccount_MissingFullName_ReturnsValidationError()
     {
         // Thiếu FullName bắt buộc → validation 400 VALIDATION_ERROR.
         await using var factory = new CinemaWebApplicationFactory();
-        await SeedAdminRoleAsync(factory);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin());
 
-        var response = await client.PostAsJsonAsync("/api/admin/staff", new CreateStaffRequest
+        var response = await client.PostAsJsonAsync("/api/admin/users", new ProvisionManagedAccountRequest
         {
             Email = "noname@test.com",
-            FullName = ""
+            FullName = "",
+            RoleId = AuthConstants.RoleIds.Customer
         });
 
         // Validation error: FullName trống
@@ -298,54 +307,39 @@ public sealed class AdminMissingCoverageTests
     }
 
     [Fact]
-    public async Task CreateStaff_CustomerRole_ReturnsForbidden()
+    public async Task ProvisionAccount_CustomerRole_ReturnsForbidden()
     {
         // Customer không được tạo Staff → 403.
         await using var factory = new CinemaWebApplicationFactory();
-        await SeedAdminRoleAsync(factory);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
 
-        var response = await client.PostAsJsonAsync("/api/admin/staff", new CreateStaffRequest
+        var response = await client.PostAsJsonAsync("/api/admin/users", new ProvisionManagedAccountRequest
         {
             Email = "blocked@test.com",
-            FullName = "Blocked"
+            FullName = "Blocked",
+            RoleId = AuthConstants.RoleIds.Customer
         });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task CreateStaff_NoToken_ReturnsUnauthorized()
+    public async Task ProvisionAccount_NoToken_ReturnsUnauthorized()
     {
         // Không có JWT → 401.
         await using var factory = new CinemaWebApplicationFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/admin/staff", new CreateStaffRequest
+        var response = await client.PostAsJsonAsync("/api/admin/users", new ProvisionManagedAccountRequest
         {
             Email = "anon@test.com",
-            FullName = "Anon"
+            FullName = "Anon",
+            RoleId = AuthConstants.RoleIds.Customer
         });
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    private static async Task SeedAdminRoleAsync(CinemaWebApplicationFactory factory)
-    {
-        await using var scope = factory.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        if (!await db.Roles.AnyAsync(r => r.RoleId == AuthConstants.RoleIds.Staff))
-        {
-            db.Roles.Add(new Role
-            {
-                RoleId = AuthConstants.RoleIds.Staff,
-                RoleName = AuthConstants.Roles.Staff,
-                Description = "Staff"
-            });
-            await db.SaveChangesAsync();
-        }
     }
 
     private static async Task<T?> DeserializeAsync<T>(HttpResponseMessage response)

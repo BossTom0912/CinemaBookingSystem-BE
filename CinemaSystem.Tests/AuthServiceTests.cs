@@ -12,6 +12,7 @@ using CinemaSystem.Infrastructure.Auth;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Security;
 using CinemaSystem.Tests.Infrastructure;
@@ -740,6 +741,21 @@ public sealed class AuthServiceTests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
                 .Options;
             var dbContext = new CinemaDbContext(dbOptions);
+            dbContext.Roles.Add(new Role
+            {
+                RoleId = AuthConstants.RoleIds.Customer,
+                RoleName = AuthConstants.Roles.Customer,
+                Description = "Customer account"
+            });
+            dbContext.RoleProvisioningPolicies.Add(new RoleProvisioningPolicy
+            {
+                RoleId = AuthConstants.RoleIds.Customer,
+                ProfileKind = DomainConstants.AccountProfileKind.Customer,
+                RequiresCinema = false,
+                IsActive = true,
+                IsPublicRegistrationAllowed = true
+            });
+            dbContext.SaveChanges();
             var emailSender = new FakeEmailSender { ShouldFail = emailShouldFail };
             var otpGenerator = new FakeOtpGenerator("123456");
             var clock = new FakeClock(new DateTime(2026, 5, 22, 12, 0, 0, DateTimeKind.Utc));
@@ -783,6 +799,13 @@ public sealed class AuthServiceTests
 
         public async Task<Role> SeedCustomerRoleAsync()
         {
+            var existingRole = await DbContext.Roles.SingleOrDefaultAsync(
+                role => role.RoleId == AuthConstants.RoleIds.Customer);
+            if (existingRole is not null)
+            {
+                return existingRole;
+            }
+
             var role = new Role
             {
                 RoleId = AuthConstants.RoleIds.Customer,
@@ -790,6 +813,14 @@ public sealed class AuthServiceTests
                 Description = "Customer account"
             };
             DbContext.Roles.Add(role);
+            DbContext.RoleProvisioningPolicies.Add(new RoleProvisioningPolicy
+            {
+                RoleId = role.RoleId,
+                ProfileKind = DomainConstants.AccountProfileKind.Customer,
+                RequiresCinema = false,
+                IsActive = true,
+                IsPublicRegistrationAllowed = true
+            });
             await DbContext.SaveChangesAsync();
             return role;
         }

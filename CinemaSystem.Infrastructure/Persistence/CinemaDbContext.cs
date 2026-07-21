@@ -87,6 +87,10 @@ public partial class CinemaDbContext : DbContext
 
     public virtual DbSet<Role> Roles { get; set; }
 
+    public virtual DbSet<RoleAssignmentRule> RoleAssignmentRules { get; set; }
+
+    public virtual DbSet<RoleProvisioningPolicy> RoleProvisioningPolicies { get; set; }
+
     public virtual DbSet<Room> Rooms { get; set; }
 
     public virtual DbSet<Seat> Seats { get; set; }
@@ -1227,6 +1231,72 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.RoleName)
                 .HasMaxLength(100)
                 .HasColumnName("roleName");
+        });
+
+        modelBuilder.Entity<RoleAssignmentRule>(entity =>
+        {
+            entity.HasKey(e => new { e.GrantorRoleId, e.GranteeRoleId })
+                .HasName("PK_ROLE_ASSIGNMENT_RULE");
+
+            entity.ToTable("ROLE_ASSIGNMENT_RULE");
+
+            entity.HasIndex(e => e.GranteeRoleId, "IX_ROLE_ASSIGNMENT_RULE_GRANTEE");
+
+            entity.Property(e => e.GrantorRoleId)
+                .HasMaxLength(50)
+                .HasColumnName("grantorRoleId");
+            entity.Property(e => e.GranteeRoleId)
+                .HasMaxLength(50)
+                .HasColumnName("granteeRoleId");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("isActive");
+
+            entity.HasOne(e => e.GrantorRole)
+                .WithMany(e => e.GrantedAssignmentRules)
+                .HasForeignKey(e => e.GrantorRoleId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ROLE_ASSIGNMENT_RULE_GRANTOR");
+
+            entity.HasOne(e => e.GranteeRole)
+                .WithMany(e => e.ReceivedAssignmentRules)
+                .HasForeignKey(e => e.GranteeRoleId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ROLE_ASSIGNMENT_RULE_GRANTEE");
+        });
+
+        modelBuilder.Entity<RoleProvisioningPolicy>(entity =>
+        {
+            entity.HasKey(e => e.RoleId).HasName("PK_ROLE_PROVISIONING_POLICY");
+
+            entity.ToTable("ROLE_PROVISIONING_POLICY");
+
+            entity.HasIndex(e => new { e.IsActive, e.IsPublicRegistrationAllowed }, "IX_ROLE_PROVISIONING_POLICY_PUBLIC");
+
+            entity.Property(e => e.RoleId)
+                .HasMaxLength(50)
+                .HasColumnName("roleId");
+            entity.Property(e => e.ProfileKind)
+                .HasMaxLength(20)
+                .HasColumnName("profileKind");
+            entity.Property(e => e.RequiresCinema)
+                .HasDefaultValue(false)
+                .HasColumnName("requiresCinema");
+            entity.Property(e => e.DefaultStaffPosition)
+                .HasMaxLength(100)
+                .HasColumnName("defaultStaffPosition");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("isActive");
+            entity.Property(e => e.IsPublicRegistrationAllowed)
+                .HasDefaultValue(false)
+                .HasColumnName("isPublicRegistrationAllowed");
+
+            entity.HasOne(e => e.Role)
+                .WithOne(e => e.ProvisioningPolicy)
+                .HasForeignKey<RoleProvisioningPolicy>(e => e.RoleId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ROLE_PROVISIONING_POLICY_ROLE");
         });
 
         modelBuilder.Entity<Room>(entity =>

@@ -24,6 +24,7 @@ public sealed class AuthApiIntegrationTests
   {
     // Luồng E2E Customer: Register → Verify OTP → Login → Logout.
     await using var factory = new CinemaWebApplicationFactory();
+    await factory.SeedPublicRegistrationPolicyAsync();
     using var client = factory.CreateClient();
 
     // Bước 1: Đăng ký tài khoản Customer mới.
@@ -76,6 +77,7 @@ public sealed class AuthApiIntegrationTests
   {
     // Luồng: password đủ 8 ký tự nhưng không đủ mạnh (service rule) → HTTP 400 WEAK_PASSWORD.
     await using var factory = new CinemaWebApplicationFactory();
+    await factory.SeedPublicRegistrationPolicyAsync();
     using var client = factory.CreateClient();
 
     var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -95,6 +97,7 @@ public sealed class AuthApiIntegrationTests
   {
     // Độ dài mật khẩu được kiểm tra bằng AuthSettings tại runtime.
     await using var factory = new CinemaWebApplicationFactory();
+    await factory.SeedPublicRegistrationPolicyAsync();
     using var client = factory.CreateClient();
 
     var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -114,6 +117,7 @@ public sealed class AuthApiIntegrationTests
   {
     // Luồng: register nhưng chưa verify → login → 403 ACCOUNT_NOT_VERIFIED.
     await using var factory = new CinemaWebApplicationFactory();
+    await factory.SeedPublicRegistrationPolicyAsync();
     using var client = factory.CreateClient();
 
     await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -139,6 +143,7 @@ public sealed class AuthApiIntegrationTests
   {
     // Luồng: register qua HTTP → email OTP được gửi qua FakeEmailCapture.
     await using var factory = new CinemaWebApplicationFactory();
+    await factory.SeedPublicRegistrationPolicyAsync();
     using var client = factory.CreateClient();
 
     await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest

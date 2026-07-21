@@ -2,6 +2,8 @@ using System.Security.Claims;
 using System.Text;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
+using CinemaSystem.Domain.Constants;
+using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Persistence;
@@ -55,6 +57,37 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
 
     public FakeEmailCapture EmailCapture { get; } = new();
     public string FixedOtp => "123456";
+
+    public async Task SeedPublicRegistrationPolicyAsync()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+
+        if (!await dbContext.Roles.AnyAsync(role => role.RoleId == AuthConstants.RoleIds.Customer))
+        {
+            dbContext.Roles.Add(new Role
+            {
+                RoleId = AuthConstants.RoleIds.Customer,
+                RoleName = AuthConstants.Roles.Customer,
+                Description = "Customer account"
+            });
+        }
+
+        if (!await dbContext.RoleProvisioningPolicies.AnyAsync(
+                policy => policy.RoleId == AuthConstants.RoleIds.Customer))
+        {
+            dbContext.RoleProvisioningPolicies.Add(new RoleProvisioningPolicy
+            {
+                RoleId = AuthConstants.RoleIds.Customer,
+                ProfileKind = DomainConstants.AccountProfileKind.Customer,
+                RequiresCinema = false,
+                IsActive = true,
+                IsPublicRegistrationAllowed = true
+            });
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -270,11 +303,11 @@ public sealed class FakeEmailCapture : IEmailSender, IEmailService
         return Task.CompletedTask;
     }
 
-    public Task SendInvitationAsync(
+    public Task SendAccountInvitationAsync(
         string toEmail, string invitationToken,
         CancellationToken cancellationToken = default)
     {
-        _sent.Add(new CapturedEmail(toEmail, "Staff Invitation", invitationToken));
+        _sent.Add(new CapturedEmail(toEmail, "Account Invitation", invitationToken));
         return Task.CompletedTask;
     }
 }

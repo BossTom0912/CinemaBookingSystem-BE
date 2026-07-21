@@ -466,6 +466,45 @@ CREATE TABLE [SHOWTIME_CANCELLATION] (
 );
 GO
 
+CREATE TABLE [ROLE_PROVISIONING_POLICY] (
+    [roleId] NVARCHAR(50) PRIMARY KEY,
+    [profileKind] NVARCHAR(20) NOT NULL,
+    [requiresCinema] BIT NOT NULL DEFAULT 0,
+    [defaultStaffPosition] NVARCHAR(100) NULL,
+    [isActive] BIT NOT NULL DEFAULT 1,
+    [isPublicRegistrationAllowed] BIT NOT NULL DEFAULT 0,
+
+    CONSTRAINT [CK_ROLE_PROVISIONING_POLICY_PROFILE]
+        CHECK ([profileKind] IN ('CUSTOMER', 'STAFF', 'NONE')),
+    CONSTRAINT [CK_ROLE_PROVISIONING_POLICY_PROFILE_RULE]
+        CHECK
+        (
+            ([profileKind] = 'STAFF' AND [requiresCinema] = 1 AND [defaultStaffPosition] IS NOT NULL)
+            OR ([profileKind] = 'CUSTOMER' AND [requiresCinema] = 0 AND [defaultStaffPosition] IS NULL)
+            OR ([profileKind] = 'NONE' AND [requiresCinema] = 0 AND [defaultStaffPosition] IS NULL)
+        ),
+    CONSTRAINT [CK_ROLE_PROVISIONING_POLICY_PUBLIC_REGISTER]
+        CHECK ([isPublicRegistrationAllowed] = 0 OR [profileKind] = 'CUSTOMER'),
+    CONSTRAINT [FK_ROLE_PROVISIONING_POLICY_ROLE]
+        FOREIGN KEY ([roleId]) REFERENCES [ROLE]([roleId])
+);
+GO
+
+CREATE TABLE [ROLE_ASSIGNMENT_RULE] (
+    [grantorRoleId] NVARCHAR(50) NOT NULL,
+    [granteeRoleId] NVARCHAR(50) NOT NULL,
+    [isActive] BIT NOT NULL DEFAULT 1,
+
+    CONSTRAINT [PK_ROLE_ASSIGNMENT_RULE] PRIMARY KEY ([grantorRoleId], [granteeRoleId]),
+    CONSTRAINT [CK_ROLE_ASSIGNMENT_RULE_DIFFERENT_ROLES]
+        CHECK ([grantorRoleId] <> [granteeRoleId]),
+    CONSTRAINT [FK_ROLE_ASSIGNMENT_RULE_GRANTOR]
+        FOREIGN KEY ([grantorRoleId]) REFERENCES [ROLE]([roleId]),
+    CONSTRAINT [FK_ROLE_ASSIGNMENT_RULE_GRANTEE]
+        FOREIGN KEY ([granteeRoleId]) REFERENCES [ROLE]([roleId])
+);
+GO
+
 CREATE TABLE [CANCELLATION_COMPENSATION] (
     [cancellationCompensationId] NVARCHAR(50) PRIMARY KEY,
     [sourceBookingId] NVARCHAR(50) NOT NULL,
@@ -975,6 +1014,8 @@ GO
 -- =========================
 
 CREATE INDEX [IX_USER_ROLE_ID] ON [USER]([roleId]);
+CREATE INDEX [IX_ROLE_PROVISIONING_POLICY_PUBLIC] ON [ROLE_PROVISIONING_POLICY]([isActive], [isPublicRegistrationAllowed]);
+CREATE INDEX [IX_ROLE_ASSIGNMENT_RULE_GRANTEE] ON [ROLE_ASSIGNMENT_RULE]([granteeRoleId]);
 CREATE UNIQUE INDEX [UX_CUSTOMER_PROFILE_IDENTITY_CARD] ON [CUSTOMER_PROFILE]([identityCard]) WHERE [identityCard] IS NOT NULL;
 CREATE UNIQUE INDEX [UX_STAFF_PROFILE_IDENTITY_CARD] ON [STAFF_PROFILE]([identityCard]) WHERE [identityCard] IS NOT NULL;
 CREATE INDEX [IX_STAFF_PROFILE_CINEMA_ID] ON [STAFF_PROFILE]([cinemaId]);
@@ -1038,6 +1079,42 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_MANAGER')
 IF NOT EXISTS (SELECT 1 FROM dbo.[ROLE] WHERE [roleId] = 'ROLE_ADMIN')
     INSERT INTO dbo.[ROLE] ([roleId], [roleName], [description])
     VALUES ('ROLE_ADMIN', 'ADMIN', N'System administrator account');
+GO
+
+MERGE dbo.[ROLE_PROVISIONING_POLICY] AS target
+USING
+(
+    VALUES
+        ('ROLE_CUSTOMER', 'CUSTOMER', CONVERT(bit, 0), CAST(NULL AS NVARCHAR(100)), CONVERT(bit, 1), CONVERT(bit, 1)),
+        ('ROLE_STAFF', 'STAFF', CONVERT(bit, 1), N'Staff', CONVERT(bit, 1), CONVERT(bit, 0)),
+        ('ROLE_MANAGER', 'STAFF', CONVERT(bit, 1), N'Manager', CONVERT(bit, 1), CONVERT(bit, 0)),
+        ('ROLE_ADMIN', 'NONE', CONVERT(bit, 0), CAST(NULL AS NVARCHAR(100)), CONVERT(bit, 1), CONVERT(bit, 0))
+) AS source ([roleId], [profileKind], [requiresCinema], [defaultStaffPosition], [isActive], [isPublicRegistrationAllowed])
+ON target.[roleId] = source.[roleId]
+WHEN MATCHED THEN UPDATE SET
+    [profileKind] = source.[profileKind],
+    [requiresCinema] = source.[requiresCinema],
+    [defaultStaffPosition] = source.[defaultStaffPosition],
+    [isActive] = source.[isActive],
+    [isPublicRegistrationAllowed] = source.[isPublicRegistrationAllowed]
+WHEN NOT MATCHED THEN INSERT
+    ([roleId], [profileKind], [requiresCinema], [defaultStaffPosition], [isActive], [isPublicRegistrationAllowed])
+VALUES
+    (source.[roleId], source.[profileKind], source.[requiresCinema], source.[defaultStaffPosition], source.[isActive], source.[isPublicRegistrationAllowed]);
+
+MERGE dbo.[ROLE_ASSIGNMENT_RULE] AS target
+USING
+(
+    VALUES
+        ('ROLE_ADMIN', 'ROLE_CUSTOMER', CONVERT(bit, 1)),
+        ('ROLE_ADMIN', 'ROLE_STAFF', CONVERT(bit, 1)),
+        ('ROLE_ADMIN', 'ROLE_MANAGER', CONVERT(bit, 1))
+) AS source ([grantorRoleId], [granteeRoleId], [isActive])
+ON target.[grantorRoleId] = source.[grantorRoleId]
+   AND target.[granteeRoleId] = source.[granteeRoleId]
+WHEN MATCHED THEN UPDATE SET [isActive] = source.[isActive]
+WHEN NOT MATCHED THEN INSERT ([grantorRoleId], [granteeRoleId], [isActive])
+VALUES (source.[grantorRoleId], source.[granteeRoleId], source.[isActive]);
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[SEAT_TYPE] WHERE [seatTypeId] = 'SEAT_TYPE_NORMAL')

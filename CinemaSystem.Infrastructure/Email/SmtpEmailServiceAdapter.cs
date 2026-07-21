@@ -22,13 +22,13 @@ public sealed class SmtpEmailServiceAdapter : IEmailService
         return _emailSender.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 
-    public Task SendInvitationAsync(string toEmail, string invitationToken, CancellationToken cancellationToken)
+    public Task SendAccountInvitationAsync(string toEmail, string invitationToken, CancellationToken cancellationToken)
     {
-        var body = string.Format(_templates.StaffInvitationBody, invitationToken);
+        var body = string.Format(_templates.AccountInvitationBody, invitationToken);
 
         return _emailSender.SendEmailAsync(
             toEmail,
-            _templates.StaffInvitationSubject,
+            _templates.AccountInvitationSubject,
             body,
             cancellationToken);
     }
