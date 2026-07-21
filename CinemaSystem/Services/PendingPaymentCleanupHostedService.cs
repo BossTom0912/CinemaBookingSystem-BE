@@ -94,6 +94,8 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var voucherReservationService =
+            scope.ServiceProvider.GetRequiredService<IVoucherReservationService>();
         var now = DateTime.UtcNow;
         var twoHoursLater = now.AddHours(2);
 
@@ -148,25 +150,16 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
             if (booking.VoucherUsage is not null)
             {
-                if (string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Confirmed, StringComparison.OrdinalIgnoreCase))
+                var wasConfirmed = await voucherReservationService.CancelAsync(
+                    booking.VoucherUsage,
+                    cancellationToken);
+                if (wasConfirmed)
                 {
                     var voucher = await dbContext.Vouchers.FirstOrDefaultAsync(v => v.VoucherId == booking.VoucherUsage.VoucherId, cancellationToken);
                     if (voucher != null)
                     {
                         voucher.UsedCount = Math.Max(0, voucher.UsedCount - 1);
                     }
-                }
-
-                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
-
-                var claimedVoucher = await dbContext.CustomerVouchers
-                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId 
-                        && cv.CustomerProfileId == booking.CustomerProfileId 
-                        && cv.IsUsed, cancellationToken);
-                if (claimedVoucher != null)
-                {
-                    claimedVoucher.IsUsed = false;
-                    claimedVoucher.UsedAt = null;
                 }
             }
 
@@ -199,6 +192,10 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var voucherReservationService =
+            scope.ServiceProvider.GetRequiredService<IVoucherReservationService>();
+        var compensationService =
+            scope.ServiceProvider.GetRequiredService<ICancellationCompensationService>();
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
         var now = clock.UtcNow;
         var expiryMinutes = _settings.Value.PendingPaymentExpiryMinutes;
@@ -234,18 +231,14 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
 
             if (booking.VoucherUsage is not null)
             {
-                booking.VoucherUsage.UsageStatus = DomainConstants.VoucherUsageStatus.Cancelled;
-
-                var claimedVoucher = await dbContext.CustomerVouchers
-                    .FirstOrDefaultAsync(cv => cv.VoucherId == booking.VoucherUsage.VoucherId 
-                        && cv.CustomerProfileId == booking.CustomerProfileId 
-                        && cv.IsUsed, cancellationToken);
-                if (claimedVoucher != null)
-                {
-                    claimedVoucher.IsUsed = false;
-                    claimedVoucher.UsedAt = null;
-                }
+                await voucherReservationService.CancelAsync(
+                    booking.VoucherUsage,
+                    cancellationToken);
             }
+
+            await compensationService.ReleaseBookingReservationsAsync(
+                booking.BookingId,
+                cancellationToken);
 
             foreach (var payment in booking.Payments)
             {

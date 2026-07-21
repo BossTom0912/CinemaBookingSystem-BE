@@ -14,6 +14,8 @@ public sealed class CreateCounterBookingRequest
 
     public string? VoucherCode { get; init; }
 
+    public List<string>? CompensationTicketCodes { get; init; }
+
     public List<BookingFbItemRequest>? FoodAndBeverages { get; init; }
 
     public string? CustomerProfileId { get; init; }

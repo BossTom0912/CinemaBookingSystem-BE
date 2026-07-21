@@ -13,6 +13,8 @@ public partial class VoucherUsage
 
     public string BookingId { get; set; } = null!;
 
+    public string? CustomerVoucherId { get; set; }
+
     public string UsageStatus { get; set; } = null!;
 
     public DateTime? UsedAt { get; set; }
@@ -22,6 +24,8 @@ public partial class VoucherUsage
     public virtual Booking Booking { get; set; } = null!;
 
     public virtual CustomerProfile CustomerProfile { get; set; } = null!;
+
+    public virtual CustomerVoucher? CustomerVoucher { get; set; }
 
     public virtual Voucher Voucher { get; set; } = null!;
 }

@@ -68,6 +68,12 @@ public sealed class VoucherBookingIntegrationTests
         Assert.Equal("CONFIRMED", booking.VoucherUsage.UsageStatus);
         Assert.NotNull(booking.VoucherUsage.UsedAt);
         Assert.Equal(1, booking.VoucherUsage.Voucher!.UsedCount);
+        Assert.Equal("CV_100", booking.VoucherUsage.CustomerVoucherId);
+
+        var claimedVoucher = await db.CustomerVouchers
+            .SingleAsync(item => item.CustomerVoucherId == "CV_100");
+        Assert.True(claimedVoucher.IsUsed);
+        Assert.NotNull(claimedVoucher.UsedAt);
 
         // Check tickets are generated immediately
         Assert.Single(booking.BookingSeats);
@@ -120,6 +126,12 @@ public sealed class VoucherBookingIntegrationTests
             Assert.NotNull(bookingBefore.VoucherUsage);
             Assert.Equal("APPLIED", bookingBefore.VoucherUsage.UsageStatus);
             Assert.Null(bookingBefore.VoucherUsage.UsedAt);
+            Assert.Equal("CV_10", bookingBefore.VoucherUsage.CustomerVoucherId);
+
+            var claimedVoucherBefore = await db.CustomerVouchers
+                .SingleAsync(item => item.CustomerVoucherId == "CV_10");
+            Assert.False(claimedVoucherBefore.IsUsed);
+            Assert.Null(claimedVoucherBefore.UsedAt);
 
             var stsBefore = await db.ShowtimeSeats.FirstAsync(s => s.ShowtimeSeatId == showtimeSeatIds.First());
             Assert.Equal("LOCKED", stsBefore.SeatStatus);
@@ -174,6 +186,12 @@ public sealed class VoucherBookingIntegrationTests
             Assert.Equal("CONFIRMED", bookingAfter.VoucherUsage.UsageStatus);
             Assert.NotNull(bookingAfter.VoucherUsage.UsedAt);
             Assert.Equal(1, bookingAfter.VoucherUsage.Voucher!.UsedCount);
+            Assert.Equal("CV_10", bookingAfter.VoucherUsage.CustomerVoucherId);
+
+            var claimedVoucherAfter = await db.CustomerVouchers
+                .SingleAsync(item => item.CustomerVoucherId == "CV_10");
+            Assert.True(claimedVoucherAfter.IsUsed);
+            Assert.NotNull(claimedVoucherAfter.UsedAt);
 
             // Ticket generated and seat booked
             Assert.Single(bookingAfter.BookingSeats);
@@ -183,6 +201,54 @@ public sealed class VoucherBookingIntegrationTests
             var stsAfter = await db.ShowtimeSeats.FirstAsync(s => s.ShowtimeSeatId == showtimeSeatIds.First());
             Assert.Equal("BOOKED", stsAfter.SeatStatus);
         }
+    }
+
+    [Fact]
+    public async Task CancelPendingBooking_ReleasesExactReservation_WithoutTouchingAnotherUsedClaim()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var (showtimeId, showtimeSeatIds, _, voucher10Code) =
+            await SeedBookingDataWithVouchersAsync(factory);
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Customer());
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/bookings",
+            new CreateBookingRequest
+            {
+                ShowtimeId = showtimeId,
+                ShowtimeSeatIds = showtimeSeatIds,
+                VoucherCode = voucher10Code
+            });
+
+        Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
+        var createBody = await createResponse.Content
+            .ReadFromJsonAsync<ApiResponse<BookingResponse>>(JsonOptions);
+        Assert.NotNull(createBody?.Data);
+
+        var cancelResponse = await client.PostAsync(
+            $"/api/bookings/{createBody.Data.BookingId}/cancel",
+            content: null);
+
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var usage = await db.VoucherUsages
+            .SingleAsync(item => item.BookingId == createBody.Data.BookingId);
+        var reservedClaim = await db.CustomerVouchers
+            .SingleAsync(item => item.CustomerVoucherId == "CV_10");
+        var previouslyUsedClaim = await db.CustomerVouchers
+            .SingleAsync(item => item.CustomerVoucherId == "CV_10_USED");
+
+        Assert.Equal("CANCELLED", usage.UsageStatus);
+        Assert.Equal("CV_10", usage.CustomerVoucherId);
+        Assert.False(reservedClaim.IsUsed);
+        Assert.Null(reservedClaim.UsedAt);
+        Assert.True(previouslyUsedClaim.IsUsed);
+        Assert.NotNull(previouslyUsedClaim.UsedAt);
     }
 
     private static string ComputeHmacSha256(string data, string key)
@@ -273,6 +339,33 @@ public sealed class VoucherBookingIntegrationTests
             VoucherStatus = "ACTIVE"
         };
         db.Vouchers.Add(voucher10);
+
+        db.CustomerVouchers.AddRange(
+            new CustomerVoucher
+            {
+                CustomerVoucherId = "CV_100",
+                CustomerProfileId = customer.CustomerProfileId,
+                VoucherId = voucher100.VoucherId,
+                ClaimedAt = DateTime.UtcNow.AddHours(-3),
+                IsUsed = false
+            },
+            new CustomerVoucher
+            {
+                CustomerVoucherId = "CV_10_USED",
+                CustomerProfileId = customer.CustomerProfileId,
+                VoucherId = voucher10.VoucherId,
+                ClaimedAt = DateTime.UtcNow.AddHours(-3),
+                IsUsed = true,
+                UsedAt = DateTime.UtcNow.AddHours(-2)
+            },
+            new CustomerVoucher
+            {
+                CustomerVoucherId = "CV_10",
+                CustomerProfileId = customer.CustomerProfileId,
+                VoucherId = voucher10.VoucherId,
+                ClaimedAt = DateTime.UtcNow.AddHours(-1),
+                IsUsed = false
+            });
 
         // Seed Cinema, Room, SeatType, Seat
         var cinema = new Cinema { CinemaId = "CIN_01", CinemaName = "Test Cinema", Address = "Add", City = "City", CinemaStatus = "ACTIVE" };

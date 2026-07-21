@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace CinemaSystem.Domain.Entities;
 
@@ -13,4 +14,5 @@ public class CustomerVoucher
 
     public virtual CustomerProfile CustomerProfile { get; set; } = null!;
     public virtual Voucher Voucher { get; set; } = null!;
+    public virtual ICollection<VoucherUsage> VoucherUsages { get; set; } = new List<VoucherUsage>();
 }

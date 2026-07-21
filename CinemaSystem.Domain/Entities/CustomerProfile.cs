@@ -33,6 +33,8 @@ public partial class CustomerProfile
 
     public virtual ICollection<CustomerRefundRequest> CustomerRefundRequests { get; set; } = new List<CustomerRefundRequest>();
 
+    public virtual ICollection<CancellationCompensation> CancellationCompensations { get; set; } = new List<CancellationCompensation>();
+
     public virtual User User { get; set; } = null!;
 
     public virtual ICollection<VoucherUsage> VoucherUsages { get; set; } = new List<VoucherUsage>();
