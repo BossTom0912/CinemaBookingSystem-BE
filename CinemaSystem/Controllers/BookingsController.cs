@@ -164,40 +164,6 @@ public sealed class BookingsController : ControllerBase
             token,
             cancellationToken);
 
-        // Nếu truy cập từ Trình duyệt web (Click link từ Email), trả về giao diện HTML phản hồi chuyên nghiệp
-        if (Request.Headers["Accept"].ToString().Contains("text/html") || !Request.Headers.ContainsKey("X-Requested-With"))
-        {
-            string htmlContent;
-            if (result.Success)
-            {
-                if (result.Message != null && result.Message.StartsWith("ALREADY_ACCEPTED:"))
-                {
-                    var cleanMsg = result.Message.Replace("ALREADY_ACCEPTED:", "").Trim();
-                    htmlContent = GetConfirmationSuccessHtml(bookingId, "BẠN ĐÃ XÁC NHẬN ĐỒNG Ý TRƯỚC ĐÓ", cleanMsg);
-                }
-                else if (result.Message != null && result.Message.StartsWith("ALREADY_REFUNDED:"))
-                {
-                    var cleanMsg = result.Message.Replace("ALREADY_REFUNDED:", "").Trim();
-                    htmlContent = GetConfirmationSuccessHtml(bookingId, "BẠN ĐÃ YÊU CẦU HOÀN TIỀN 100% TRƯỚC ĐÓ", cleanMsg);
-                }
-                else if (accept)
-                {
-                    var msg = "Cảm ơn Quý khách đã xác nhận tham dự suất chiếu mới! Đơn hàng của bạn đã được cập nhật trạng thái hợp lệ. Các quyền lợi đền bù (Voucher / Nâng hạng ghế) đã được đính kèm vào tài khoản của bạn. Chúc bạn có trải nghiệm xem phim vui vẻ tại CinemaSystem!";
-                    htmlContent = GetConfirmationSuccessHtml(bookingId, "XÁC NHẬN GIỮ VÉ & XEM SUẤT CHIẾU MỚI THÀNH CÔNG", msg);
-                }
-                else
-                {
-                    var msg = "Yêu cầu hoàn tiền của Quý khách cho đơn hàng đã được tiếp nhận thành công. Đơn hàng của bạn đã được chuyển sang trạng thái chờ xử lý hoàn 100% tiền vé tự động về tài khoản thanh toán ban đầu. CinemaSystem chân thành cảm ơn sự đồng hành của Quý khách!";
-                    htmlContent = GetConfirmationSuccessHtml(bookingId, "ĐÃ TIẾP NHẬN YÊU CẦU HOÀN TIỀN 100%", msg);
-                }
-            }
-            else
-            {
-                htmlContent = GetConfirmationErrorHtml(bookingId, result.Message);
-            }
-            return Content(htmlContent, "text/html; charset=utf-8");
-        }
-
         var response = result.Success
             ? ApiResponse<bool>.Ok(result.Data, result.Message)
             : ApiResponse<bool>.Fail(
@@ -206,72 +172,6 @@ public sealed class BookingsController : ControllerBase
                 result.Errors);
 
         return StatusCode(result.StatusCode, response);
-    }
-
-    private static string GetConfirmationSuccessHtml(string bookingId, string title, string message)
-    {
-        return $$"""
-            <!DOCTYPE html>
-            <html lang="vi">
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>{{title}} - CinemaSystem</title>
-                <style>
-                    body { font-family: Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 40px 20px; display: flex; justify-content: center; align-items: center; min-height: 80vh; }
-                    .card { background-color: #1e293b; border-radius: 16px; border: 1px solid #334155; padding: 40px; max-width: 500px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-                    .icon { width: 70px; height: 70px; background: #059669; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 20px auto; }
-                    h2 { color: #ffffff; margin-top: 0; font-size: 20px; }
-                    p { color: #94a3b8; font-size: 14px; line-height: 1.6; }
-                    .booking-badge { display: inline-block; background-color: #334155; color: #38bdf8; font-family: monospace; font-size: 15px; font-weight: bold; padding: 6px 14px; border-radius: 8px; margin: 15px 0; }
-                    .btn { display: inline-block; background: linear-gradient(135deg, #2563eb, #3b82f6); color: white; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: bold; margin-top: 25px; transition: all 0.3s; }
-                    .btn:hover { opacity: 0.9; }
-                </style>
-            </head>
-            <body>
-                <div class="card">
-                    <div class="icon">✓</div>
-                    <h2>{{title}}</h2>
-                    <div class="booking-badge">Mã đơn hàng: #{{bookingId}}</div>
-                    <p>{{message}}</p>
-                    <a href="http://localhost:5173" class="btn">Quay lại Trang Chủ CinemaSystem</a>
-                </div>
-            </body>
-            </html>
-            """;
-    }
-
-    private static string GetConfirmationErrorHtml(string bookingId, string errorMessage)
-    {
-        return $$"""
-            <!DOCTYPE html>
-            <html lang="vi">
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Thông Báo Từ Hệ Thống - CinemaSystem</title>
-                <style>
-                    body { font-family: Arial, sans-serif; background-color: #0f172a; color: #f8fafc; margin: 0; padding: 40px 20px; display: flex; justify-content: center; align-items: center; min-height: 80vh; }
-                    .card { background-color: #1e293b; border-radius: 16px; border: 1px solid #334155; padding: 40px; max-width: 500px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-                    .icon { width: 70px; height: 70px; background: #dc2626; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 20px auto; }
-                    h2 { color: #ffffff; margin-top: 0; font-size: 20px; }
-                    p { color: #94a3b8; font-size: 14px; line-height: 1.6; }
-                    .booking-badge { display: inline-block; background-color: #334155; color: #f87171; font-family: monospace; font-size: 15px; font-weight: bold; padding: 6px 14px; border-radius: 8px; margin: 15px 0; }
-                    .btn { display: inline-block; background: linear-gradient(135deg, #2563eb, #3b82f6); color: white; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: bold; margin-top: 25px; transition: all 0.3s; }
-                    .btn:hover { opacity: 0.9; }
-                </style>
-            </head>
-            <body>
-                <div class="card">
-                    <div class="icon">✕</div>
-                    <h2>THÔNG BÁO TỪ HỆ THỐNG</h2>
-                    <div class="booking-badge">Mã đơn hàng: #{{bookingId}}</div>
-                    <p>{{errorMessage}}</p>
-                    <a href="http://localhost:5173" class="btn">Quay lại Trang Chủ CinemaSystem</a>
-                </div>
-            </body>
-            </html>
-            """;
     }
 
     [HttpPost("{bookingId}/cancel")]
