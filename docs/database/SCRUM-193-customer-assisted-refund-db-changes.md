@@ -14,9 +14,8 @@ Invalid object name 'REFUND_CLAIM'
 - Full reset schema:
   `docs/database/cinema-booking-schema.sql`
 
-For an existing database with data to keep, use
-`docs/database/cinema-booking-schema-upgrade.sql`. The reset schema remains
-for a disposable/local database only.
+The script is for a disposable/local database only. An existing database with
+data to keep needs a data migration reviewed for its current schema state.
 
 ## Schema Changes
 
@@ -27,6 +26,7 @@ New tables used by the current EF model:
 - `REFUND_CLAIM_TOKEN`
 - `CUSTOMER_REFUND_REQUEST`
 - `MANUAL_REFUND_PROCESS`
+- `REFUND_CUSTOMER_CONFIRMATION`
 
 `CK_REFUND_STATUS` now accepts:
 
