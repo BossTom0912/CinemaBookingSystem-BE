@@ -429,4 +429,121 @@ public sealed class VoucherServiceTests
         Assert.NotNull(notif);
         Assert.Contains("Tặng Voucher", notif.Title);
     }
+
+    [Fact]
+    public async Task CreateVoucherAsync_SpecificCustomers_CreatesCustomerVoucherAndNotification()
+    {
+        var db = CreateDbContext();
+        var clock = new FakeClock(DateTime.UtcNow);
+        var service = new VoucherService(db, clock);
+
+        var user = new User
+        {
+            UserId = "USR_10",
+            Email = "vip@example.com",
+            FullName = "VIP Customer",
+            PasswordHash = "hash",
+            RoleId = AuthConstants.RoleIds.Customer,
+            Status = DomainConstants.EntityStatus.Active
+        };
+        var customer = new CustomerProfile
+        {
+            CustomerProfileId = "CUS_10",
+            UserId = "USR_10",
+            User = user,
+            MemberLevel = "VIP"
+        };
+        db.Users.Add(user);
+        db.CustomerProfiles.Add(customer);
+        await db.SaveChangesAsync();
+
+        var request = new CreateVoucherRequest
+        {
+            VoucherCode = "VIPEXCLUSIVE",
+            Title = "Voucher VIP 100k",
+            Description = "Dành riêng cho khách hàng VIP",
+            DiscountType = DomainConstants.DiscountType.Amount,
+            DiscountValue = 100000m,
+            UsageLimit = 10,
+            TargetType = "SPECIFIC_CUSTOMERS",
+            TargetCustomerIds = "CUS_10",
+            IsPrivate = true,
+            StartDate = DateTime.UtcNow.AddDays(-1),
+            EndDate = DateTime.UtcNow.AddDays(10)
+        };
+
+        var result = await service.CreateVoucherAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+
+        var walletVoucher = await db.CustomerVouchers
+            .FirstOrDefaultAsync(cv => cv.CustomerProfileId == "CUS_10" && cv.Voucher.VoucherCode == "VIPEXCLUSIVE");
+        Assert.NotNull(walletVoucher);
+
+        var notification = await db.Notifications
+            .FirstOrDefaultAsync(n => n.UserId == "USR_10");
+        Assert.NotNull(notification);
+        Assert.Contains("Tặng Voucher riêng", notification.Title);
+        Assert.Contains("VIPEXCLUSIVE", notification.Message);
+        Assert.Contains("100,000", notification.Message);
+    }
+
+    [Fact]
+    public async Task IssueCompensationVoucherAsync_SendsNotificationToTargetedCustomers()
+    {
+        var db = CreateDbContext();
+        var clock = new FakeClock(DateTime.UtcNow);
+        var service = new VoucherService(db, clock);
+
+        var user = new User
+        {
+            UserId = "USR_11",
+            Email = "comp@example.com",
+            FullName = "Compensation Customer",
+            PasswordHash = "hash",
+            RoleId = AuthConstants.RoleIds.Customer,
+            Status = DomainConstants.EntityStatus.Active
+        };
+        var customer = new CustomerProfile
+        {
+            CustomerProfileId = "CUS_11",
+            UserId = "USR_11",
+            User = user,
+            MemberLevel = "Standard"
+        };
+        db.Users.Add(user);
+        db.CustomerProfiles.Add(customer);
+
+        var voucher = new Voucher
+        {
+            VoucherId = "VOU_COMP",
+            VoucherCode = "COMP50K",
+            Title = "Đền Bù Sự Cố",
+            DiscountType = DomainConstants.DiscountType.Amount,
+            DiscountValue = 50000m,
+            UsageLimit = 100,
+            StartDate = DateTime.UtcNow.AddDays(-1),
+            EndDate = DateTime.UtcNow.AddDays(5),
+            VoucherStatus = DomainConstants.VoucherStatus.Active
+        };
+        db.Vouchers.Add(voucher);
+        await db.SaveChangesAsync();
+
+        var request = new IssueCompensationRequest
+        {
+            VoucherId = "VOU_COMP",
+            CustomerProfileIds = new List<string> { "CUS_11" }
+        };
+
+        var result = await service.IssueCompensationVoucherAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.Data);
+
+        var notification = await db.Notifications
+            .FirstOrDefaultAsync(n => n.UserId == "USR_11");
+        Assert.NotNull(notification);
+        Assert.Contains("Voucher Đền Bù", notification.Title);
+        Assert.Contains("COMP50K", notification.Message);
+    }
 }

@@ -17,11 +17,13 @@ public sealed class VoucherService : IVoucherService
 {
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
+    private readonly IEmailService? _emailService;
 
-    public VoucherService(CinemaDbContext dbContext, IClock clock)
+    public VoucherService(CinemaDbContext dbContext, IClock clock, IEmailService? emailService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
+        _emailService = emailService;
     }
 
     public async Task<ServiceResult<VoucherResponse>> CreateVoucherAsync(
@@ -68,6 +70,13 @@ public sealed class VoucherService : IVoucherService
         };
 
         _dbContext.Vouchers.Add(voucher);
+
+        if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(voucher.TargetCustomerIds))
+        {
+            await AssignAndNotifyTargetCustomersAsync(voucher, voucher.TargetCustomerIds, cancellationToken);
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<VoucherResponse>.Ok(MapToResponse(voucher), "Voucher created successfully.");
@@ -153,6 +162,12 @@ public sealed class VoucherService : IVoucherService
         if (request.SpecificFbItemIds != null) voucher.SpecificFbItemIds = request.SpecificFbItemIds;
         voucher.IsPrivate = request.IsPrivate;
         voucher.RequiredTicketCount = request.RequiredTicketCount;
+
+        if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(voucher.TargetCustomerIds))
+        {
+            await AssignAndNotifyTargetCustomersAsync(voucher, voucher.TargetCustomerIds, cancellationToken);
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -520,27 +535,186 @@ public sealed class VoucherService : IVoucherService
         }
 
         var now = _clock.UtcNow;
+
+        string discountText;
+        if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
+        {
+            discountText = $"Giảm {voucher.DiscountValue}%";
+            if (voucher.MaxDiscountAmount.HasValue && voucher.MaxDiscountAmount.Value > 0)
+            {
+                discountText += $" (tối đa {voucher.MaxDiscountAmount.Value:#,##0} VNĐ)";
+            }
+        }
+        else
+        {
+            discountText = $"Giảm {voucher.DiscountValue:#,##0} VNĐ";
+        }
+
+        var dateRangeText = $"từ {voucher.StartDate:dd/MM/yyyy} đến {voucher.EndDate:dd/MM/yyyy}";
+        var voucherTitle = !string.IsNullOrWhiteSpace(voucher.Title) ? voucher.Title : voucher.VoucherCode;
+        var notifTitle = "🎁 [Voucher Đền Bù] Bạn vừa nhận được voucher đền bù từ G2Cinema!";
+        var notifMessage = $"Bạn vừa được nhận voucher đền bù '{voucherTitle}': Mã [{voucher.VoucherCode}] - {discountText}. Hạn dùng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
+
         int count = 0;
         foreach (var customerId in request.CustomerProfileIds.Distinct())
         {
+            var profile = await _dbContext.CustomerProfiles
+                .Include(cp => cp.User)
+                .FirstOrDefaultAsync(cp => cp.CustomerProfileId == customerId || cp.UserId == customerId, cancellationToken);
+
+            if (profile == null) continue;
+
             var exists = await _dbContext.CustomerVouchers
-                .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == customerId, cancellationToken);
+                .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == profile.CustomerProfileId, cancellationToken);
             if (!exists)
             {
                 _dbContext.CustomerVouchers.Add(new CustomerVoucher
                 {
                     CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
-                    CustomerProfileId = customerId,
+                    CustomerProfileId = profile.CustomerProfileId,
                     VoucherId = voucher.VoucherId,
                     ClaimedAt = now,
                     IsUsed = false
                 });
                 count++;
             }
+
+            var notifId = CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification);
+            _dbContext.Notifications.Add(new Notification
+            {
+                NotificationId = notifId,
+                UserId = profile.UserId,
+                Title = notifTitle,
+                Message = notifMessage,
+                IsRead = false,
+                CreatedAt = now
+            });
+
+            if (_emailService != null && profile.User != null && !string.IsNullOrWhiteSpace(profile.User.Email))
+            {
+                try
+                {
+                    await _emailService.SendEmailAsync(
+                        profile.User.Email,
+                        notifTitle,
+                        notifMessage,
+                        cancellationToken);
+                }
+                catch
+                {
+                    // Ignore email sending error
+                }
+            }
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return ServiceResult<int>.Ok(count, $"Successfully issued compensation voucher to {count} customers.");
+    }
+
+    private async Task AssignAndNotifyTargetCustomersAsync(
+        Voucher voucher,
+        string? targetCustomerIds,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(targetCustomerIds))
+        {
+            return;
+        }
+
+        var rawIds = targetCustomerIds
+            .Split(new[] { ',', ';', ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(id => id.Trim())
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (rawIds.Count == 0)
+        {
+            return;
+        }
+
+        var customerProfiles = await _dbContext.CustomerProfiles
+            .Include(cp => cp.User)
+            .Where(cp => rawIds.Contains(cp.CustomerProfileId)
+                || rawIds.Contains(cp.UserId)
+                || (cp.User != null && rawIds.Contains(cp.User.Email)))
+            .ToListAsync(cancellationToken);
+
+        if (customerProfiles.Count == 0)
+        {
+            return;
+        }
+
+        var now = _clock.UtcNow;
+
+        string discountText;
+        if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
+        {
+            discountText = $"Giảm {voucher.DiscountValue}%";
+            if (voucher.MaxDiscountAmount.HasValue && voucher.MaxDiscountAmount.Value > 0)
+            {
+                discountText += $" (tối đa {voucher.MaxDiscountAmount.Value:#,##0} VNĐ)";
+            }
+        }
+        else
+        {
+            discountText = $"Giảm {voucher.DiscountValue:#,##0} VNĐ";
+        }
+
+        if (voucher.MinOrderAmount.HasValue && voucher.MinOrderAmount.Value > 0)
+        {
+            discountText += $" cho đơn từ {voucher.MinOrderAmount.Value:#,##0} VNĐ";
+        }
+
+        var dateRangeText = $"từ {voucher.StartDate:dd/MM/yyyy} đến {voucher.EndDate:dd/MM/yyyy}";
+        var voucherTitle = !string.IsNullOrWhiteSpace(voucher.Title) ? voucher.Title : voucher.VoucherCode;
+        var notifTitle = "🎁 Tặng Voucher riêng từ G2Cinema!";
+        var notifMessage = $"Chúc mừng! Bạn vừa được tặng voucher riêng '{voucherTitle}': Mã [{voucher.VoucherCode}] - {discountText}. Thời hạn áp dụng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
+
+        foreach (var profile in customerProfiles)
+        {
+            var hasCustomerVoucher = await _dbContext.CustomerVouchers
+                .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == profile.CustomerProfileId, cancellationToken);
+
+            if (!hasCustomerVoucher)
+            {
+                _dbContext.CustomerVouchers.Add(new CustomerVoucher
+                {
+                    CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                    CustomerProfileId = profile.CustomerProfileId,
+                    VoucherId = voucher.VoucherId,
+                    ClaimedAt = now,
+                    IsUsed = false
+                });
+            }
+
+            var notifId = CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification);
+            _dbContext.Notifications.Add(new Notification
+            {
+                NotificationId = notifId,
+                UserId = profile.UserId,
+                Title = notifTitle,
+                Message = notifMessage,
+                IsRead = false,
+                CreatedAt = now
+            });
+
+            if (_emailService != null && profile.User != null && !string.IsNullOrWhiteSpace(profile.User.Email))
+            {
+                try
+                {
+                    await _emailService.SendEmailAsync(
+                        profile.User.Email,
+                        notifTitle,
+                        notifMessage,
+                        cancellationToken);
+                }
+                catch
+                {
+                    // Ignore email failure
+                }
+            }
+        }
     }
 
     private static VoucherResponse MapToResponse(Voucher voucher)
