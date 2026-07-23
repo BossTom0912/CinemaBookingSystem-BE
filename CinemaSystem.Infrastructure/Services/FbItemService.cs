@@ -359,10 +359,28 @@ public sealed class FbItemService : IFbItemService
                             ? request.BookingId
                             : $"BKG_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
 
+                        var showtimeIdToUse = request.ShowtimeId;
+                        if (string.IsNullOrWhiteSpace(showtimeIdToUse))
+                        {
+                            showtimeIdToUse = await _dbContext.Showtimes
+                                .AsNoTracking()
+                                .Where(s => s.Room.CinemaId == cinemaId)
+                                .Select(s => s.ShowtimeId)
+                                .FirstOrDefaultAsync(cancellationToken);
+
+                            if (string.IsNullOrWhiteSpace(showtimeIdToUse))
+                            {
+                                showtimeIdToUse = await _dbContext.Showtimes
+                                    .AsNoTracking()
+                                    .Select(s => s.ShowtimeId)
+                                    .FirstOrDefaultAsync(cancellationToken) ?? "ST_DEFAULT";
+                            }
+                        }
+
                         var booking = new Booking
                         {
                             BookingId = targetBookingId,
-                            ShowtimeId = request.ShowtimeId,
+                            ShowtimeId = showtimeIdToUse,
                             CustomerProfileId = request.CustomerProfileId,
                             CreatedByStaffProfileId = staffProfileId,
                             BookingChannel = FbConstants.Channel.Counter,
