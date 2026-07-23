@@ -467,6 +467,7 @@ public sealed class ShowtimeService : IShowtimeService
                         var newTimeStr = normalizedStartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
                         var cutoffTimeStr = normalizedStartTime.AddHours(-2).ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
                         var bookingId = booking.BookingId;
+                        var customerName = booking.CustomerProfile?.User?.FullName;
                         
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
                             ai.SendAiTimeChangeEmailAsync(
@@ -481,13 +482,15 @@ public sealed class ShowtimeService : IShowtimeService
                                 CancellationToken.None,
                                 request.CompensationVoucherCode,
                                 request.CompensationNote,
-                                request.TargetSeatType));
+                                request.TargetSeatType,
+                                customerName));
                     }
                     else if (roomChanged && !timeChanged)
                     {
                         string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                         var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                         var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                        var customerName = booking.CustomerProfile?.User?.FullName;
 
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
                             ai.SendAiRoomChangeEmailAsync(
@@ -501,13 +504,15 @@ public sealed class ShowtimeService : IShowtimeService
                                 CancellationToken.None,
                                 request.CompensationVoucherCode,
                                 request.CompensationNote,
-                                request.TargetSeatType));
+                                request.TargetSeatType,
+                                customerName));
                     }
                     else
                     {
                         string subject = _emailTemplates.ShowtimeTimeChangeNoticeSubject;
                         var movieTitleNotice = showtime.Movie?.Title ?? "bạn đã đặt";
                         var newTimeStrNotice = normalizedStartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                        var customerName = booking.CustomerProfile?.User?.FullName;
                         
                         string updateCompInfo = "";
                         if (!string.IsNullOrWhiteSpace(request.CompensationVoucherCode))
@@ -529,7 +534,8 @@ public sealed class ShowtimeService : IShowtimeService
                                 subject, 
                                 "Điều chỉnh thông tin suất chiếu", 
                                 $"Suất chiếu của phim {movieTitleNotice} đã được điều chỉnh sang giờ mới: {newTimeStrNotice}.{updateCompInfo}", 
-                                CancellationToken.None));
+                                CancellationToken.None,
+                                customerName));
                     }
                 }
             }
@@ -741,6 +747,7 @@ public sealed class ShowtimeService : IShowtimeService
                 string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                 var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                 var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
+                var customerName = booking.CustomerProfile?.User?.FullName;
                 
                 _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
                     ai.SendAiRoomChangeEmailAsync(
@@ -754,7 +761,8 @@ public sealed class ShowtimeService : IShowtimeService
                         CancellationToken.None,
                         request.CompensationVoucherCode,
                         request.CompensationNote,
-                        request.TargetSeatType));
+                        request.TargetSeatType,
+                        customerName));
             }
         }
 
@@ -975,6 +983,7 @@ public sealed class ShowtimeService : IShowtimeService
                 string subject = _emailTemplates.ShowtimeCancellationSubject;
                 var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                 var startTimeStr = showtime.StartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+                var customerName = booking.CustomerProfile?.User?.FullName;
                 
                 // Đẩy tiến trình gửi Email vào Hangfire sử dụng AI viết thư xin lỗi
                 _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
@@ -983,7 +992,8 @@ public sealed class ShowtimeService : IShowtimeService
                         subject, 
                         "Hủy suất chiếu", 
                         $"Suất chiếu của phim {movieTitle} vào lúc {startTimeStr} bị hủy bỏ do sự cố kỹ thuật đột xuất của rạp. Hệ thống đang tiến hành thủ tục hoàn tiền tự động.", 
-                        CancellationToken.None));
+                        CancellationToken.None,
+                        customerName));
             }
         }
 

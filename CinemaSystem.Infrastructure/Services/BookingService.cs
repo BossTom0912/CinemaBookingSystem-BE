@@ -1325,6 +1325,7 @@ public sealed class BookingService : IBookingService
 
             // Gửi email thông báo chuyển ghế thủ công cho khách hàng qua AI
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            var customerName = booking.CustomerProfile?.User?.FullName ?? booking.GuestName;
             if (!string.IsNullOrEmpty(customerEmail) && _backgroundJobClient != null)
             {
                 string subject = "Thông báo thay đổi ghế ngồi / Showtime Seat Change Notice";
@@ -1334,7 +1335,8 @@ public sealed class BookingService : IBookingService
                         subject,
                         "Thay đổi ghế ngồi do yêu cầu kỹ thuật rạp",
                         $"Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được điều chỉnh đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu vận hành kỹ thuật phòng chiếu.",
-                        CancellationToken.None));
+                        CancellationToken.None,
+                        customerName));
             }
 
             return ServiceResult<bool>.Ok(true, "Seat reassigned successfully.");
