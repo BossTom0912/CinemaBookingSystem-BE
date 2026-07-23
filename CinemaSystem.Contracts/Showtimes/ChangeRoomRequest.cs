@@ -6,5 +6,4 @@ public class ChangeRoomRequest
     public System.Collections.Generic.Dictionary<string, string>? SeatMapping { get; set; }
     public string? CompensationVoucherCode { get; set; }
     public string? CompensationNote { get; set; }
-    public string? TargetSeatType { get; set; }
 }

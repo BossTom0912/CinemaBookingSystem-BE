@@ -444,7 +444,42 @@ public sealed class ShowtimeService : IShowtimeService
         if (coreInfoChanged && showtime.Bookings.Any(b => b.BookingStatus == DomainConstants.EntityStatus.Paid))
         {
             var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
-            
+
+            // Tự động cấp Voucher đền bù (nếu có chọn mã) trực tiếp vào ví của khách hàng đã đặt vé
+            if (!string.IsNullOrWhiteSpace(request.CompensationVoucherCode))
+            {
+                var normalizedCode = request.CompensationVoucherCode.Trim().ToUpperInvariant();
+                var compVoucher = await _dbContext.Vouchers
+                    .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
+
+                if (compVoucher != null)
+                {
+                    var now = _clock.UtcNow;
+                    var customerProfileIds = paidBookings
+                        .Where(b => !string.IsNullOrEmpty(b.CustomerProfileId))
+                        .Select(b => b.CustomerProfileId!)
+                        .Distinct()
+                        .ToList();
+
+                    foreach (var customerId in customerProfileIds)
+                    {
+                        var alreadyIssued = await _dbContext.CustomerVouchers
+                            .AnyAsync(cv => cv.VoucherId == compVoucher.VoucherId && cv.CustomerProfileId == customerId, cancellationToken);
+                        if (!alreadyIssued)
+                        {
+                            _dbContext.CustomerVouchers.Add(new CustomerVoucher
+                            {
+                                CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                                CustomerProfileId = customerId,
+                                VoucherId = compVoucher.VoucherId,
+                                ClaimedAt = now,
+                                IsUsed = false
+                            });
+                        }
+                    }
+                }
+            }
+
             foreach (var booking in paidBookings)
             {
                 booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
@@ -480,8 +515,7 @@ public sealed class ShowtimeService : IShowtimeService
                                 encodedToken, 
                                 CancellationToken.None,
                                 request.CompensationVoucherCode,
-                                request.CompensationNote,
-                                request.TargetSeatType));
+                                request.CompensationNote));
                     }
                     else if (roomChanged && !timeChanged)
                     {
@@ -500,8 +534,7 @@ public sealed class ShowtimeService : IShowtimeService
                                 booking.BookingId, 
                                 CancellationToken.None,
                                 request.CompensationVoucherCode,
-                                request.CompensationNote,
-                                request.TargetSeatType));
+                                request.CompensationNote));
                     }
                     else
                     {
@@ -517,10 +550,6 @@ public sealed class ShowtimeService : IShowtimeService
                         if (!string.IsNullOrWhiteSpace(request.CompensationNote))
                         {
                             updateCompInfo += $" Quyền lợi đền bù: {request.CompensationNote.Trim()}.";
-                        }
-                        if (!string.IsNullOrWhiteSpace(request.TargetSeatType))
-                        {
-                            updateCompInfo += $" Đặc biệt: Đã ưu tiên nâng hạng ghế của bạn lên loại [{request.TargetSeatType.Trim()}] miễn phí!";
                         }
 
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
@@ -729,8 +758,45 @@ public sealed class ShowtimeService : IShowtimeService
         // Lưu toàn bộ thay đổi xuống DB
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        // Gửi email thông báo đổi phòng chiếu & quà đền bù (voucher / nâng hạng ghế) trực tiếp cho khách hàng
+        // Gửi email thông báo đổi phòng chiếu & quà đền bù trực tiếp cho khách hàng
         var paidBookings = showtime.Bookings.Where(b => b.BookingStatus == DomainConstants.EntityStatus.Paid).ToList();
+
+        // Tự động cấp Voucher đền bù (nếu có chọn mã) trực tiếp vào ví của khách hàng đã đặt vé
+        if (!string.IsNullOrWhiteSpace(request.CompensationVoucherCode))
+        {
+            var normalizedCode = request.CompensationVoucherCode.Trim().ToUpperInvariant();
+            var compVoucher = await _dbContext.Vouchers
+                .FirstOrDefaultAsync(v => v.VoucherCode == normalizedCode, cancellationToken);
+
+            if (compVoucher != null)
+            {
+                var now = _clock.UtcNow;
+                var customerProfileIds = paidBookings
+                    .Where(b => !string.IsNullOrEmpty(b.CustomerProfileId))
+                    .Select(b => b.CustomerProfileId!)
+                    .Distinct()
+                    .ToList();
+
+                foreach (var customerId in customerProfileIds)
+                {
+                    var alreadyIssued = await _dbContext.CustomerVouchers
+                        .AnyAsync(cv => cv.VoucherId == compVoucher.VoucherId && cv.CustomerProfileId == customerId, cancellationToken);
+                    if (!alreadyIssued)
+                    {
+                        _dbContext.CustomerVouchers.Add(new CustomerVoucher
+                        {
+                            CustomerVoucherId = $"CV_{Guid.NewGuid():N}",
+                            CustomerProfileId = customerId,
+                            VoucherId = compVoucher.VoucherId,
+                            ClaimedAt = now,
+                            IsUsed = false
+                        });
+                    }
+                }
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
         
         foreach(var booking in paidBookings)
         {
@@ -753,8 +819,7 @@ public sealed class ShowtimeService : IShowtimeService
                         booking.BookingId, 
                         CancellationToken.None,
                         request.CompensationVoucherCode,
-                        request.CompensationNote,
-                        request.TargetSeatType));
+                        request.CompensationNote));
             }
         }
 

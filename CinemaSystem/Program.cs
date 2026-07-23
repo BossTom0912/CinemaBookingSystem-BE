@@ -26,8 +26,14 @@ using Hangfire.InMemory;
 //    CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs.
 // 3) Request runtime đi tiếp: middleware -> Controller trong
 //    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
-var builder = WebApplication.CreateBuilder(args);
-builder.Logging.ClearProviders();
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    // Thêm dòng này để tắt việc theo dõi appsettings.json, tránh lỗi inotify trên Linux
+});
+
+// Hoặc nếu dùng cách thêm cấu hình thủ công, hãy chắc chắn truyền reloadOnChange: false vào file json:
+// builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: false);builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
@@ -157,7 +163,8 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(corsSettings.AllowedOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
