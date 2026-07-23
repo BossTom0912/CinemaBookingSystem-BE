@@ -38,4 +38,15 @@ public interface IAiEmailService
         string? compensationVoucherCode = null,
         string? compensationNote = null,
         string? targetSeatType = null);
+
+    Task SendVoucherGiftEmailAsync(
+        string toEmail,
+        string customerName,
+        string voucherTitle,
+        string voucherCode,
+        string discountText,
+        string validityText,
+        string? description,
+        string? category,
+        CancellationToken cancellationToken);
 }

@@ -18,12 +18,18 @@ public sealed class VoucherService : IVoucherService
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
     private readonly IEmailService? _emailService;
+    private readonly IAiEmailService? _aiEmailService;
 
-    public VoucherService(CinemaDbContext dbContext, IClock clock, IEmailService? emailService = null)
+    public VoucherService(
+        CinemaDbContext dbContext, 
+        IClock clock, 
+        IEmailService? emailService = null,
+        IAiEmailService? aiEmailService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
         _emailService = emailService;
+        _aiEmailService = aiEmailService;
     }
 
     public async Task<ServiceResult<VoucherResponse>> CreateVoucherAsync(
@@ -510,7 +516,7 @@ public sealed class VoucherService : IVoucherService
                 {
                     NotificationId = notifId,
                     UserId = customerProfile.UserId,
-                    Title = "🎁 Tặng Voucher tích lũy vé!",
+                    Title = "Tặng Voucher tích lũy vé!",
                     Message = $"Chúc mừng! Bạn đã đạt mốc đặt {voucher.RequiredTicketCount} vé và được tặng voucher: {voucher.Title ?? voucher.VoucherCode}!",
                     IsRead = false,
                     CreatedAt = now
@@ -556,7 +562,7 @@ public sealed class VoucherService : IVoucherService
 
         var dateRangeText = $"từ {voucher.StartDate:dd/MM/yyyy} đến {voucher.EndDate:dd/MM/yyyy}";
         var voucherTitle = !string.IsNullOrWhiteSpace(voucher.Title) ? voucher.Title : voucher.VoucherCode;
-        var notifTitle = "🎁 [Voucher Đền Bù] Bạn vừa nhận được voucher đền bù từ G2Cinema!";
+        var notifTitle = "[Voucher Đền Bù] Bạn vừa nhận được voucher đền bù từ G2Cinema!";
         var notifMessage = $"Bạn vừa được nhận voucher đền bù '{voucherTitle}': Mã [{voucher.VoucherCode}] - {discountText}. Hạn dùng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
 
         int count = 0;
@@ -672,7 +678,7 @@ public sealed class VoucherService : IVoucherService
 
         var dateRangeText = $"từ {voucher.StartDate:dd/MM/yyyy} đến {voucher.EndDate:dd/MM/yyyy}";
         var voucherTitle = !string.IsNullOrWhiteSpace(voucher.Title) ? voucher.Title : voucher.VoucherCode;
-        var notifTitle = "🎁 Tặng Voucher riêng từ G2Cinema!";
+        var notifTitle = "Tặng Voucher riêng từ G2Cinema!";
         var notifMessage = $"Chúc mừng! Bạn vừa được tặng voucher riêng '{voucherTitle}': Mã [{voucher.VoucherCode}] - {discountText}. Thời hạn áp dụng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
 
         foreach (var profile in customerProfiles)
@@ -703,7 +709,41 @@ public sealed class VoucherService : IVoucherService
                 CreatedAt = now
             });
 
-            if (_emailService != null && profile.User != null && !string.IsNullOrWhiteSpace(profile.User.Email))
+            if (_aiEmailService != null && profile.User != null && !string.IsNullOrWhiteSpace(profile.User.Email))
+            {
+                try
+                {
+                    await _aiEmailService.SendVoucherGiftEmailAsync(
+                        profile.User.Email,
+                        profile.User.FullName ?? "Quý khách",
+                        voucherTitle,
+                        voucher.VoucherCode,
+                        discountText,
+                        dateRangeText,
+                        voucher.Description,
+                        voucher.Category,
+                        cancellationToken);
+                }
+                catch
+                {
+                    if (_emailService != null)
+                    {
+                        try
+                        {
+                            await _emailService.SendEmailAsync(
+                                profile.User.Email,
+                                notifTitle,
+                                notifMessage,
+                                cancellationToken);
+                        }
+                        catch
+                        {
+                            // Ignore email failure
+                        }
+                    }
+                }
+            }
+            else if (_emailService != null && profile.User != null && !string.IsNullOrWhiteSpace(profile.User.Email))
             {
                 try
                 {
@@ -760,7 +800,7 @@ public sealed class VoucherService : IVoucherService
 
         var dateRangeText = $"từ {voucher.StartDate:dd/MM/yyyy} đến {voucher.EndDate:dd/MM/yyyy}";
         var voucherTitle = !string.IsNullOrWhiteSpace(voucher.Title) ? voucher.Title : voucher.VoucherCode;
-        var notifTitle = "🎉 [Sự Kiện Hot] Voucher Ưu Đãi Mới!";
+        var notifTitle = "[Sự Kiện Hot] Voucher Ưu Đãi Mới!";
         var notifMessage = $"G2Cinema vừa phát hành voucher sự kiện '{voucherTitle}': Nhập mã [{voucher.VoucherCode}] - {discountText}. Áp dụng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
 
         var notifications = customerUserIds.Select(userId => new Notification
