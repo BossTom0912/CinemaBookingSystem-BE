@@ -11,10 +11,15 @@ namespace CinemaSystem.Infrastructure.Services;
 public class GeminiAiEmailService : IAiEmailService
 {
     private readonly IEmailService _emailService;
+    private readonly RefundSettings _refundSettings;
 
-    public GeminiAiEmailService(IOptions<GeminiSettings> settings, IEmailService emailService)
+    public GeminiAiEmailService(
+        IOptions<GeminiSettings> settings, 
+        IEmailService emailService,
+        IOptions<RefundSettings>? refundSettings = null)
     {
         _emailService = emailService;
+        _refundSettings = refundSettings?.Value ?? new RefundSettings();
     }
 
     public async Task SendAiApologyEmailAsync(
@@ -146,8 +151,12 @@ public class GeminiAiEmailService : IAiEmailService
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh giờ chiếu phim \"{movieTitle}\" (Mã vé: #{bookingId})";
 
-        var confirmAcceptUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=true&token={token}";
-        var confirmRefundUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=false&token={token}";
+        var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
+            ? "http://localhost:5173"
+            : _refundSettings.FrontendBaseUrl.TrimEnd('/');
+
+        var confirmAcceptUrl = $"{baseUrl}/booking/confirm-time-change?bookingId={bookingId}&accept=true&token={token}";
+        var confirmRefundUrl = $"{baseUrl}/booking/confirm-time-change?bookingId={bookingId}&accept=false&token={token}";
 
         var compVoucherDisplayVi = !string.IsNullOrWhiteSpace(compensationVoucherCode)
             ? $"[{compensationVoucherCode.Trim()}]"
