@@ -225,15 +225,15 @@ public static class DependencyInjection
 
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseNpgsql(
+            options.UseSqlServer(
                 defaultConnection,
-                npgsqlOptions =>
+                sqlOptions =>
                 {
-                    npgsqlOptions.EnableRetryOnFailure(
+                    sqlOptions.EnableRetryOnFailure(
                         maxRetryCount: 1,
                         maxRetryDelay: TimeSpan.FromSeconds(2),
-                        errorCodesToAdd: null); // Chú ý: Npgsql dùng errorCodesToAdd thay vì errorNumbersToAdd
-                    npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                        errorNumbersToAdd: null);
+                    sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 });
         });
 
