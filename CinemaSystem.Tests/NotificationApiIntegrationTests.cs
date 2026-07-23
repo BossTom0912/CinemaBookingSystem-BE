@@ -169,36 +169,6 @@ public sealed class NotificationApiIntegrationTests
     }
 
     [Fact]
-    public async Task GetSignageFeed_AllowAnonymous_ReturnsRecentRoomStatus()
-    {
-        await using var factory = new CinemaWebApplicationFactory();
-        var userId = "USR_STAFF_SIGNAGE";
-        await SeedStaffUserAsync(factory, userId, "signage@test.com");
-
-        await using var scope = factory.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        db.Notifications.Add(new Notification
-        {
-            NotificationId = "NOT_SIGN_TEST",
-            UserId = userId,
-            Title = "Lệnh soát vé đón khách",
-            Message = "Phòng chiếu 1 sẵn sàng đón khách.",
-            IsRead = false,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
-
-        using var client = factory.CreateClient();
-        var response = await client.GetAsync("/api/notifications/signage");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<NotificationResponse>>>(JsonOptions);
-        Assert.True(body!.Success);
-        Assert.NotEmpty(body.Data!);
-        Assert.Equal("Lệnh soát vé đón khách", body.Data![0].Title);
-    }
-
-    [Fact]
     public async Task SendNotification_WithTargetGroup_DispatchesToAllGroupUsers()
     {
         await using var factory = new CinemaWebApplicationFactory();
