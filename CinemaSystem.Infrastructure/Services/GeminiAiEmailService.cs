@@ -532,7 +532,7 @@ public class GeminiAiEmailService : IAiEmailService
         string? category,
         CancellationToken cancellationToken)
     {
-        var formattedSubject = $"[CinemaSystem] 🎁 Bạn vừa nhận được Voucher ưu đãi đặc biệt: [{voucherCode}]";
+        var formattedSubject = $"[CinemaSystem] Bạn vừa nhận được Voucher ưu đãi đặc biệt: [{voucherCode}]";
         var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
             ? "http://localhost:5173"
             : _refundSettings.FrontendBaseUrl.TrimEnd('/');
