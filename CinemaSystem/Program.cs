@@ -32,10 +32,10 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args
 });
 
-// Xóa nguồn config mặc định và vô hiệu hóa hoàn toàn reloadOnChange để tránh lỗi inotify trên Linux của Render
+// Xóa nguồn config mặc định và vô hiệu hóa reloadOnChange để tránh lỗi inotify trên Linux của Render
 builder.Configuration.Sources.Clear();
 builder.Configuration
-    .SetBasePath(Directory.GetCurrentDirectory())
+    .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
     .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
     .AddEnvironmentVariables();
@@ -211,9 +211,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
-    // Policy chỉ định role được phép đi qua Controller. Muốn biết policy nào
-    // được dùng thật, tìm [Authorize(Policy = ...)] trong CinemaSystem/Controllers.
-    // Có policy nhưng không có Controller sử dụng thì mới chỉ là hạ tầng quyền.
     options.AddPolicy(AuthConstants.Policies.CanViewMoviesAndShowtimes, policy =>
         policy.RequireAssertion(_ => true));
     options.AddPolicy(AuthConstants.Policies.CanRegisterOrLogin, policy =>
@@ -263,19 +260,15 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole(AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageSystem, policy =>
         policy.RequireRole(AuthConstants.Roles.Admin));
-    // approval-specific policies removed
 });
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    // Development đi tiếp tới Swagger UI, sau đó DatabaseMaintenanceService
-    // trong CinemaSystem.Infrastructure/Data thực hiện migrate và seed.
     app.UseSwagger();
     app.UseSwaggerUI();
 
-    // ensure database migrations are applied in development to avoid missing tables (e.g. CHANGE_REQUEST)
     try
     {
         using var scope = app.Services.CreateScope();
