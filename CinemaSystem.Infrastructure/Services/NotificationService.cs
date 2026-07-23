@@ -139,23 +139,23 @@ public sealed class NotificationService : INotificationService
             var group = request.TargetGroup.Trim().ToUpperInvariant();
             var query = _dbContext.Users.AsNoTracking();
 
-            if (group == "CUSTOMERS")
+            if (group == DomainConstants.NotificationTargetGroup.Customers)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Customer);
             }
-            else if (group == "STAFF")
+            else if (group == DomainConstants.NotificationTargetGroup.Staff)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Staff);
             }
-            else if (group == "MANAGERS")
+            else if (group == DomainConstants.NotificationTargetGroup.Managers)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Manager);
             }
-            else if (group == "ADMINS")
+            else if (group == DomainConstants.NotificationTargetGroup.Admins)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Admin);
             }
-            else if (group != "ALL")
+            else if (group != DomainConstants.NotificationTargetGroup.All)
             {
                 return ServiceResult<NotificationResponse>.Fail(400, $"Unknown TargetGroup: '{group}'. Valid options are: ALL, CUSTOMERS, STAFF, MANAGERS, ADMINS.", "INVALID_TARGET_GROUP");
             }
@@ -190,7 +190,7 @@ public sealed class NotificationService : INotificationService
 
         foreach (var user in targetUsers)
         {
-            if (request.Channel.Equals("Email", StringComparison.OrdinalIgnoreCase))
+            if (request.Channel.Equals(DomainConstants.NotificationChannel.Email, StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -202,8 +202,8 @@ public sealed class NotificationService : INotificationService
                     status = "Failed";
                 }
             }
-            else if (request.Channel.Equals("SMS", StringComparison.OrdinalIgnoreCase) ||
-                     request.Channel.Equals("Push", StringComparison.OrdinalIgnoreCase))
+            else if (request.Channel.Equals(DomainConstants.NotificationChannel.SMS, StringComparison.OrdinalIgnoreCase) ||
+                     request.Channel.Equals(DomainConstants.NotificationChannel.Push, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("Simulating {Channel} delivery to User {UserId}: [{Title}] {Message}", 
                     request.Channel, user.UserId, request.Title, request.Message);
@@ -453,31 +453,31 @@ public sealed class NotificationService : INotificationService
 
     private static (string Channel, string Type, string Status) DetermineMetadata(string title, string message)
     {
-        var channel = "App";
-        var type = "Transactional";
+        var channel = DomainConstants.NotificationChannel.App;
+        var type = DomainConstants.NotificationType.Transactional;
         var status = "Sent";
 
         var combined = $"{title} {message}".ToLowerInvariant();
 
         if (combined.Contains("cảnh báo") || combined.Contains("lệnh") || combined.Contains("khẩn cấp") || combined.Contains("sự cố"))
         {
-            type = "Internal";
-            channel = combined.Contains("kỹ thuật") ? "SMS" : "Internal";
+            type = DomainConstants.NotificationType.Internal;
+            channel = combined.Contains("kỹ thuật") ? DomainConstants.NotificationChannel.SMS : DomainConstants.NotificationChannel.Internal;
         }
         else if (combined.Contains("voucher") || combined.Contains("sinh nhật") || combined.Contains("khảo sát") || combined.Contains("điểm thưởng"))
         {
-            type = "Loyalty";
-            channel = combined.Contains("sinh nhật") ? "Email" : "App";
+            type = DomainConstants.NotificationType.Loyalty;
+            channel = combined.Contains("sinh nhật") ? DomainConstants.NotificationChannel.Email : DomainConstants.NotificationChannel.App;
         }
         else if (combined.Contains("khuyến mãi") || combined.Contains("promo") || combined.Contains("bom tấn") || combined.Contains("ưu đãi"))
         {
-            type = "Promotional";
-            channel = "Push";
+            type = DomainConstants.NotificationType.Promotional;
+            channel = DomainConstants.NotificationChannel.Push;
         }
 
         if (combined.Contains("hủy") || combined.Contains("hoàn tiền") || combined.Contains("refund") || combined.Contains("xác nhận"))
         {
-            channel = "Email";
+            channel = DomainConstants.NotificationChannel.Email;
         }
 
         return (channel, type, status);

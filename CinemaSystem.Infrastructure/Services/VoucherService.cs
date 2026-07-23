@@ -60,9 +60,9 @@ public sealed class VoucherService : IVoucherService
             StartDate = request.StartDate,
             EndDate = request.EndDate,
             VoucherStatus = DomainConstants.VoucherStatus.Active,
-            Category = string.IsNullOrWhiteSpace(request.Category) ? "EVENT" : request.Category.Trim().ToUpperInvariant(),
-            ApplicableScope = string.IsNullOrWhiteSpace(request.ApplicableScope) ? "TOTAL_ORDER" : request.ApplicableScope.Trim().ToUpperInvariant(),
-            TargetType = string.IsNullOrWhiteSpace(request.TargetType) ? "ALL_CUSTOMERS" : request.TargetType.Trim().ToUpperInvariant(),
+            Category = string.IsNullOrWhiteSpace(request.Category) ? DomainConstants.VoucherCategory.Event : request.Category.Trim().ToUpperInvariant(),
+            ApplicableScope = string.IsNullOrWhiteSpace(request.ApplicableScope) ? DomainConstants.VoucherScope.TotalOrder : request.ApplicableScope.Trim().ToUpperInvariant(),
+            TargetType = string.IsNullOrWhiteSpace(request.TargetType) ? DomainConstants.VoucherTargetType.AllCustomers : request.TargetType.Trim().ToUpperInvariant(),
             TargetCustomerIds = request.TargetCustomerIds,
             SpecificFbItemIds = request.SpecificFbItemIds,
             IsPrivate = request.IsPrivate,
@@ -71,7 +71,7 @@ public sealed class VoucherService : IVoucherService
 
         _dbContext.Vouchers.Add(voucher);
 
-        if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase)
+        if (string.Equals(voucher.TargetType, DomainConstants.VoucherTargetType.SpecificCustomers, StringComparison.OrdinalIgnoreCase)
             || !string.IsNullOrWhiteSpace(voucher.TargetCustomerIds))
         {
             await AssignAndNotifyTargetCustomersAsync(voucher, voucher.TargetCustomerIds, cancellationToken);
