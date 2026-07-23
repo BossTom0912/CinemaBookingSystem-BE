@@ -23,8 +23,7 @@ public interface IAiEmailService
         string token,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null,
-        string? targetSeatType = null);
+        string? compensationNote = null);
 
     Task SendAiRoomChangeEmailAsync(
         string toEmail,
@@ -36,6 +35,5 @@ public interface IAiEmailService
         string bookingId,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null,
-        string? targetSeatType = null);
+        string? compensationNote = null);
 }
