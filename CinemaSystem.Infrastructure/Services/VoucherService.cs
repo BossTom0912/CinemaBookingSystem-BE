@@ -776,6 +776,48 @@ public sealed class VoucherService : IVoucherService
         _dbContext.Notifications.AddRange(notifications);
     }
 
+    public async Task<ServiceResult<IReadOnlyList<string>>> GetCustomerIdsByShowtimeOrRoomAsync(
+        string? showtimeId,
+        string? roomId,
+        CancellationToken cancellationToken)
+    {
+        showtimeId = showtimeId?.Trim();
+        roomId = roomId?.Trim();
+
+        if (string.IsNullOrWhiteSpace(showtimeId) && string.IsNullOrWhiteSpace(roomId))
+        {
+            return ServiceResult<IReadOnlyList<string>>.Fail(
+                400,
+                "Vui lòng nhập Mã suất chiếu (Showtime ID) hoặc Mã phòng chiếu (Room ID).",
+                "INVALID_INPUT");
+        }
+
+        var query = _dbContext.Bookings.AsNoTracking().AsQueryable();
+
+        // Lọc các đơn đặt vé hợp lệ (chưa hủy/hoàn)
+        query = query.Where(b => b.BookingStatus != "Cancelled" && b.BookingStatus != "REFUNDED" && b.BookingStatus != "FAILED");
+
+        if (!string.IsNullOrWhiteSpace(showtimeId))
+        {
+            query = query.Where(b => b.ShowtimeId == showtimeId || b.BookingSeats.Any(bs => bs.ShowtimeSeat.ShowtimeId == showtimeId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(roomId))
+        {
+            query = query.Where(b => b.Showtime != null && b.Showtime.RoomId == roomId);
+        }
+
+        var customerIds = await query
+            .Select(b => b.CustomerProfileId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return ServiceResult<IReadOnlyList<string>>.Ok(
+            customerIds!,
+            $"Đã tìm thấy {customerIds.Count} khách hàng phù hợp.");
+    }
+
     private static VoucherResponse MapToResponse(Voucher voucher)
     {
         return new VoucherResponse

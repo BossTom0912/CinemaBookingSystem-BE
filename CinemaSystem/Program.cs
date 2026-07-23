@@ -254,27 +254,25 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
+// Ensure database migrations and column auto-add scripts run on application startup
+try
+{
+    using var scope = app.Services.CreateScope();
+    var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
+    await databaseMaintenance.MigrateAsync();
+}
+catch (Exception ex)
+{
+    var migLogger = app.Services
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Program");
+    migLogger.LogWarning(ex, "Database migration skipped because the database is unavailable.");
+}
+
 if (app.Environment.IsDevelopment())
 {
-    // Development đi tiếp tới Swagger UI, sau đó DatabaseMaintenanceService
-    // trong CinemaSystem.Infrastructure/Data thực hiện migrate và seed.
     app.UseSwagger();
     app.UseSwaggerUI();
-
-    // ensure database migrations are applied in development to avoid missing tables (e.g. CHANGE_REQUEST)
-    try
-    {
-        using var scope = app.Services.CreateScope();
-        var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
-        await databaseMaintenance.MigrateAsync();
-    }
-    catch (Exception ex)
-    {
-        var migLogger = app.Services
-            .GetRequiredService<ILoggerFactory>()
-            .CreateLogger("Program");
-        migLogger.LogWarning(ex, "Database migration skipped because the database is unavailable.");
-    }
 
     try
     {

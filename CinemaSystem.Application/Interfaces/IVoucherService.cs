@@ -61,4 +61,9 @@ public interface IVoucherService
     Task<ServiceResult<int>> CheckAndAwardTicketMilestoneVouchersAsync(
         string customerProfileId,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<IReadOnlyList<string>>> GetCustomerIdsByShowtimeOrRoomAsync(
+        string? showtimeId,
+        string? roomId,
+        CancellationToken cancellationToken);
 }

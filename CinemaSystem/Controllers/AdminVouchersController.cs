@@ -78,6 +78,16 @@ public sealed class AdminVouchersController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet("customers-by-showtime")]
+    public async Task<IActionResult> GetCustomerIdsByShowtimeOrRoom(
+        [FromQuery] string? showtimeId,
+        [FromQuery] string? roomId,
+        CancellationToken cancellationToken)
+    {
+        var result = await _voucherService.GetCustomerIdsByShowtimeOrRoomAsync(showtimeId, roomId, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success

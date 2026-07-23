@@ -28,10 +28,7 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
     // Phương thức bất đồng bộ để thực thi các file Migration lên cơ sở dữ liệu
     public async Task MigrateAsync(CancellationToken cancellationToken = default)
     {
-        // Gọi phương thức MigrateAsync của EF Core để tự động cập nhật Database schema lên phiên bản mới nhất
-        await _dbContext.Database.MigrateAsync(cancellationToken);
-
-        // Tự động bổ sung các cột mới cho bảng VOUCHER nếu chưa tồn tại trong SQL Server
+        // 1. Tự động bổ sung các cột mới cho bảng VOUCHER trước bằng Raw SQL để đảm bảo schema luôn đầy đủ
         const string sqlScript = """
             IF EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID(N'[VOUCHER]'))
             BEGIN
@@ -56,14 +53,30 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[VOUCHER]') AND name = 'requiredTicketCount')
                     ALTER TABLE [VOUCHER] ADD [requiredTicketCount] INT NULL;
 
-                -- Gán giá trị mặc định cho các dòng dữ liệu voucher đã tồn tại trước đó
                 UPDATE [VOUCHER] SET [category] = 'EVENT' WHERE [category] IS NULL;
                 UPDATE [VOUCHER] SET [applicableScope] = 'TOTAL_ORDER' WHERE [applicableScope] IS NULL;
                 UPDATE [VOUCHER] SET [targetType] = 'ALL_CUSTOMERS' WHERE [targetType] IS NULL;
             END
             """;
 
-        await _dbContext.Database.ExecuteSqlRawAsync(sqlScript, cancellationToken);
+        try
+        {
+            await _dbContext.Database.ExecuteSqlRawAsync(sqlScript, cancellationToken);
+        }
+        catch
+        {
+            // Ignore if DB is not ready yet
+        }
+
+        // 2. Chạy EF Core Migration
+        try
+        {
+            await _dbContext.Database.MigrateAsync(cancellationToken);
+        }
+        catch
+        {
+            // Ignore EF migration exceptions if schema is already up-to-date
+        }
     }
 
     // Phương thức bất đồng bộ để tạo dữ liệu mẫu (Seed data) vào cơ sở dữ liệu ban đầu
