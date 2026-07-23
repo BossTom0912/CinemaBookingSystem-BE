@@ -159,6 +159,13 @@ CREATE TABLE [VOUCHER] (
     [startDate] DATETIME2 NOT NULL,
     [endDate] DATETIME2 NOT NULL,
     [voucherStatus] NVARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    [category] NVARCHAR(50) NULL,
+    [applicableScope] NVARCHAR(50) NULL,
+    [targetType] NVARCHAR(50) NULL,
+    [targetCustomerIds] NVARCHAR(MAX) NULL,
+    [specificFbItemIds] NVARCHAR(MAX) NULL,
+    [isPrivate] BIT NOT NULL DEFAULT 0,
+    [requiredTicketCount] INT NULL,
 
     CONSTRAINT [UQ_VOUCHER_CODE] UNIQUE ([voucherCode]),
     CONSTRAINT [CK_VOUCHER_DISCOUNT_TYPE] CHECK ([discountType] IN ('AMOUNT', 'PERCENT')),
