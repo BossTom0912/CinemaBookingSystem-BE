@@ -736,6 +736,11 @@ public sealed class BookingService : IBookingService
                 .ThenInclude(profile => profile!.User)
             .Include(b => b.Showtime)
                 .ThenInclude(showtime => showtime.Movie)
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.ShowtimeSeat)
+            .Include(b => b.BookingSeats)
+                .ThenInclude(bs => bs.Ticket)
+            .Include(b => b.VoucherUsage)
             .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
 
         if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
@@ -781,25 +786,75 @@ public sealed class BookingService : IBookingService
         {
             booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
 
-            var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.RefundStatus.Success) ?? booking.Payments.FirstOrDefault();
+            // 1. Giải phóng ghế & Hủy vé
+            if (booking.BookingSeats != null && booking.BookingSeats.Count > 0)
+            {
+                var ticketsToRemove = new List<Ticket>();
+                foreach (var bs in booking.BookingSeats)
+                {
+                    if (bs.ShowtimeSeat != null)
+                    {
+                        bs.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
+                        bs.ShowtimeSeat.LockedUntil = null;
+                        bs.ShowtimeSeat.LockedByUserId = null;
+                        bs.ShowtimeSeat.BookingSeat = null;
+
+                        // Giải phóng khóa cache (Redis/Memory seat lock store)
+                        var lockKey = $"seat-lock:{bs.ShowtimeSeat.ShowtimeId}:{bs.ShowtimeSeat.SeatId}";
+                        await _seatLockStore.ReleaseAsync(lockKey, cancellationToken);
+                    }
+                    if (bs.Ticket != null)
+                    {
+                        ticketsToRemove.Add(bs.Ticket);
+                        bs.Ticket = null;
+                    }
+                    bs.ShowtimeSeat = null!;
+                }
+
+                if (ticketsToRemove.Count > 0)
+                {
+                    _dbContext.Tickets.RemoveRange(ticketsToRemove);
+                }
+                _dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
+            }
+
+            // 2. Hoàn trả Voucher ban đầu nếu có áp dụng
+            if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+            {
+                await _voucherReservationService.CancelAsync(
+                    booking.VoucherUsage,
+                    cancellationToken);
+            }
+
+            // 3. Cấp Voucher đền bù 100% khi từ chối đổi lịch chiếu
+            await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
+
+            // 4. Trường hợp đơn hàng 0đ (Thanh toán 100% bằng Voucher / Miễn phí)
+            if (booking.TotalAmount <= 0)
+            {
+                booking.BookingStatus = DomainConstants.EntityStatus.Refunded;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                return ServiceResult<bool>.Ok(
+                    true,
+                    "Đơn hàng của bạn có giá trị 0đ nên không cần hoàn lại tiền mặt. Hệ thống đã hủy vé, giải phóng ghế và hoàn trả voucher / trao tặng voucher đền bù 100% cho bạn.");
+            }
+
+            // 5. Trường hợp đơn hàng có thanh toán tiền mặt (TotalAmount > 0)
+            var payment = booking.Payments.FirstOrDefault(p =>
+                string.Equals(p.PaymentStatus, DomainConstants.EntityStatus.Paid, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.PaymentStatus, DomainConstants.RefundStatus.Success, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(p.PaymentStatus, "COMPLETED", StringComparison.OrdinalIgnoreCase))
+                ?? booking.Payments.FirstOrDefault();
 
             if (payment == null)
             {
                 payment = await _dbContext.Payments
-                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == DomainConstants.RefundStatus.Success, cancellationToken);
-
-                if (payment == null)
-                {
-                    payment = await _dbContext.Payments.FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
-                }
-            }
-            else
-            {
-                bool exists = await _dbContext.Payments.AnyAsync(p => p.PaymentId == payment.PaymentId, cancellationToken);
-                if (!exists) payment = null;
+                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
             }
 
-            if (booking.TotalAmount > 0 && (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId)))
+            if (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId))
             {
                 return ServiceResult<bool>.Fail(400, "Cannot reject time change because no valid payment record exists to process the refund.", "INVALID_PAYMENT");
             }
@@ -808,14 +863,15 @@ public sealed class BookingService : IBookingService
             {
                 RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
                 BookingId = booking.BookingId,
-                PaymentId = payment?.PaymentId ?? "ZERO_PAYMENT",
-                PaymentProviderId = payment?.PaymentProviderId ?? "VOUCHER",
+                PaymentId = payment.PaymentId,
+                PaymentProviderId = payment.PaymentProviderId,
                 RefundAmount = booking.TotalAmount,
                 RefundStatus = DomainConstants.RefundStatus.Pending,
                 RefundReason = "User rejected time change",
                 RequestedAt = _clock.UtcNow
             };
             _dbContext.Refunds.Add(refund);
+
             RefundClaimIssue? claimIssue = null;
             if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
             {
@@ -825,10 +881,11 @@ public sealed class BookingService : IBookingService
                     _clock.UtcNow);
                 _dbContext.RefundClaims.Add(claimIssue.Claim);
             }
-            await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
+
             await _dbContext.SaveChangesAsync(cancellationToken);
             await TrySendTimeChangeRefundClaimEmailAsync(booking, claimIssue, cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund claim initiated.");
+
+            return ServiceResult<bool>.Ok(true, "Yêu cầu hoàn tiền đã được ghi nhận. Bộ phận Tài vụ sẽ kiểm tra và gửi email xác nhận hoàn tiền cho bạn.");
         }
     }
 
@@ -1057,6 +1114,8 @@ public sealed class BookingService : IBookingService
         var staleBookings = await _dbContext.Bookings
             .Include(item => item.BookingSeats)
                 .ThenInclude(item => item.ShowtimeSeat)
+            .Include(item => item.BookingSeats)
+                .ThenInclude(item => item.Ticket)
             .Include(item => item.Payments)
             .Include(item => item.VoucherUsage)
             .AsSplitQuery()
@@ -1104,21 +1163,33 @@ public sealed class BookingService : IBookingService
             return;
         }
 
+        var ticketsToRemove = new List<Ticket>();
         foreach (var bookingSeat in bookingSeats)
         {
             var showtimeSeat = bookingSeat.ShowtimeSeat;
-            if (showtimeSeat == null)
+            if (showtimeSeat != null)
             {
-                continue;
+                showtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
+                showtimeSeat.LockedUntil = null;
+                showtimeSeat.LockedByUserId = null;
+                showtimeSeat.BookingSeat = null;
+
+                await _seatLockStore.ReleaseAsync(
+                    BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
+                    cancellationToken);
             }
 
-            showtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
-            showtimeSeat.LockedUntil = null;
-            showtimeSeat.LockedByUserId = null;
+            if (bookingSeat.Ticket != null)
+            {
+                ticketsToRemove.Add(bookingSeat.Ticket);
+                bookingSeat.Ticket = null;
+            }
+            bookingSeat.ShowtimeSeat = null!;
+        }
 
-            await _seatLockStore.ReleaseAsync(
-                BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
-                cancellationToken);
+        if (ticketsToRemove.Count > 0)
+        {
+            _dbContext.Tickets.RemoveRange(ticketsToRemove);
         }
 
         _dbContext.BookingSeats.RemoveRange(bookingSeats);
