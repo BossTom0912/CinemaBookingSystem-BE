@@ -291,7 +291,7 @@ public sealed class RoomShowtimeServiceTests
             {
                 MovieId = "MOV_TEST",
                 RoomId = "ROOM_TEST",
-                StartTime = new DateTime(2026, 6, 1, 14, 0, 0, DateTimeKind.Utc),
+                StartTime = DateTime.UtcNow.AddHours(2),
                 BasePrice = 85000
             },
             CancellationToken.None);

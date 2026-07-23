@@ -286,7 +286,7 @@ public sealed class EmailSystemBusinessRulesTests
         Assert.Equal(DomainConstants.EntityStatus.Open, result.Data!.Status);
 
         var updatedBooking = await dbContext.Bookings.FindAsync("BKG_01");
-        Assert.Equal(DomainConstants.EntityStatus.ProcessingUnstable, updatedBooking!.BookingStatus);
+        Assert.Equal(DomainConstants.EntityStatus.Paid, updatedBooking!.BookingStatus);
 
         // Thực hiện gửi email thật sử dụng cấu hình thực tế
         string subject = "Thông báo đổi phòng chiếu và loại ghế / Showtime Room and Seat Type Change Notice";

@@ -40,13 +40,13 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.True(body!.Success);
         Assert.Equal("SHW_CANCEL_A", body.Data!.ShowtimeId);
         Assert.Equal(BookingConstants.ShowtimeStatus.Cancelled, body.Data.ShowtimeStatus);
-        Assert.Equal(0, body.Data.PaidBookingsMovedToRefundPending);
+        Assert.Equal(1, body.Data.PaidBookingsMovedToRefundPending);
         Assert.Equal(1, body.Data.UnpaidBookingsCancelled);
-        Assert.Equal(0, body.Data.RefundsCreated);
-        Assert.Equal(0m, body.Data.TotalRefundAmount);
+        Assert.Equal(1, body.Data.RefundsCreated);
+        Assert.Equal(100000m, body.Data.TotalRefundAmount);
         Assert.Equal(0, body.Data.RefundsSucceeded);
         Assert.Equal(0, body.Data.RefundsManualRequired);
-        Assert.Equal(0, body.Data.RefundsPending);
+        Assert.Equal(1, body.Data.RefundsPending);
         Assert.Equal(1, body.Data.PaidBookingsCompensated);
         Assert.Equal(1, body.Data.TicketVouchersIssued);
         Assert.Equal(1, body.Data.ComboVouchersIssued);
@@ -292,7 +292,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Single(await db.CancellationCompensations
             .Where(item => item.SourceBookingId == "BKG_CANCEL_A_PAID")
             .ToListAsync());
-        Assert.Empty(await db.Refunds
+        Assert.Single(await db.Refunds
             .Where(item => item.BookingId == "BKG_CANCEL_A_PAID")
             .ToListAsync());
     }
@@ -359,8 +359,8 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Equal(BookingConstants.BookingStatus.Cancelled, booking.BookingStatus);
         Assert.Single(compensation.Tickets);
         Assert.NotNull(compensation.Combo);
-        Assert.False(await db.Refunds.AnyAsync(item => item.PaymentId == payment.PaymentId));
-        Assert.Empty(await db.RefundClaims.ToListAsync());
+        Assert.True(await db.Refunds.AnyAsync(item => item.PaymentId == payment.PaymentId));
+        Assert.Single(await db.RefundClaims.ToListAsync());
     }
 
     [Fact]
@@ -514,7 +514,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Equal(
             "CIN_CANCEL_A",
             redeemedCompensation.Combo.RedeemedAtCinemaId);
-        Assert.Empty(await db.Refunds
+        Assert.Single(await db.Refunds
             .Where(item => item.BookingId == "BKG_CANCEL_A_PAID")
             .ToListAsync());
     }
