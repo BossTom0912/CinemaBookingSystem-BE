@@ -223,17 +223,18 @@ public static class DependencyInjection
                 "Missing connection string 'DefaultConnection'. Add 'ConnectionStrings: { \"DefaultConnection\": \"...\" }' to appsettings.json or appsettings.{Environment}.json in the CinemaSystem project.");
         }
 
+        // Đã đổi từ UseSqlServer sang UseNpgsql tại đây
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseSqlServer(
+            options.UseNpgsql(
                 defaultConnection,
-                sqlOptions =>
+                npgsqlOptions =>
                 {
-                    sqlOptions.EnableRetryOnFailure(
+                    npgsqlOptions.EnableRetryOnFailure(
                         maxRetryCount: 1,
                         maxRetryDelay: TimeSpan.FromSeconds(2),
-                        errorNumbersToAdd: null);
-                    sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                        errorCodesToAdd: null);
+                    npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 });
         });
 
@@ -343,7 +344,7 @@ public static class DependencyInjection
         services.AddScoped<ICancellationCompensationService, CancellationCompensationService>();
         services.AddScoped<IBannerService, CinemaSystem.Infrastructure.Banners.BannerService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
-        
+
 
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieHighlightClassificationJob>();
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieBannerAutofillJob>();
