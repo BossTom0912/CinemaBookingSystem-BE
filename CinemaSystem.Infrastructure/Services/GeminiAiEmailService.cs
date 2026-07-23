@@ -30,7 +30,8 @@ public class GeminiAiEmailService : IAiEmailService
         CancellationToken cancellationToken)
     {
         var formattedSubject = subject.StartsWith("[CinemaSystem]") ? subject : $"[CinemaSystem] Thông báo dịch vụ - {subject}";
-        
+        var displayName = "Quý khách";
+
         var bodyHtml = $"""
             <!DOCTYPE html>
             <html>
@@ -53,7 +54,7 @@ public class GeminiAiEmailService : IAiEmailService
                         
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
-                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
                             
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi.
@@ -90,7 +91,7 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- TIẾNG ANH -->
                         <div>
-                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
                             
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 12px;'>
                                 First and foremost, thank you for choosing CinemaSystem. We sincerely apologize for the inconvenience regarding <strong>{reason}</strong> for your movie booking.
@@ -150,6 +151,7 @@ public class GeminiAiEmailService : IAiEmailService
         string? targetSeatType = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh giờ chiếu phim \"{movieTitle}\" (Mã vé: #{bookingId})";
+        var displayName = "Quý khách";
 
         var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
             ? "http://localhost:5173"
@@ -193,7 +195,7 @@ public class GeminiAiEmailService : IAiEmailService
                         
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
-                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
 
                             <p style='font-size: 14px; color: #334155; margin-bottom: 12px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành tới Quý khách vì đã luôn tin tưởng và ủng hộ dịch vụ của chúng tôi.
@@ -276,7 +278,7 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- TIẾNG ANH -->
                         <div>
-                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 12px;'>
                                 Thank you for choosing CinemaSystem. We are writing to inform you of a showtime adjustment for your upcoming movie booking.
                             </p>
@@ -383,6 +385,7 @@ public class GeminiAiEmailService : IAiEmailService
         string? targetSeatType = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh phòng chiếu - Mã vé: #{bookingId}";
+        var displayName = "Quý khách";
 
         var compParts = new List<string>();
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode)) compParts.Add($"Voucher: [{compensationVoucherCode.Trim()}]");
@@ -412,7 +415,7 @@ public class GeminiAiEmailService : IAiEmailService
                         
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
-                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
 
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi. Chúng tôi xin thông báo về việc thay đổi phòng chiếu cho suất phim của Quý khách.
@@ -469,7 +472,7 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- TIẾNG ANH -->
                         <div>
-                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
                                 We regret to inform you that your screening room for <strong>{movieTitle}</strong> has been changed from {oldRoomName} to {newRoomName}.
                             </p>
@@ -506,7 +509,23 @@ public class GeminiAiEmailService : IAiEmailService
                                             <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>New Auditorium</td>
                                             <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #2563eb; font-weight: bold;'>{newRoomName}</td>
                                         </tr>
-                                                           <!-- FOOTER -->
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Compensation Benefit</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #d97706; font-weight: bold;'>{compensationText}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                                Sincerely,<br>
+                                <strong>CinemaSystem Management Team</strong>
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <!-- FOOTER -->
                     <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
                         <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
                         <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
@@ -532,7 +551,7 @@ public class GeminiAiEmailService : IAiEmailService
         string? category,
         CancellationToken cancellationToken)
     {
-        var formattedSubject = $"[CinemaSystem] Bạn vừa nhận được Voucher ưu đãi đặc biệt: [{voucherCode}]";
+        var formattedSubject = $"[CinemaSystem] 🎁 Bạn vừa nhận được Voucher ưu đãi đặc biệt: [{voucherCode}]";
         var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
             ? "http://localhost:5173"
             : _refundSettings.FrontendBaseUrl.TrimEnd('/');
@@ -601,7 +620,7 @@ public class GeminiAiEmailService : IAiEmailService
                                 <p style='margin: 4px 0 0 0; font-size: 12px; color: #78350f;'>Hạn sử dụng: <strong>{validityText}</strong></p>
                             </div>
 
-                            <!-- CHI TIẾT BẢNG VI -->
+                            <!-- CHI TIẾT BẢNG (VI) -->
                             <div style='margin: 15px 0;'>
                                 <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
                                     <tbody>
@@ -618,7 +637,7 @@ public class GeminiAiEmailService : IAiEmailService
                                 </table>
                             </div>
 
-                            <!-- BUTTON CTA VI -->
+                            <!-- BUTTON CTA (VI) -->
                             <div style='text-align: center; margin: 25px 0 15px 0;'>
                                 <a href='{baseUrl}' style='display: inline-block; padding: 12px 28px; background-color: #0f172a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>[ DÙNG VOUCHER NGAY ]</a>
                             </div>
@@ -654,7 +673,7 @@ public class GeminiAiEmailService : IAiEmailService
                                 <p style='margin: 4px 0 0 0; font-size: 12px; color: #78350f;'>Valid until: <strong>{validityText}</strong></p>
                             </div>
 
-                            <!-- CHI TIẾT BẢNG EN -->
+                            <!-- CHI TIẾT BẢNG (EN) -->
                             <div style='margin: 15px 0;'>
                                 <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 12px; text-align: left;'>
                                     <tbody>
@@ -671,7 +690,7 @@ public class GeminiAiEmailService : IAiEmailService
                                 </table>
                             </div>
 
-                            <!-- BUTTON CTA EN -->
+                            <!-- BUTTON CTA (EN) -->
                             <div style='text-align: center; margin: 25px 0 15px 0;'>
                                 <a href='{baseUrl}' style='display: inline-block; padding: 12px 28px; background-color: #0f172a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 12px; border: 2px solid #000000;'>[ USE VOUCHER NOW ]</a>
                             </div>
