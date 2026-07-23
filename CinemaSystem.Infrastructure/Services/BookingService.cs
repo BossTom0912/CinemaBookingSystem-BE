@@ -79,405 +79,412 @@ public sealed class BookingService : IBookingService
         Guid? clientRequestId,
         CancellationToken cancellationToken)
     {
-        var customerProfile = await _dbContext.CustomerProfiles
-            .FirstOrDefaultAsync(cp => cp.UserId == userId, cancellationToken);
-
-        if (customerProfile == null)
-        {
-            return ServiceResult<BookingResponse>.Fail(403, "Only customers can book tickets.", "CUSTOMER_PROFILE_NOT_FOUND");
-        }
-
-        var requestFingerprint = clientRequestId.HasValue
-            ? CreateRequestFingerprint(request)
-            : null;
-        var existingBooking = clientRequestId.HasValue
-            ? await FindBookingByClientRequestAsync(
-                customerProfile.CustomerProfileId,
-                clientRequestId.Value,
-                cancellationToken)
-            : null;
-
-        if (existingBooking != null)
-        {
-            if (!string.Equals(existingBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
-            {
-                return ServiceResult<BookingResponse>.Fail(
-                    409,
-                    "This Idempotency-Key was already used for a different checkout request.",
-                    "IDEMPOTENCY_KEY_REUSED");
-            }
-
-            return ServiceResult<BookingResponse>.Ok(
-                ToBookingResponse(existingBooking),
-                "Existing checkout returned successfully.");
-        }
-
-        var showtime = await _dbContext.Showtimes
-            .Include(s => s.Movie)
-            .Include(s => s.Room)
-                .ThenInclude(r => r.Cinema)
-            .FirstOrDefaultAsync(s => s.ShowtimeId == request.ShowtimeId, cancellationToken);
-
-        if (showtime == null)
-        {
-            return ServiceResult<BookingResponse>.Fail(404, "Showtime not found.", "SHOWTIME_NOT_FOUND");
-        }
-
-        if (!string.Equals(showtime.Status, DomainConstants.ShowtimeStatus.Open, StringComparison.OrdinalIgnoreCase))
-        {
-            return ServiceResult<BookingResponse>.Fail(400, "This showtime is no longer accepting bookings.", "SHOWTIME_UNAVAILABLE");
-        }
-
-        if (request.ShowtimeSeatIds.Count > _bookingSettings.MaxSeatsPerCheckout)
-        {
-            return ServiceResult<BookingResponse>.Fail(
-                400,
-                $"A booking can contain at most {_bookingSettings.MaxSeatsPerCheckout} seats.",
-                "MAX_SEATS_EXCEEDED");
-        }
-
-        var compensationTicketCodes = request.CompensationTicketCodes ?? [];
-        if (compensationTicketCodes.Count > 0
-            && !string.IsNullOrWhiteSpace(request.VoucherCode))
-        {
-            return ServiceResult<BookingResponse>.Fail(
-                400,
-                "A standard voucher cannot be combined with compensation tickets.",
-                "VOUCHER_STACKING_NOT_ALLOWED");
-        }
-
-        await ReleaseStaleBookingSeatsForShowtimeAsync(
-            request.ShowtimeId,
-            request.ShowtimeSeatIds,
-            _clock.UtcNow,
-            cancellationToken);
-
-        var showtimeSeats = await _dbContext.ShowtimeSeats
-            .Include(ss => ss.BookingSeat)
-                .ThenInclude(bs => bs!.Booking)
-            .Include(ss => ss.Seat)
-            .ThenInclude(s => s.SeatType)
-            .Where(ss => request.ShowtimeSeatIds.Contains(ss.ShowtimeSeatId) && ss.ShowtimeId == request.ShowtimeId)
-            .ToListAsync(cancellationToken);
-
-        if (showtimeSeats.Count != request.ShowtimeSeatIds.Count)
-        {
-            return ServiceResult<BookingResponse>.Fail(400, "One or more selected seats are invalid.", "INVALID_SEATS");
-        }
-
-        var now = _clock.UtcNow;
-
-        var onlineSaleClosesAt = showtime.StartTime.AddMinutes(-_bookingSettings.OnlineSaleCutoffMinutes);
-        if (now >= onlineSaleClosesAt)
-        {
-            return ServiceResult<BookingResponse>.Fail(
-                400,
-                "Online ticket sales have closed for this showtime.",
-                BookingConstants.ErrorCodes.OnlineSaleClosed);
-        }
-
-        foreach (var ss in showtimeSeats)
-        {
-            if (IsSoldBookingSeat(ss.BookingSeat) || ss.SeatStatus == DomainConstants.EntityStatus.Booked)
-            {
-                return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is already booked.", "SEAT_ALREADY_BOOKED");
-            }
-
-            if (IsActivePendingBookingSeat(ss.BookingSeat, now))
-            {
-                return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is waiting for payment.", "SEAT_PENDING_PAYMENT");
-            }
-
-            if (ss.SeatStatus == DomainConstants.EntityStatus.Locked && ss.LockedByUserId != userId && ss.LockedUntil > now)
-            {
-                return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is locked by another user.", "SEAT_LOCKED");
-            }
-        }
-
-        // Calculate total amount in the same order as the request so each
-        // compensation ticket deterministically maps to one selected seat.
-        decimal totalAmount = 0;
-        var bookingSeats = new List<BookingSeat>();
-        var showtimeSeatsById = showtimeSeats.ToDictionary(
-            item => item.ShowtimeSeatId,
-            StringComparer.Ordinal);
-        foreach (var showtimeSeatId in request.ShowtimeSeatIds)
-        {
-            var ss = showtimeSeatsById[showtimeSeatId];
-            var seatPrice = showtime.BasePrice + ss.Seat.SeatType.ExtraFee;
-            totalAmount += seatPrice;
-            bookingSeats.Add(new BookingSeat
-            {
-                BookingSeatId = NewId(DomainConstants.EntityIdPrefix.BookingSeat),
-                ShowtimeSeatId = ss.ShowtimeSeatId,
-                SeatPrice = seatPrice
-            });
-        }
-
-        // F&B
-        var bookingFbItems = new List<BookingFbItem>();
-        if (request.FoodAndBeverages != null && request.FoodAndBeverages.Any())
-        {
-            var fbItemIds = request.FoodAndBeverages.Select(f => f.FbItemId).ToList();
-            var fbItems = await _dbContext.FbItems
-                .Where(f => fbItemIds.Contains(f.FbItemId))
-                .ToListAsync(cancellationToken);
-
-            foreach (var itemRequest in request.FoodAndBeverages)
-            {
-                var fbItem = fbItems.FirstOrDefault(f => f.FbItemId == itemRequest.FbItemId);
-                if (fbItem == null) continue;
-
-                var subtotal = fbItem.Price * itemRequest.Quantity;
-                totalAmount += subtotal;
-                bookingFbItems.Add(new BookingFbItem
-                {
-                    BookingFbitemId = NewId(DomainConstants.EntityIdPrefix.BookingFoodItem),
-                    FbItemId = fbItem.FbItemId,
-                    Quantity = itemRequest.Quantity,
-                    UnitPrice = fbItem.Price,
-                    Subtotal = subtotal
-                });
-            }
-        }
-
-        decimal bookingSubtotal = totalAmount;
-        decimal discountAmount = 0;
-        VoucherUsage? voucherUsage = null;
-        Voucher? voucher = null;
-        var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
-        var compensationDiscountAmount = 0m;
-        if (compensationTicketCodes.Count > 0)
-        {
-            var reservationResult =
-                await _cancellationCompensationService.ReserveTicketsAsync(
-                    customerProfile.CustomerProfileId,
-                    null,
-                    null,
-                    compensationTicketCodes,
-                    bookingId,
-                    bookingSeats,
-                    now,
-                    cancellationToken);
-            if (!reservationResult.Success)
-            {
-                return ServiceResult<BookingResponse>.Fail(
-                    reservationResult.StatusCode,
-                    reservationResult.Message,
-                    reservationResult.ErrorCode ?? "COMPENSATION_TICKET_ERROR");
-            }
-
-            compensationDiscountAmount = reservationResult.Data;
-            totalAmount = Math.Max(0m, totalAmount - compensationDiscountAmount);
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.VoucherCode))
-        {
-            var validationResult = await _voucherService.ValidateAndGetVoucherAsync(
-                request.VoucherCode,
-                bookingSubtotal,
-                customerProfile.CustomerProfileId,
-                cancellationToken);
-
-            if (!validationResult.Success)
-            {
-                return ServiceResult<BookingResponse>.Fail(validationResult.StatusCode, validationResult.Message, validationResult.ErrorCode ?? "VOUCHER_ERROR");
-            }
-
-            voucher = validationResult.Data.Voucher;
-            discountAmount = validationResult.Data.DiscountAmount;
-            totalAmount = bookingSubtotal - discountAmount;
-
-            // Rule: If total amount after discount is less than 1,000 VND, convert to 0 VND (completely free)
-            if (totalAmount < 1000m)
-            {
-                totalAmount = 0;
-            }
-
-            var claimedVoucher = await _voucherReservationService.FindAvailableClaimAsync(
-                voucher.VoucherId,
-                customerProfile.CustomerProfileId,
-                cancellationToken);
-
-            voucherUsage = new VoucherUsage
-            {
-                VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
-                VoucherId = voucher.VoucherId,
-                CustomerProfileId = customerProfile.CustomerProfileId,
-                BookingId = bookingId,
-                CustomerVoucherId = claimedVoucher?.CustomerVoucherId,
-                CustomerVoucher = claimedVoucher,
-                DiscountAmount = discountAmount,
-                UsageStatus = DomainConstants.VoucherUsageStatus.Applied,
-                UsedAt = null
-            };
-
-            if (totalAmount == 0)
-            {
-                await _voucherReservationService.ConfirmAsync(
-                    voucherUsage,
-                    now,
-                    cancellationToken);
-            }
-        }
-
-       
-
-        var booking = new Booking
-        {
-            BookingId = bookingId,
-            CustomerProfileId = customerProfile.CustomerProfileId,
-            ShowtimeId = showtime.ShowtimeId,
-            BookingStatus = totalAmount == 0 ? DomainConstants.EntityStatus.Paid : DomainConstants.EntityStatus.PendingPayment,
-            TotalAmount = totalAmount,
-            CompensationDiscountAmount = compensationDiscountAmount,
-            CreatedAt = now,
-            ExpiredAt = totalAmount == 0 ? null : now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
-            ClientRequestId = clientRequestId,
-            RequestFingerprint = requestFingerprint,
-            BookingChannel = DomainConstants.BookingChannel.Online,
-            FbFulfillmentStatus = bookingFbItems.Count == 0
-                ? FbConstants.FulfillmentStatus.NotRequired
-                : FbConstants.FulfillmentStatus.Pending,
-            BookingSeats = bookingSeats,
-            BookingFbItems = bookingFbItems
-        };
-
-        if (totalAmount == 0)
-        {
-            // For free orders, book the seats immediately and generate tickets
-            foreach (var ss in showtimeSeats)
-            {
-                ss.SeatStatus = DomainConstants.EntityStatus.Booked;
-                ss.LockedUntil = null;
-                ss.LockedByUserId = null;
-            }
-
-            foreach (var bs in bookingSeats)
-            {
-                bs.Ticket = new Ticket
-                {
-                    TicketId = NewId(DomainConstants.EntityIdPrefix.Ticket),
-                    BookingSeatId = bs.BookingSeatId,
-                    QrCode = GenerateTicketQrCode(bookingId, bs.BookingSeatId),
-                    TicketStatus = DomainConstants.TicketStatus.Unused,
-                    GeneratedAt = now
-                };
-                _dbContext.Tickets.Add(bs.Ticket);
-            }
-
-            if (voucherUsage != null && voucher != null)
-            {
-                voucher.UsedCount += 1;
-            }
-
-            await _cancellationCompensationService.ConfirmBookingReservationsAsync(
-                bookingId,
-                now,
-                cancellationToken);
-        }
-        else
-        {
-            // Update showtime seats to LOCKED
-            foreach (var ss in showtimeSeats)
-            {
-                ss.SeatStatus = DomainConstants.EntityStatus.Locked;
-                ss.LockedUntil = booking.ExpiredAt;
-                ss.LockedByUserId = userId;
-            }
-        }
-
-        _dbContext.Bookings.Add(booking);
-        if (voucherUsage != null)
-        {
-            _dbContext.VoucherUsages.Add(voucherUsage);
-        }
-
         try
         {
-            await _dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception)
-        {
-            if (!IsCheckoutConflict(exception))
+            var customerProfile = await _dbContext.CustomerProfiles
+                .FirstOrDefaultAsync(cp => cp.UserId == userId, cancellationToken);
+
+            if (customerProfile == null)
             {
-                _logger.LogError(
-                    exception,
-                    "Checkout persistence failed for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
-                    bookingId,
-                    request.ShowtimeId,
-                    clientRequestId);
-                throw;
+                return ServiceResult<BookingResponse>.Fail(403, "Only customers can book tickets.", "CUSTOMER_PROFILE_NOT_FOUND");
             }
 
-            _logger.LogWarning(
-                exception,
-                "Checkout concurrency conflict for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
-                bookingId,
-                request.ShowtimeId,
-                clientRequestId);
-
-            // SQL Server's filtered unique index is the final guard when two
-            // requests with the same key arrive at the same time. A fresh query
-            // returns the winner's response; other seat conflicts stay a 409.
-            _dbContext.ChangeTracker.Clear();
-            var recoveredBooking = clientRequestId.HasValue
+            var requestFingerprint = clientRequestId.HasValue
+                ? CreateRequestFingerprint(request)
+                : null;
+            var existingBooking = clientRequestId.HasValue
                 ? await FindBookingByClientRequestAsync(
                     customerProfile.CustomerProfileId,
                     clientRequestId.Value,
                     cancellationToken)
                 : null;
 
-            if (recoveredBooking != null
-                && string.Equals(recoveredBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+            if (existingBooking != null)
             {
+                if (!string.Equals(existingBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+                {
+                    return ServiceResult<BookingResponse>.Fail(
+                        409,
+                        "This Idempotency-Key was already used for a different checkout request.",
+                        "IDEMPOTENCY_KEY_REUSED");
+                }
+
                 return ServiceResult<BookingResponse>.Ok(
-                    ToBookingResponse(recoveredBooking),
+                    ToBookingResponse(existingBooking),
                     "Existing checkout returned successfully.");
             }
 
-            if (IsVoucherReservationConflict(exception))
+            var showtime = await _dbContext.Showtimes
+                .Include(s => s.Movie)
+                .Include(s => s.Room)
+                    .ThenInclude(r => r.Cinema)
+                .FirstOrDefaultAsync(s => s.ShowtimeId == request.ShowtimeId, cancellationToken);
+
+            if (showtime == null)
             {
-                return ServiceResult<BookingResponse>.Fail(
-                    409,
-                    "This claimed voucher is already reserved by another checkout.",
-                    "VOUCHER_ALREADY_RESERVED");
+                return ServiceResult<BookingResponse>.Fail(404, "Showtime not found.", "SHOWTIME_NOT_FOUND");
             }
 
-            if (IsCompensationReservationConflict(exception))
+            if (!string.Equals(showtime.Status, DomainConstants.ShowtimeStatus.Open, StringComparison.OrdinalIgnoreCase))
             {
-                return ServiceResult<BookingResponse>.Fail(
-                    409,
-                    "This compensation ticket is already reserved by another checkout.",
-                    "COMPENSATION_TICKET_ALREADY_RESERVED");
+                return ServiceResult<BookingResponse>.Fail(400, "This showtime is no longer accepting bookings.", "SHOWTIME_UNAVAILABLE");
             }
 
-            return ServiceResult<BookingResponse>.Fail(
-                409,
-                "The selected seats were changed by another checkout. Please refresh the seat map.",
-                "CHECKOUT_CONFLICT");
-        }
+            if (request.ShowtimeSeatIds.Count > _bookingSettings.MaxSeatsPerCheckout)
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    400,
+                    $"A booking can contain at most {_bookingSettings.MaxSeatsPerCheckout} seats.",
+                    "MAX_SEATS_EXCEEDED");
+            }
 
-        // Release temporary selection locks from Redis since DB now holds the authoritative lock (LockedUntil = booking.ExpiredAt)
-        foreach (var ss in showtimeSeats)
-        {
-            await _seatLockStore.ReleaseAsync($"seat_lock_{showtime.ShowtimeId}_{ss.SeatId}", cancellationToken);
-        }
+            var compensationTicketCodes = request.CompensationTicketCodes ?? [];
+            if (compensationTicketCodes.Count > 0
+                && !string.IsNullOrWhiteSpace(request.VoucherCode))
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    400,
+                    "A standard voucher cannot be combined with compensation tickets.",
+                    "VOUCHER_STACKING_NOT_ALLOWED");
+            }
 
-        return ServiceResult<BookingResponse>.Ok(new BookingResponse
+            await ReleaseStaleBookingSeatsForShowtimeAsync(
+                request.ShowtimeId,
+                request.ShowtimeSeatIds,
+                _clock.UtcNow,
+                cancellationToken);
+
+            var showtimeSeats = await _dbContext.ShowtimeSeats
+                .Include(ss => ss.BookingSeat)
+                    .ThenInclude(bs => bs!.Booking)
+                .Include(ss => ss.Seat)
+                .ThenInclude(s => s.SeatType)
+                .Where(ss => request.ShowtimeSeatIds.Contains(ss.ShowtimeSeatId) && ss.ShowtimeId == request.ShowtimeId)
+                .ToListAsync(cancellationToken);
+
+            if (showtimeSeats.Count != request.ShowtimeSeatIds.Count)
+            {
+                return ServiceResult<BookingResponse>.Fail(400, "One or more selected seats are invalid.", "INVALID_SEATS");
+            }
+
+            var now = _clock.UtcNow;
+
+            var onlineSaleClosesAt = showtime.StartTime.AddMinutes(-_bookingSettings.OnlineSaleCutoffMinutes);
+            if (now >= onlineSaleClosesAt)
+            {
+                return ServiceResult<BookingResponse>.Fail(
+                    400,
+                    "Online ticket sales have closed for this showtime.",
+                    BookingConstants.ErrorCodes.OnlineSaleClosed);
+            }
+
+            foreach (var ss in showtimeSeats)
+            {
+                if (IsSoldBookingSeat(ss.BookingSeat) || ss.SeatStatus == DomainConstants.EntityStatus.Booked)
+                {
+                    return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is already booked.", "SEAT_ALREADY_BOOKED");
+                }
+
+                if (IsActivePendingBookingSeat(ss.BookingSeat, now))
+                {
+                    return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is waiting for payment.", "SEAT_PENDING_PAYMENT");
+                }
+
+                if (ss.SeatStatus == DomainConstants.EntityStatus.Locked && ss.LockedByUserId != userId && ss.LockedUntil > now)
+                {
+                    return ServiceResult<BookingResponse>.Fail(409, $"Seat {ss.Seat.SeatCode} is locked by another user.", "SEAT_LOCKED");
+                }
+            }
+
+            // Calculate total amount in the same order as the request so each
+            // compensation ticket deterministically maps to one selected seat.
+            decimal totalAmount = 0;
+            var bookingSeats = new List<BookingSeat>();
+            var showtimeSeatsById = showtimeSeats.ToDictionary(
+                item => item.ShowtimeSeatId,
+                StringComparer.Ordinal);
+            foreach (var showtimeSeatId in request.ShowtimeSeatIds)
+            {
+                var ss = showtimeSeatsById[showtimeSeatId];
+                var seatPrice = showtime.BasePrice + ss.Seat.SeatType.ExtraFee;
+                totalAmount += seatPrice;
+                bookingSeats.Add(new BookingSeat
+                {
+                    BookingSeatId = NewId(DomainConstants.EntityIdPrefix.BookingSeat),
+                    ShowtimeSeatId = ss.ShowtimeSeatId,
+                    SeatPrice = seatPrice
+                });
+            }
+
+            // F&B
+            var bookingFbItems = new List<BookingFbItem>();
+            if (request.FoodAndBeverages != null && request.FoodAndBeverages.Any())
+            {
+                var fbItemIds = request.FoodAndBeverages.Select(f => f.FbItemId).ToList();
+                var fbItems = await _dbContext.FbItems
+                    .Where(f => fbItemIds.Contains(f.FbItemId))
+                    .ToListAsync(cancellationToken);
+
+                foreach (var itemRequest in request.FoodAndBeverages)
+                {
+                    var fbItem = fbItems.FirstOrDefault(f => f.FbItemId == itemRequest.FbItemId);
+                    if (fbItem == null) continue;
+
+                    var subtotal = fbItem.Price * itemRequest.Quantity;
+                    totalAmount += subtotal;
+                    bookingFbItems.Add(new BookingFbItem
+                    {
+                        BookingFbitemId = NewId(DomainConstants.EntityIdPrefix.BookingFoodItem),
+                        FbItemId = fbItem.FbItemId,
+                        Quantity = itemRequest.Quantity,
+                        UnitPrice = fbItem.Price,
+                        Subtotal = subtotal
+                    });
+                }
+            }
+
+            decimal bookingSubtotal = totalAmount;
+            decimal discountAmount = 0;
+            VoucherUsage? voucherUsage = null;
+            Voucher? voucher = null;
+            var bookingId = NewId(DomainConstants.EntityIdPrefix.Booking);
+            var compensationDiscountAmount = 0m;
+            if (compensationTicketCodes.Count > 0)
+            {
+                var reservationResult =
+                    await _cancellationCompensationService.ReserveTicketsAsync(
+                        customerProfile.CustomerProfileId,
+                        null,
+                        null,
+                        compensationTicketCodes,
+                        bookingId,
+                        bookingSeats,
+                        now,
+                        cancellationToken);
+                if (!reservationResult.Success)
+                {
+                    return ServiceResult<BookingResponse>.Fail(
+                        reservationResult.StatusCode,
+                        reservationResult.Message,
+                        reservationResult.ErrorCode ?? "COMPENSATION_TICKET_ERROR");
+                }
+
+                compensationDiscountAmount = reservationResult.Data;
+                totalAmount = Math.Max(0m, totalAmount - compensationDiscountAmount);
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.VoucherCode))
+            {
+                var validationResult = await _voucherService.ValidateAndGetVoucherAsync(
+                    request.VoucherCode,
+                    bookingSubtotal,
+                    customerProfile.CustomerProfileId,
+                    cancellationToken);
+
+                if (!validationResult.Success)
+                {
+                    return ServiceResult<BookingResponse>.Fail(validationResult.StatusCode, validationResult.Message, validationResult.ErrorCode ?? "VOUCHER_ERROR");
+                }
+
+                voucher = validationResult.Data.Voucher;
+                discountAmount = validationResult.Data.DiscountAmount;
+                totalAmount = bookingSubtotal - discountAmount;
+
+                // Rule: If total amount after discount is less than 1,000 VND, convert to 0 VND (completely free)
+                if (totalAmount < 1000m)
+                {
+                    totalAmount = 0;
+                }
+
+                var claimedVoucher = await _voucherReservationService.FindAvailableClaimAsync(
+                    voucher.VoucherId,
+                    customerProfile.CustomerProfileId,
+                    cancellationToken);
+
+                voucherUsage = new VoucherUsage
+                {
+                    VoucherUsageId = NewId(DomainConstants.EntityIdPrefix.VoucherUsage),
+                    VoucherId = voucher.VoucherId,
+                    CustomerProfileId = customerProfile.CustomerProfileId,
+                    BookingId = bookingId,
+                    CustomerVoucherId = claimedVoucher?.CustomerVoucherId,
+                    CustomerVoucher = claimedVoucher,
+                    DiscountAmount = discountAmount,
+                    UsageStatus = DomainConstants.VoucherUsageStatus.Applied,
+                    UsedAt = null
+                };
+
+                if (totalAmount == 0)
+                {
+                    await _voucherReservationService.ConfirmAsync(
+                        voucherUsage,
+                        now,
+                        cancellationToken);
+                }
+            }
+
+            var booking = new Booking
+            {
+                BookingId = bookingId,
+                CustomerProfileId = customerProfile.CustomerProfileId,
+                ShowtimeId = showtime.ShowtimeId,
+                BookingStatus = totalAmount == 0 ? DomainConstants.EntityStatus.Paid : DomainConstants.EntityStatus.PendingPayment,
+                TotalAmount = totalAmount,
+                CompensationDiscountAmount = compensationDiscountAmount,
+                CreatedAt = now,
+                ExpiredAt = totalAmount == 0 ? null : now.AddMinutes(_bookingSettings.PendingPaymentExpiryMinutes),
+                ClientRequestId = clientRequestId,
+                RequestFingerprint = requestFingerprint,
+                BookingChannel = DomainConstants.BookingChannel.Online,
+                FbFulfillmentStatus = bookingFbItems.Count == 0
+                    ? FbConstants.FulfillmentStatus.NotRequired
+                    : FbConstants.FulfillmentStatus.Pending,
+                BookingSeats = bookingSeats,
+                BookingFbItems = bookingFbItems
+            };
+
+            if (totalAmount == 0)
+            {
+                // For free orders, book the seats immediately and generate tickets
+                foreach (var ss in showtimeSeats)
+                {
+                    ss.SeatStatus = DomainConstants.EntityStatus.Booked;
+                    ss.LockedUntil = null;
+                    ss.LockedByUserId = null;
+                }
+
+                foreach (var bs in bookingSeats)
+                {
+                    bs.Ticket = new Ticket
+                    {
+                        TicketId = NewId(DomainConstants.EntityIdPrefix.Ticket),
+                        BookingSeatId = bs.BookingSeatId,
+                        QrCode = GenerateTicketQrCode(bookingId, bs.BookingSeatId),
+                        TicketStatus = DomainConstants.TicketStatus.Unused,
+                        GeneratedAt = now
+                    };
+                    _dbContext.Tickets.Add(bs.Ticket);
+                }
+
+                if (voucherUsage != null && voucher != null)
+                {
+                    voucher.UsedCount += 1;
+                }
+
+                await _cancellationCompensationService.ConfirmBookingReservationsAsync(
+                    bookingId,
+                    now,
+                    cancellationToken);
+            }
+            else
+            {
+                // Update showtime seats to LOCKED
+                foreach (var ss in showtimeSeats)
+                {
+                    ss.SeatStatus = DomainConstants.EntityStatus.Locked;
+                    ss.LockedUntil = booking.ExpiredAt;
+                    ss.LockedByUserId = userId;
+                }
+            }
+
+            _dbContext.Bookings.Add(booking);
+            if (voucherUsage != null)
+            {
+                _dbContext.VoucherUsages.Add(voucherUsage);
+            }
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception)
+            {
+                if (!IsCheckoutConflict(exception))
+                {
+                    _logger.LogError(
+                        exception,
+                        "Checkout persistence failed for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
+                        bookingId,
+                        request.ShowtimeId,
+                        clientRequestId);
+                    throw;
+                }
+
+                _logger.LogWarning(
+                    exception,
+                    "Checkout concurrency conflict for booking {BookingId}, showtime {ShowtimeId}, client request {ClientRequestId}.",
+                    bookingId,
+                    request.ShowtimeId,
+                    clientRequestId);
+
+                // SQL Server's filtered unique index is the final guard when two
+                // requests with the same key arrive at the same time. A fresh query
+                // returns the winner's response; other seat conflicts stay a 409.
+                _dbContext.ChangeTracker.Clear();
+                var recoveredBooking = clientRequestId.HasValue
+                    ? await FindBookingByClientRequestAsync(
+                        customerProfile.CustomerProfileId,
+                        clientRequestId.Value,
+                        cancellationToken)
+                    : null;
+
+                if (recoveredBooking != null
+                    && string.Equals(recoveredBooking.RequestFingerprint, requestFingerprint, StringComparison.Ordinal))
+                {
+                    return ServiceResult<BookingResponse>.Ok(
+                        ToBookingResponse(recoveredBooking),
+                        "Existing checkout returned successfully.");
+                }
+
+                if (IsVoucherReservationConflict(exception))
+                {
+                    return ServiceResult<BookingResponse>.Fail(
+                        409,
+                        "This claimed voucher is already reserved by another checkout.",
+                        "VOUCHER_ALREADY_RESERVED");
+                }
+
+                if (IsCompensationReservationConflict(exception))
+                {
+                    return ServiceResult<BookingResponse>.Fail(
+                        409,
+                        "This compensation ticket is already reserved by another checkout.",
+                        "COMPENSATION_TICKET_ALREADY_RESERVED");
+                }
+
+                return ServiceResult<BookingResponse>.Fail(
+                    409,
+                    "The selected seats were changed by another checkout. Please refresh the seat map.",
+                    "CHECKOUT_CONFLICT");
+            }
+
+            // Release temporary selection locks from Redis since DB now holds the authoritative lock (LockedUntil = booking.ExpiredAt)
+            foreach (var ss in showtimeSeats)
+            {
+                await _seatLockStore.ReleaseAsync($"seat-lock:{showtime.ShowtimeId}:{ss.SeatId}", cancellationToken);
+            }
+
+            return ServiceResult<BookingResponse>.Ok(new BookingResponse
+            {
+                BookingId = booking.BookingId,
+                ShowtimeId = booking.ShowtimeId,
+                MovieTitle = showtime.Movie.Title,
+                CinemaName = showtime.Room.Cinema.CinemaName,
+                RoomName = showtime.Room.RoomName,
+                StartTime = showtime.StartTime,
+                TotalAmount = booking.TotalAmount,
+                CompensationDiscountAmount = booking.CompensationDiscountAmount,
+                Status = booking.BookingStatus,
+                CreatedAt = booking.CreatedAt,
+                ExpiredAt = booking.ExpiredAt
+            }, totalAmount == 0 ? "Booking created and confirmed successfully (Free order)." : "Booking created successfully.");
+        }
+        catch (Exception ex)
         {
-            BookingId = booking.BookingId,
-            ShowtimeId = booking.ShowtimeId,
-            MovieTitle = showtime.Movie.Title,
-            CinemaName = showtime.Room.Cinema.CinemaName,
-            RoomName = showtime.Room.RoomName,
-            StartTime = showtime.StartTime,
-            TotalAmount = booking.TotalAmount,
-            CompensationDiscountAmount = booking.CompensationDiscountAmount,
-            Status = booking.BookingStatus,
-            CreatedAt = booking.CreatedAt,
-            ExpiredAt = booking.ExpiredAt
-        }, totalAmount == 0 ? "Booking created and confirmed successfully (Free order)." : "Booking created successfully.");
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            _logger.LogError(ex, "Lỗi xảy ra khi tạo đơn vé (CreateBookingAsync): {Detail}", detail);
+            return ServiceResult<BookingResponse>.Fail(500, $"Lỗi hệ thống khi thanh toán: {detail}", "INTERNAL_ERROR");
+        }
     }
 
     private static bool IsCheckoutConflict(DbUpdateException exception)
@@ -718,117 +725,174 @@ public sealed class BookingService : IBookingService
         string token,
         CancellationToken cancellationToken)
     {
-        // 1. Verify token
-        var secret = _securitySettings.ConfirmationTokenSecret;
-        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
-        var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(bookingId));
-        var expectedToken = Convert.ToBase64String(hash);
-
-        // Make it URL safe if needed, but standard Base64 should match if unescaped
-        if (token.Replace(" ", "+") != expectedToken)
+        try
         {
-            return ServiceResult<bool>.Fail(400, "Invalid or expired token.", "INVALID_TOKEN");
-        }
+            // 1. Verify token
+            var secret = _securitySettings.ConfirmationTokenSecret;
+            using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+            var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(bookingId));
+            var expectedToken = Convert.ToBase64String(hash);
 
-        var booking = await _dbContext.Bookings
-            .Include(b => b.Payments)
-            .Include(b => b.CustomerProfile)
-                .ThenInclude(profile => profile!.User)
-            .Include(b => b.Showtime)
-                .ThenInclude(showtime => showtime.Movie)
-            .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
-
-        if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
-
-        // Kiểm tra thời hạn Token (Token hết hạn trước giờ chiếu 2 tiếng)
-        if (booking.Showtime != null && booking.Showtime.StartTime.AddHours(-2) < _clock.UtcNow)
-        {
-            return ServiceResult<bool>.Fail(400, "Token has expired because it is less than 2 hours before showtime.", "TOKEN_EXPIRED_TIME_LIMIT");
-        }
-
-        // Xử lý Idempotency cho đơn hàng đã xác nhận hoặc đã hoàn tiền trước đó
-        if (booking.BookingStatus != DomainConstants.EntityStatus.ProcessingUnstable)
-        {
-            if (booking.BookingStatus == DomainConstants.EntityStatus.Paid)
+            // Make it URL safe if needed, but standard Base64 should match if unescaped
+            if (token.Replace(" ", "+") != expectedToken)
             {
-                return ServiceResult<bool>.Ok(
-                    true,
-                    "ALREADY_ACCEPTED: Quý khách đã lựa chọn xác nhận tham dự suất chiếu mới cho đơn hàng này trước đó. Đơn vé của bạn đã ở trạng thái hợp lệ và vị trí ghế được giữ nguyên.");
+                return ServiceResult<bool>.Fail(400, "Invalid or expired token.", "INVALID_TOKEN");
             }
 
-            if (booking.BookingStatus == DomainConstants.EntityStatus.PendingRefund ||
-                booking.BookingStatus == DomainConstants.EntityStatus.Refunded ||
-                booking.BookingStatus == DomainConstants.EntityStatus.Cancelled)
+            var booking = await _dbContext.Bookings
+                .Include(b => b.Payments)
+                .Include(b => b.CustomerProfile)
+                    .ThenInclude(profile => profile!.User)
+                .Include(b => b.Showtime)
+                    .ThenInclude(showtime => showtime.Movie)
+                .Include(b => b.BookingSeats)
+                    .ThenInclude(bs => bs.ShowtimeSeat)
+                .Include(b => b.BookingSeats)
+                    .ThenInclude(bs => bs.Ticket)
+                .Include(b => b.VoucherUsage)
+                .FirstOrDefaultAsync(b => b.BookingId == bookingId, cancellationToken);
+
+            if (booking == null) return ServiceResult<bool>.Fail(404, "Booking not found.", "NOT_FOUND");
+
+            // Kiểm tra thời hạn Token (Token hết hạn trước giờ chiếu 2 tiếng)
+            if (booking.Showtime != null && booking.Showtime.StartTime.AddHours(-2) < _clock.UtcNow)
             {
-                return ServiceResult<bool>.Ok(
-                    true,
-                    "ALREADY_REFUNDED: Quý khách đã lựa chọn yêu cầu hoàn tiền 100% cho đơn hàng này trước đó. Hệ thống đang tiến hành xử lý hoàn tiền tự động về tài khoản của bạn.");
+                return ServiceResult<bool>.Fail(400, "Token has expired because it is less than 2 hours before showtime.", "TOKEN_EXPIRED_TIME_LIMIT");
             }
 
-            return ServiceResult<bool>.Fail(400, "Đơn hàng không ở trạng thái chờ xác nhận đổi giờ chiếu.", "INVALID_STATUS");
-        }
-
-        if (accept)
-        {
-            booking.BookingStatus = DomainConstants.EntityStatus.Paid;
-            await IssueRescheduleAcceptanceVoucherAsync(booking, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return ServiceResult<bool>.Ok(
-                true,
-                "Time change accepted successfully. A 20% ticket voucher valid for one month was added to your compensation vouchers.");
-        }
-        else
-        {
-            booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
-
-            var payment = booking.Payments.FirstOrDefault(p => p.PaymentStatus == DomainConstants.RefundStatus.Success) ?? booking.Payments.FirstOrDefault();
-
-            if (payment == null)
+            // Xử lý Idempotency cho đơn hàng đã xác nhận hoặc đã hoàn tiền trước đó
+            if (booking.BookingStatus != DomainConstants.EntityStatus.ProcessingUnstable)
             {
-                payment = await _dbContext.Payments
-                    .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId && p.PaymentStatus == DomainConstants.RefundStatus.Success, cancellationToken);
-
-                if (payment == null)
+                if (booking.BookingStatus == DomainConstants.EntityStatus.Paid)
                 {
-                    payment = await _dbContext.Payments.FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
+                    return ServiceResult<bool>.Ok(
+                        true,
+                        "ALREADY_ACCEPTED: Quý khách đã lựa chọn xác nhận tham dự suất chiếu mới cho đơn hàng này trước đó. Đơn vé của bạn đã ở trạng thái hợp lệ và vị trí ghế được giữ nguyên.");
                 }
+
+                if (booking.BookingStatus == DomainConstants.EntityStatus.PendingRefund ||
+                    booking.BookingStatus == DomainConstants.EntityStatus.Refunded ||
+                    booking.BookingStatus == DomainConstants.EntityStatus.Cancelled)
+                {
+                    return ServiceResult<bool>.Ok(
+                        true,
+                        "ALREADY_REFUNDED: Quý khách đã lựa chọn yêu cầu hoàn tiền 100% cho đơn hàng này trước đó. Hệ thống đang tiến hành xử lý hoàn tiền tự động về tài khoản của bạn.");
+                }
+
+                return ServiceResult<bool>.Fail(400, "Đơn hàng không ở trạng thái chờ xác nhận đổi giờ chiếu.", "INVALID_STATUS");
+            }
+
+            if (accept)
+            {
+                booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+                await IssueRescheduleAcceptanceVoucherAsync(booking, cancellationToken);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                return ServiceResult<bool>.Ok(
+                    true,
+                    "Time change accepted successfully. A 20% ticket voucher valid for one month was added to your compensation vouchers.");
             }
             else
             {
-                bool exists = await _dbContext.Payments.AnyAsync(p => p.PaymentId == payment.PaymentId, cancellationToken);
-                if (!exists) payment = null;
-            }
+                booking.BookingStatus = DomainConstants.EntityStatus.PendingRefund;
 
-            if (booking.TotalAmount > 0 && (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId)))
-            {
-                return ServiceResult<bool>.Fail(400, "Cannot reject time change because no valid payment record exists to process the refund.", "INVALID_PAYMENT");
-            }
+                // 1. Giải phóng ghế & Hủy vé & Xóa BookingSeats để sẵn sàng cho lần đặt vé mới
+                if (booking.BookingSeats != null && booking.BookingSeats.Count > 0)
+                {
+                    foreach (var bs in booking.BookingSeats)
+                    {
+                        if (bs.ShowtimeSeat != null)
+                        {
+                            bs.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
+                            bs.ShowtimeSeat.LockedUntil = null;
+                            bs.ShowtimeSeat.LockedByUserId = null;
 
-            var refund = new Refund
-            {
-                RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
-                BookingId = booking.BookingId,
-                PaymentId = payment?.PaymentId ?? "ZERO_PAYMENT",
-                PaymentProviderId = payment?.PaymentProviderId ?? "VOUCHER",
-                RefundAmount = booking.TotalAmount,
-                RefundStatus = DomainConstants.RefundStatus.Pending,
-                RefundReason = "User rejected time change",
-                RequestedAt = _clock.UtcNow
-            };
-            _dbContext.Refunds.Add(refund);
-            RefundClaimIssue? claimIssue = null;
-            if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
-            {
-                claimIssue = _refundClaimIssuer.Create(
-                    refund.RefundId,
-                    booking.CustomerProfileId,
-                    _clock.UtcNow);
-                _dbContext.RefundClaims.Add(claimIssue.Claim);
+                            // Giải phóng khóa cache (Redis/Memory seat lock store)
+                            var lockKey = $"seat-lock:{bs.ShowtimeSeat.ShowtimeId}:{bs.ShowtimeSeat.SeatId}";
+                            await _seatLockStore.ReleaseAsync(lockKey, cancellationToken);
+                        }
+                        if (bs.Ticket != null)
+                        {
+                            _dbContext.Tickets.Remove(bs.Ticket);
+                        }
+                    }
+                    _dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
+                }
+
+                // 2. Hoàn trả Voucher ban đầu nếu có áp dụng
+                if (booking.VoucherUsage != null && string.Equals(booking.VoucherUsage.UsageStatus, DomainConstants.VoucherUsageStatus.Applied, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _voucherReservationService.CancelAsync(
+                        booking.VoucherUsage,
+                        cancellationToken);
+                }
+
+                // 3. Phát Voucher đền bù 100% cho lần từ chối
+                await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
+
+                // 4. Trường hợp đơn hàng 0đ (Thanh toán 100% bằng Voucher)
+                if (booking.TotalAmount <= 0)
+                {
+                    booking.BookingStatus = DomainConstants.EntityStatus.Refunded;
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+
+                    return ServiceResult<bool>.Ok(
+                        true,
+                        "ZERO_AMOUNT_REFUND: Đơn hàng có giá trị 0đ nên không cần hoàn tiền mặt. Hệ thống đã hủy vé, giải phóng ghế và hoàn tặng Voucher đền bù 100% cho bạn.");
+                }
+
+                // 5. Trường hợp đơn hàng có thanh toán tiền mặt/chuyển khoản (TotalAmount > 0)
+                var payment = booking.Payments.FirstOrDefault(p =>
+                    string.Equals(p.PaymentStatus, DomainConstants.EntityStatus.Paid, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(p.PaymentStatus, DomainConstants.RefundStatus.Success, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(p.PaymentStatus, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(p.PaymentStatus, "COMPLETED", StringComparison.OrdinalIgnoreCase))
+                    ?? booking.Payments.FirstOrDefault();
+
+                if (payment == null)
+                {
+                    payment = await _dbContext.Payments
+                        .FirstOrDefaultAsync(p => p.BookingId == booking.BookingId, cancellationToken);
+                }
+
+                if (payment == null || string.IsNullOrEmpty(payment.PaymentId) || string.IsNullOrEmpty(payment.PaymentProviderId))
+                {
+                    return ServiceResult<bool>.Fail(400, "Cannot reject time change because no valid payment record exists to process the refund.", "INVALID_PAYMENT");
+                }
+
+                var refund = new Refund
+                {
+                    RefundId = NewId(DomainConstants.EntityIdPrefix.Refund),
+                    BookingId = booking.BookingId,
+                    PaymentId = payment.PaymentId,
+                    PaymentProviderId = payment.PaymentProviderId,
+                    RefundAmount = booking.TotalAmount,
+                    RefundStatus = DomainConstants.RefundStatus.Pending,
+                    RefundReason = "User rejected time change",
+                    RequestedAt = _clock.UtcNow
+                };
+                _dbContext.Refunds.Add(refund);
+
+                RefundClaimIssue? claimIssue = null;
+                if (!string.IsNullOrWhiteSpace(booking.CustomerProfileId))
+                {
+                    claimIssue = _refundClaimIssuer.Create(
+                        refund.RefundId,
+                        booking.CustomerProfileId,
+                        _clock.UtcNow);
+                    _dbContext.RefundClaims.Add(claimIssue.Claim);
+                }
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await TrySendTimeChangeRefundClaimEmailAsync(booking, claimIssue, cancellationToken);
+
+                return ServiceResult<bool>.Ok(true, "Yêu cầu hoàn tiền đã được ghi nhận. Bộ phận Tài vụ sẽ kiểm tra và gửi email xác nhận hoàn tiền cho bạn.");
             }
-            await IssueRescheduleRejectionVoucherAsync(booking, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await TrySendTimeChangeRefundClaimEmailAsync(booking, claimIssue, cancellationToken);
-            return ServiceResult<bool>.Ok(true, "Time change rejected. Refund claim initiated.");
+        }
+        catch (Exception ex)
+        {
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            _logger.LogError(ex, "Lỗi xảy ra khi xử lý xác nhận/từ chối đổi lịch chiếu cho đơn hàng {BookingId}: {Detail}", bookingId, detail);
+            return ServiceResult<bool>.Fail(500, $"Lỗi hệ thống khi xử lý yêu cầu: {detail}", "INTERNAL_ERROR");
         }
     }
 
@@ -1107,18 +1171,21 @@ public sealed class BookingService : IBookingService
         foreach (var bookingSeat in bookingSeats)
         {
             var showtimeSeat = bookingSeat.ShowtimeSeat;
-            if (showtimeSeat == null)
+            if (showtimeSeat != null)
             {
-                continue;
+                showtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
+                showtimeSeat.LockedUntil = null;
+                showtimeSeat.LockedByUserId = null;
+
+                await _seatLockStore.ReleaseAsync(
+                    BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
+                    cancellationToken);
             }
 
-            showtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
-            showtimeSeat.LockedUntil = null;
-            showtimeSeat.LockedByUserId = null;
-
-            await _seatLockStore.ReleaseAsync(
-                BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
-                cancellationToken);
+            if (bookingSeat.Ticket != null)
+            {
+                _dbContext.Tickets.Remove(bookingSeat.Ticket);
+            }
         }
 
         _dbContext.BookingSeats.RemoveRange(bookingSeats);
