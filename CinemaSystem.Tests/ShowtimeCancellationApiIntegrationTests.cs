@@ -104,7 +104,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
             item.Action == "CANCEL_SHOWTIME"
             && item.EntityId == "SHW_CANCEL_A"));
         Assert.Equal(2, factory.EmailCapture.Emails.Count);
-        Assert.DoesNotContain(
+        Assert.Contains(
             factory.EmailCapture.Emails,
             item => item.Body.Contains("/refunds/claim", StringComparison.OrdinalIgnoreCase));
     }
