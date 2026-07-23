@@ -33,7 +33,5 @@ public interface INotificationService
         TriggerSystemNotificationRequest request,
         CancellationToken cancellationToken);
 
-    Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetSignageFeedAsync(CancellationToken cancellationToken);
-
     Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(CancellationToken cancellationToken);
 }

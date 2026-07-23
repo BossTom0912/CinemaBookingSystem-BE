@@ -1,4 +1,4 @@
-using CinemaSystem.Application.Common;
+    using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Showtimes;

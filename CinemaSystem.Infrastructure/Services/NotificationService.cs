@@ -134,10 +134,11 @@ public sealed class NotificationService : INotificationService
     {
         var targetUsers = new List<User>();
 
+        var query = _dbContext.Users.AsNoTracking();
+
         if (!string.IsNullOrWhiteSpace(request.TargetGroup))
         {
             var group = request.TargetGroup.Trim().ToUpperInvariant();
-            var query = _dbContext.Users.AsNoTracking();
 
             if (group == DomainConstants.NotificationTargetGroup.Customers)
             {
@@ -159,26 +160,62 @@ public sealed class NotificationService : INotificationService
             {
                 return ServiceResult<NotificationResponse>.Fail(400, $"Unknown TargetGroup: '{group}'. Valid options are: ALL, CUSTOMERS, STAFF, MANAGERS, ADMINS.", "INVALID_TARGET_GROUP");
             }
-
-            targetUsers = await query.ToListAsync(cancellationToken);
         }
         else if (request.UserIds != null && request.UserIds.Count > 0)
         {
-            targetUsers = await _dbContext.Users
-                .AsNoTracking()
-                .Where(u => request.UserIds.Contains(u.UserId))
-                .ToListAsync(cancellationToken);
+            query = query.Where(u => request.UserIds.Contains(u.UserId));
         }
         else if (!string.IsNullOrWhiteSpace(request.UserId))
         {
-            var user = await _dbContext.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.UserId == request.UserId, cancellationToken);
-            if (user != null)
-            {
-                targetUsers.Add(user);
-            }
+            query = query.Where(u => u.UserId == request.UserId);
         }
+
+        // Apply conditional filters
+        if (request.IsFlagged == true)
+        {
+            query = query.Where(u => u.IsBlocked || u.SpamViolationCount > 0);
+        }
+
+        if (request.HasBooked == true)
+        {
+            var bookedUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => bookedUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RoomId))
+        {
+            var roomId = request.RoomId.Trim();
+            var roomUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.RoomId == roomId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => roomUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ShowtimeId))
+        {
+            var showtimeId = request.ShowtimeId.Trim();
+            var showtimeUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.ShowtimeId == showtimeId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => showtimeUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.MovieId))
+        {
+            var movieId = request.MovieId.Trim();
+            var movieUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.MovieId == movieId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => movieUserIds.Contains(u.UserId));
+        }
+
+        targetUsers = await query.ToListAsync(cancellationToken);
 
         if (targetUsers.Count == 0)
         {
@@ -395,21 +432,6 @@ public sealed class NotificationService : INotificationService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<bool>.Ok(true, $"System notification of type '{type}' broadcasted to {notifications.Count} users.");
-    }
-
-    public async Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetSignageFeedAsync(CancellationToken cancellationToken)
-    {
-        // Digital signage displays messages related to room ready or room cleanups in the last 6 hours
-        var cutoff = _clock.UtcNow.AddHours(-6);
-        var notifications = await _dbContext.Notifications
-            .AsNoTracking()
-            .Where(n => n.CreatedAt >= cutoff && (n.Title.Contains("dọn dẹp") || n.Title.Contains("soát vé") || n.Title.Contains("Room")))
-            .OrderByDescending(n => n.CreatedAt)
-            .Take(20)
-            .ToListAsync(cancellationToken);
-
-        var mapped = notifications.Select(MapToResponse).ToList();
-        return ServiceResult<IReadOnlyList<NotificationResponse>>.Ok(mapped, "Signage feed retrieved successfully.");
     }
 
     public async Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(CancellationToken cancellationToken)

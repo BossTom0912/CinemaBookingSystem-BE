@@ -89,14 +89,6 @@ public sealed class NotificationsController : ControllerBase
         return ToActionResult(result);
     }
 
-    [HttpGet("signage")]
-    [AllowAnonymous]
-    public async Task<IActionResult> GetSignageFeed(CancellationToken cancellationToken)
-    {
-        var result = await _notificationService.GetSignageFeedAsync(cancellationToken);
-        return ToActionResult(result);
-    }
-
     [HttpGet("internal-feed")]
     [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager},{AuthConstants.Roles.Staff}")]
     public async Task<IActionResult> GetInternalFeed(CancellationToken cancellationToken)
