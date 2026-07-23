@@ -546,4 +546,44 @@ public sealed class VoucherServiceTests
         Assert.Contains("Voucher Đền Bù", notification.Title);
         Assert.Contains("COMP50K", notification.Message);
     }
+
+    [Fact]
+    public async Task CreateVoucherAsync_EventVoucher_NotifiesAllCustomers()
+    {
+        var db = CreateDbContext();
+        var clock = new FakeClock(DateTime.UtcNow);
+        var service = new VoucherService(db, clock);
+
+        var user1 = new User { UserId = "USR_20", Email = "cus1@example.com", FullName = "Customer 1", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = DomainConstants.EntityStatus.Active };
+        var user2 = new User { UserId = "USR_21", Email = "cus2@example.com", FullName = "Customer 2", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = DomainConstants.EntityStatus.Active };
+        db.Users.AddRange(user1, user2);
+        await db.SaveChangesAsync();
+
+        var request = new CreateVoucherRequest
+        {
+            VoucherCode = "SUMMER2026",
+            Title = "Siêu Ưu Đãi Mùa Hè",
+            Description = "Giảm 20% toàn bộ đơn hàng",
+            DiscountType = DomainConstants.DiscountType.Percent,
+            DiscountValue = 20m,
+            UsageLimit = 500,
+            Category = "EVENT",
+            TargetType = "ALL_CUSTOMERS",
+            StartDate = DateTime.UtcNow.AddDays(-1),
+            EndDate = DateTime.UtcNow.AddDays(15)
+        };
+
+        var result = await service.CreateVoucherAsync(request, CancellationToken.None);
+
+        Assert.True(result.Success);
+
+        var notif1 = await db.Notifications.FirstOrDefaultAsync(n => n.UserId == "USR_20");
+        var notif2 = await db.Notifications.FirstOrDefaultAsync(n => n.UserId == "USR_21");
+
+        Assert.NotNull(notif1);
+        Assert.NotNull(notif2);
+        Assert.Contains("Sự Kiện Hot", notif1.Title);
+        Assert.Contains("SUMMER2026", notif1.Message);
+        Assert.Contains("20%", notif1.Message);
+    }
 }

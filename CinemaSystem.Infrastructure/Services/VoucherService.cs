@@ -76,6 +76,10 @@ public sealed class VoucherService : IVoucherService
         {
             await AssignAndNotifyTargetCustomersAsync(voucher, voucher.TargetCustomerIds, cancellationToken);
         }
+        else
+        {
+            await NotifyAllCustomersAboutEventVoucherAsync(voucher, cancellationToken);
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -715,6 +719,61 @@ public sealed class VoucherService : IVoucherService
                 }
             }
         }
+    }
+
+    private async Task NotifyAllCustomersAboutEventVoucherAsync(
+        Voucher voucher,
+        CancellationToken cancellationToken)
+    {
+        var now = _clock.UtcNow;
+
+        var customerUserIds = await _dbContext.Users
+            .AsNoTracking()
+            .Where(u => u.RoleId == AuthConstants.RoleIds.Customer
+                && u.Status == DomainConstants.EntityStatus.Active)
+            .Select(u => u.UserId)
+            .ToListAsync(cancellationToken);
+
+        if (customerUserIds.Count == 0)
+        {
+            return;
+        }
+
+        string discountText;
+        if (string.Equals(voucher.DiscountType, DomainConstants.DiscountType.Percent, StringComparison.OrdinalIgnoreCase))
+        {
+            discountText = $"Giảm {voucher.DiscountValue}%";
+            if (voucher.MaxDiscountAmount.HasValue && voucher.MaxDiscountAmount.Value > 0)
+            {
+                discountText += $" (tối đa {voucher.MaxDiscountAmount.Value:#,##0} VNĐ)";
+            }
+        }
+        else
+        {
+            discountText = $"Giảm {voucher.DiscountValue:#,##0} VNĐ";
+        }
+
+        if (voucher.MinOrderAmount.HasValue && voucher.MinOrderAmount.Value > 0)
+        {
+            discountText += $" cho đơn từ {voucher.MinOrderAmount.Value:#,##0} VNĐ";
+        }
+
+        var dateRangeText = $"từ {voucher.StartDate:dd/MM/yyyy} đến {voucher.EndDate:dd/MM/yyyy}";
+        var voucherTitle = !string.IsNullOrWhiteSpace(voucher.Title) ? voucher.Title : voucher.VoucherCode;
+        var notifTitle = "🎉 [Sự Kiện Hot] Voucher Ưu Đãi Mới!";
+        var notifMessage = $"G2Cinema vừa phát hành voucher sự kiện '{voucherTitle}': Nhập mã [{voucher.VoucherCode}] - {discountText}. Áp dụng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
+
+        var notifications = customerUserIds.Select(userId => new Notification
+        {
+            NotificationId = CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification),
+            UserId = userId,
+            Title = notifTitle,
+            Message = notifMessage,
+            IsRead = false,
+            CreatedAt = now
+        }).ToList();
+
+        _dbContext.Notifications.AddRange(notifications);
     }
 
     private static VoucherResponse MapToResponse(Voucher voucher)
