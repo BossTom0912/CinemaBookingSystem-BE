@@ -35,5 +35,19 @@ public partial class Voucher
 
     public int UsedCount { get; set; }
 
+    public string? Category { get; set; }
+
+    public string? ApplicableScope { get; set; }
+
+    public string? TargetType { get; set; }
+
+    public string? TargetCustomerIds { get; set; }
+
+    public string? SpecificFbItemIds { get; set; }
+
+    public bool IsPrivate { get; set; } = false;
+
+    public int? RequiredTicketCount { get; set; }
+
     public virtual ICollection<VoucherUsage> VoucherUsages { get; set; } = new List<VoucherUsage>();
 }

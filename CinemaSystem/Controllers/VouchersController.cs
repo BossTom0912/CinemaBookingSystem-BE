@@ -30,6 +30,14 @@ public sealed class VouchersController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet("public")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetPublicVouchers(CancellationToken cancellationToken)
+    {
+        var result = await _voucherService.GetActiveVouchersForCustomerAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
     [HttpGet("validate")]
     public async Task<IActionResult> ValidateVoucher(
         [FromQuery] string code,

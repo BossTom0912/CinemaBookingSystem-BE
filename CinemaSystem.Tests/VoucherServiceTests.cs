@@ -323,7 +323,110 @@ public sealed class VoucherServiceTests
         Assert.True(result.Success);
         
         var saved = await db.Vouchers.FindAsync("VOU_1");
-        Assert.NotNull(saved);
-        Assert.Equal("INACTIVE", saved.VoucherStatus); // soft-deleted/deactivated
+        Assert.Null(saved); // Hard deleted
+    }
+
+    [Fact]
+    public async Task GetActiveVouchersForCustomerAsync_ExcludesPrivateVouchers()
+    {
+        var db = CreateDbContext();
+        var clock = new FakeClock(DateTime.UtcNow);
+        var service = new VoucherService(db, clock);
+
+        var now = DateTime.UtcNow;
+        db.Vouchers.AddRange(
+            new Voucher
+            {
+                VoucherId = "VOU_PUBLIC",
+                VoucherCode = "PUBLIC50",
+                DiscountType = DomainConstants.DiscountType.Amount,
+                DiscountValue = 50000m,
+                UsageLimit = 10,
+                UsedCount = 0,
+                StartDate = now.AddDays(-1),
+                EndDate = now.AddDays(2),
+                VoucherStatus = DomainConstants.VoucherStatus.Active,
+                IsPrivate = false
+            },
+            new Voucher
+            {
+                VoucherId = "VOU_PRIVATE",
+                VoucherCode = "PRIVATE50",
+                DiscountType = DomainConstants.DiscountType.Amount,
+                DiscountValue = 50000m,
+                UsageLimit = 10,
+                UsedCount = 0,
+                StartDate = now.AddDays(-1),
+                EndDate = now.AddDays(2),
+                VoucherStatus = DomainConstants.VoucherStatus.Active,
+                IsPrivate = true
+            }
+        );
+        await db.SaveChangesAsync();
+
+        var result = await service.GetActiveVouchersForCustomerAsync(CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Single(result.Data);
+        Assert.Equal("PUBLIC50", result.Data[0].VoucherCode);
+    }
+
+    [Fact]
+    public async Task CheckAndAwardTicketMilestoneVouchersAsync_AwardsVoucherAndNotificationWhenConditionMet()
+    {
+        var db = CreateDbContext();
+        var clock = new FakeClock(DateTime.UtcNow);
+        var service = new VoucherService(db, clock);
+
+        var user = new User { UserId = "USR_1", Email = "test@example.com", FullName = "Test User", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = DomainConstants.EntityStatus.Active };
+        var customer = new CustomerProfile { CustomerProfileId = "CUS_1", UserId = "USR_1", User = user, MemberLevel = "Standard" };
+        db.Users.Add(user);
+        db.CustomerProfiles.Add(customer);
+
+        var booking = new Booking { BookingId = "BOK_1", CustomerProfileId = "CUS_1", BookingStatus = DomainConstants.EntityStatus.Paid, BookingChannel = "ONLINE" };
+        db.Bookings.Add(booking);
+
+        var seat = new BookingSeat { BookingSeatId = "BS_1", BookingId = "BOK_1", ShowtimeSeatId = "STS_1" };
+        db.BookingSeats.Add(seat);
+
+        db.Tickets.Add(new Ticket
+        {
+            TicketId = "TCK_1",
+            BookingSeatId = "BS_1",
+            BookingSeat = seat,
+            QrCode = "QR_1",
+            TicketStatus = DomainConstants.TicketStatus.Unused
+        });
+
+        var now = DateTime.UtcNow;
+        var milestoneVoucher = new Voucher
+        {
+            VoucherId = "VOU_MILESTONE",
+            VoucherCode = "TICKET1",
+            Title = "Thưởng 1 Vé",
+            DiscountType = DomainConstants.DiscountType.Amount,
+            DiscountValue = 30000m,
+            UsageLimit = 100,
+            UsedCount = 0,
+            StartDate = now.AddDays(-1),
+            EndDate = now.AddDays(2),
+            VoucherStatus = DomainConstants.VoucherStatus.Active,
+            IsPrivate = true,
+            RequiredTicketCount = 1
+        };
+        db.Vouchers.Add(milestoneVoucher);
+        await db.SaveChangesAsync();
+
+        var result = await service.CheckAndAwardTicketMilestoneVouchersAsync("CUS_1", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.Data);
+
+        var claimed = await db.CustomerVouchers.FirstOrDefaultAsync(cv => cv.CustomerProfileId == "CUS_1" && cv.VoucherId == "VOU_MILESTONE");
+        Assert.NotNull(claimed);
+
+        var notif = await db.Notifications.FirstOrDefaultAsync(n => n.UserId == "USR_1");
+        Assert.NotNull(notif);
+        Assert.Contains("Tặng Voucher", notif.Title);
     }
 }

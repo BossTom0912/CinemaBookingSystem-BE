@@ -33,4 +33,18 @@ public sealed class VoucherResponse
     public DateTime EndDate { get; init; }
 
     public string VoucherStatus { get; init; } = string.Empty;
+
+    public string Category { get; init; } = "EVENT";
+
+    public string ApplicableScope { get; init; } = "TOTAL_ORDER";
+
+    public string TargetType { get; init; } = "ALL_CUSTOMERS";
+
+    public string? TargetCustomerIds { get; init; }
+
+    public string? SpecificFbItemIds { get; init; }
+
+    public bool IsPrivate { get; init; }
+
+    public int? RequiredTicketCount { get; init; }
 }

@@ -43,4 +43,19 @@ public sealed class CreateVoucherRequest
 
     [Required]
     public DateTime EndDate { get; init; }
+
+    public string Category { get; init; } = "EVENT"; // EVENT, FOOD_BEVERAGE, COMPENSATION
+
+    public string ApplicableScope { get; init; } = "TOTAL_ORDER"; // TOTAL_ORDER, TICKET_ONLY, FOOD_BEVERAGE_ONLY
+
+    public string TargetType { get; init; } = "ALL_CUSTOMERS"; // ALL_CUSTOMERS, SPECIFIC_CUSTOMERS
+
+    public string? TargetCustomerIds { get; init; }
+
+    public string? SpecificFbItemIds { get; init; }
+
+    public bool IsPrivate { get; init; } = false;
+
+    [Range(1, int.MaxValue, ErrorMessage = "RequiredTicketCount must be greater than zero.")]
+    public int? RequiredTicketCount { get; init; }
 }

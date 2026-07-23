@@ -69,6 +69,15 @@ public sealed class AdminVouchersController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpPost("issue-compensation")]
+    public async Task<IActionResult> IssueCompensation(
+        IssueCompensationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _voucherService.IssueCompensationVoucherAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success

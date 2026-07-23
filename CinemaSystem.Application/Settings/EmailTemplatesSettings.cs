@@ -13,43 +13,70 @@ public sealed class EmailTemplatesSettings
             <meta name='viewport' content='width=device-width, initial-scale=1.0'>
         </head>
         <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
-            <div style='max-width: 550px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+            <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                
                 <!-- HEADER -->
-                <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 20px 25px; text-align: center; border-bottom: 3px solid #3b82f6;'>
-                    <h1 style='color: #ffffff; margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
-                    <p style='color: #94a3b8; margin: 3px 0 0 0; font-size: 12px;'>Mã xác thực tài khoản (OTP)</p>
+                <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
+                    <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                    <p style='color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;'>Mã xác thực tài khoản</p>
+                    <p style='color: #64748b; margin: 2px 0 0 0; font-size: 11px; text-transform: uppercase;'>Account Verification Code</p>
                 </div>
 
-                <!-- BODY CONTENT -->
-                <div style='padding: 25px; text-align: center;'>
-                    <p style='font-size: 14px; color: #334155; margin-top: 0; text-align: left;'>Kính gửi Quý khách hàng,</p>
-                    <p style='font-size: 14px; color: #334155; text-align: left;'>
-                        <strong>CinemaSystem</strong> đã nhận được yêu cầu xác thực tài khoản liên kết với địa chỉ email này. Vui lòng sử dụng mã xác thực (OTP) dưới đây để hoàn tất giao dịch:
-                    </p>
+                <!-- CONTENT -->
+                <div style='padding: 30px;'>
+                    
+                    <!-- TIẾNG VIỆT -->
+                    <div style='margin-bottom: 25px;'>
+                        <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                            Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi. Vui lòng sử dụng mã xác thực (OTP) bên dưới để hoàn tất đăng ký tài khoản:
+                        </p>
 
-                    <!-- OTP CODE BOX -->
-                    <div style='background-color: #f1f5f9; border: 2px dashed #cbd5e1; padding: 18px; border-radius: 10px; margin: 20px 0;'>
-                        <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #0f172a;'>{0}</span>
-                    </div>
+                        <div style='background-color: #f1f5f9; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #0f172a;'>{0}</span>
+                        </div>
 
-                    <p style='font-size: 13px; color: #64748b; margin-bottom: 20px;'>
-                        Mã xác thực có hiệu lực đến <strong>{1:HH:mm - dd/MM/yyyy}</strong> (không chia sẻ mã này cho bất kỳ ai).
-                    </p>
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            Mã xác thực có hiệu lực đến <strong>{1:HH:mm - dd/MM/yyyy}</strong>. Vì lý do an toàn, vui lòng không chia sẻ mã này cho bất kỳ ai.
+                        </p>
 
-                    <!-- SAFETY WARNING -->
-                    <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 12px 15px; border-radius: 8px; text-align: left; margin-bottom: 20px;'>
-                        <p style='margin: 0; font-size: 12px; color: #856404;'>
-                            <strong>Lưu ý an toàn:</strong> Nhân viên của CinemaSystem sẽ không bao giờ yêu cầu Quý khách cung cấp mã OTP này qua điện thoại, email hay tin nhắn. Nếu Quý khách không thực hiện yêu cầu này, vui lòng bỏ qua email hoặc đổi mật khẩu tài khoản ngay lập tức.
+                        <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                            Trân trọng,<br>
+                            <strong>Ban Quản trị CinemaSystem</strong>
                         </p>
                     </div>
 
-                    <p style='font-size: 13px; color: #475569; text-align: left;'>Nếu cần hỗ trợ thêm, Quý khách vui lòng liên hệ bộ phận CSKH qua Email <strong>cskh@cinemasystem.vn</strong> hoặc Hotline <strong>1900 6868</strong>.</p>
+                    <!-- DIVIDER -->
+                    <hr style='border: none; border-top: 1px dashed #cbd5e1; margin: 25px 0;' />
+
+                    <!-- TIẾNG ANH -->
+                    <div>
+                        <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            Thank you for choosing CinemaSystem. Please use the verification code (OTP) below to complete your account registration:
+                        </p>
+
+                        <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 26px; font-weight: bold; letter-spacing: 6px; color: #334155;'>{0}</span>
+                        </div>
+
+                        <p style='font-size: 12px; color: #64748b; margin-bottom: 15px;'>
+                            This code is valid until <strong>{1:HH:mm - dd/MM/yyyy}</strong>. For security reasons, please do not share this code with anyone.
+                        </p>
+
+                        <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                            Sincerely,<br>
+                            <strong>CinemaSystem Management Team</strong>
+                        </p>
+                    </div>
+
                 </div>
 
                 <!-- FOOTER -->
-                <div style='background-color: #f1f5f9; padding: 15px 25px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
-                    <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Đội ngũ Vận hành CinemaSystem</p>
-                    <p style='margin: 0;'>Hotline: 1900 6868 | Email: cskh@cinemasystem.vn | Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                    <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
+                    <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
+                    <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
                 </div>
             </div>
         </body>
@@ -65,56 +92,237 @@ public sealed class EmailTemplatesSettings
             <meta name='viewport' content='width=device-width, initial-scale=1.0'>
         </head>
         <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
-            <div style='max-width: 550px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+            <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                
                 <!-- HEADER -->
-                <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 20px 25px; text-align: center; border-bottom: 3px solid #ef4444;'>
-                    <h1 style='color: #ffffff; margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
-                    <p style='color: #94a3b8; margin: 3px 0 0 0; font-size: 12px;'>Mã khôi phục mật khẩu (OTP)</p>
+                <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #ef4444;'>
+                    <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                    <p style='color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;'>Mã khôi phục mật khẩu</p>
+                    <p style='color: #64748b; margin: 2px 0 0 0; font-size: 11px; text-transform: uppercase;'>Password Reset Code</p>
                 </div>
 
-                <!-- BODY CONTENT -->
-                <div style='padding: 25px; text-align: center;'>
-                    <p style='font-size: 14px; color: #334155; margin-top: 0; text-align: left;'>Kính gửi Quý khách hàng,</p>
-                    <p style='font-size: 14px; color: #334155; text-align: left;'>
-                        <strong>CinemaSystem</strong> đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản liên kết với địa chỉ email này. Vui lòng sử dụng mã xác thực (OTP) dưới đây để tiến hành đặt lại mật khẩu:
-                    </p>
+                <!-- CONTENT -->
+                <div style='padding: 30px;'>
+                    
+                    <!-- TIẾNG VIỆT -->
+                    <div style='margin-bottom: 25px;'>
+                        <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                            CinemaSystem đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng sử dụng mã xác thực (OTP) dưới đây để tiến hành thiết lập lại mật khẩu:
+                        </p>
 
-                    <!-- OTP CODE BOX -->
-                    <div style='background-color: #f1f5f9; border: 2px dashed #cbd5e1; padding: 18px; border-radius: 10px; margin: 20px 0;'>
-                        <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #dc2626;'>{0}</span>
-                    </div>
+                        <div style='background-color: #f1f5f9; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #dc2626;'>{0}</span>
+                        </div>
 
-                    <p style='font-size: 13px; color: #64748b; margin-bottom: 20px;'>
-                        Mã xác thực có hiệu lực đến <strong>{1:HH:mm - dd/MM/yyyy}</strong> (không chia sẻ mã này cho bất kỳ ai).
-                    </p>
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            Mã xác thực có hiệu lực đến <strong>{1:HH:mm - dd/MM/yyyy}</strong>. Tuyệt đối không chia sẻ mã này cho bất kỳ ai.
+                        </p>
 
-                    <!-- SAFETY WARNING -->
-                    <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 12px 15px; border-radius: 8px; text-align: left; margin-bottom: 20px;'>
-                        <p style='margin: 0; font-size: 12px; color: #856404;'>
-                            <strong>Lưu ý an toàn:</strong> Nhân viên của CinemaSystem sẽ không bao giờ yêu cầu Quý khách cung cấp mã OTP này. Nếu Quý khách không thực hiện yêu cầu đặt lại mật khẩu, vui lòng liên hệ CSKH ngay lập tức.
+                        <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 14px 16px; border-radius: 8px; margin-bottom: 20px;'>
+                            <p style='margin: 0; font-size: 12px; color: #856404;'>
+                                <strong>Cảnh báo an toàn:</strong> Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng liên hệ bộ phận Chăm sóc Khách hàng ngay lập tức để bảo vệ tài khoản.
+                            </p>
+                        </div>
+
+                        <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                            Trân trọng,<br>
+                            <strong>Ban Quản trị CinemaSystem</strong>
                         </p>
                     </div>
 
-                    <p style='font-size: 13px; color: #475569; text-align: left;'>Nếu cần hỗ trợ thêm, Quý khách vui lòng liên hệ CSKH qua Email <strong>cskh@cinemasystem.vn</strong> hoặc Hotline <strong>1900 6868</strong>.</p>
+                    <!-- DIVIDER -->
+                    <hr style='border: none; border-top: 1px dashed #cbd5e1; margin: 25px 0;' />
+
+                    <!-- TIẾNG ANH -->
+                    <div>
+                        <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            CinemaSystem received a request to reset your account password. Please use the verification code (OTP) below to proceed:
+                        </p>
+
+                        <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 26px; font-weight: bold; letter-spacing: 6px; color: #dc2626;'>{0}</span>
+                        </div>
+
+                        <p style='font-size: 12px; color: #64748b; margin-bottom: 15px;'>
+                            This code is valid until <strong>{1:HH:mm - dd/MM/yyyy}</strong>. Do not share this code.
+                        </p>
+
+                        <div style='background-color: #fef2f2; border: 1px solid #fca5a5; padding: 12px 14px; border-radius: 8px; margin-bottom: 15px;'>
+                            <p style='margin: 0; font-size: 11px; color: #991b1b;'>
+                                <strong>Security Notice:</strong> If you did not request a password reset, please contact Customer Support immediately to secure your account.
+                            </p>
+                        </div>
+
+                        <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                            Sincerely,<br>
+                            <strong>CinemaSystem Management Team</strong>
+                        </p>
+                    </div>
+
                 </div>
 
                 <!-- FOOTER -->
-                <div style='background-color: #f1f5f9; padding: 15px 25px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
-                    <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Đội ngũ Vận hành CinemaSystem</p>
-                    <p style='margin: 0;'>Hotline: 1900 6868 | Email: cskh@cinemasystem.vn | Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                    <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
+                    <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
+                    <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
                 </div>
             </div>
         </body>
         </html>
         """;
 
-    public string EmailUpdateSubject { get; set; } = "Cinema Booking - Email Update Verification";
-    public string EmailUpdateBody { get; set; } =
-        "Your email-update OTP is {0}. It expires in {1} minutes.";
+    public string EmailUpdateSubject { get; set; } = "[CinemaSystem] Xác thực thay đổi địa chỉ Email";
+    public string EmailUpdateBody { get; set; } = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='utf-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+        </head>
+        <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
+            <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                
+                <!-- HEADER -->
+                <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
+                    <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                    <p style='color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;'>Mã xác thực thay đổi Email</p>
+                    <p style='color: #64748b; margin: 2px 0 0 0; font-size: 11px; text-transform: uppercase;'>Email Update Verification Code</p>
+                </div>
 
-    public string AccountInvitationSubject { get; set; } = "Cinema Booking - Account Invitation";
-    public string AccountInvitationBody { get; set; } =
-        "You have been invited to Cinema Booking. Use invitation code {0} to set your password.";
+                <!-- CONTENT -->
+                <div style='padding: 30px;'>
+                    
+                    <!-- TIẾNG VIỆT -->
+                    <div style='margin-bottom: 25px;'>
+                        <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                            Bạn đã yêu cầu cập nhật địa chỉ email cho tài khoản CinemaSystem. Vui lòng sử dụng mã xác thực (OTP) dưới đây để hoàn tất:
+                        </p>
+
+                        <div style='background-color: #f1f5f9; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #0f172a;'>{0}</span>
+                        </div>
+
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            Mã này có hiệu lực trong vòng <strong>{1} phút</strong>.
+                        </p>
+
+                        <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                            Trân trọng,<br>
+                            <strong>Ban Quản trị CinemaSystem</strong>
+                        </p>
+                    </div>
+
+                    <!-- DIVIDER -->
+                    <hr style='border: none; border-top: 1px dashed #cbd5e1; margin: 25px 0;' />
+
+                    <!-- TIẾNG ANH -->
+                    <div>
+                        <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            You have requested to update your email address. Please use the verification code (OTP) below to proceed:
+                        </p>
+
+                        <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 26px; font-weight: bold; letter-spacing: 6px; color: #334155;'>{0}</span>
+                        </div>
+
+                        <p style='font-size: 12px; color: #64748b; margin-bottom: 15px;'>
+                            This code expires in <strong>{1} minutes</strong>.
+                        </p>
+
+                        <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                            Sincerely,<br>
+                            <strong>CinemaSystem Management Team</strong>
+                        </p>
+                    </div>
+
+                </div>
+
+                <!-- FOOTER -->
+                <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                    <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
+                    <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
+                    <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """;
+
+    public string AccountInvitationSubject { get; set; } = "[CinemaSystem] Thư mời khởi tạo tài khoản hệ thống";
+    public string AccountInvitationBody { get; set; } = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='utf-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+        </head>
+        <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
+            <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                
+                <!-- HEADER -->
+                <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #10b981;'>
+                    <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                    <p style='color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;'>Thư mời khởi tạo tài khoản</p>
+                    <p style='color: #64748b; margin: 2px 0 0 0; font-size: 11px; text-transform: uppercase;'>System Account Invitation</p>
+                </div>
+
+                <!-- CONTENT -->
+                <div style='padding: 30px;'>
+                    
+                    <!-- TIẾNG VIỆT -->
+                    <div style='margin-bottom: 25px;'>
+                        <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý nhân viên / Đối tác,</p>
+                        <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                            Bạn đã nhận được thư mời khởi tạo tài khoản làm việc tại hệ thống <strong>CinemaSystem</strong>. Vui lòng sử dụng mã xác nhận bên dưới để thiết lập mật khẩu cá nhân:
+                        </p>
+
+                        <div style='background-color: #f1f5f9; border: 2px dashed #cbd5e1; padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; color: #059669;'>{0}</span>
+                        </div>
+
+                        <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                            Trân trọng,<br>
+                            <strong>Ban Quản trị CinemaSystem</strong>
+                        </p>
+                    </div>
+
+                    <!-- DIVIDER -->
+                    <hr style='border: none; border-top: 1px dashed #cbd5e1; margin: 25px 0;' />
+
+                    <!-- TIẾNG ANH -->
+                    <div>
+                        <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Team Member / Partner,</p>
+                        <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                            You have been invited to join the CinemaSystem management platform. Use your invitation code below to complete account activation:
+                        </p>
+
+                        <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center;'>
+                            <span style='font-family: Consolas, Monaco, "Courier New", monospace; font-size: 24px; font-weight: bold; letter-spacing: 4px; color: #059669;'>{0}</span>
+                        </div>
+
+                        <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                            Sincerely,<br>
+                            <strong>CinemaSystem Management Team</strong>
+                        </p>
+                    </div>
+
+                </div>
+
+                <!-- FOOTER -->
+                <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                    <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
+                    <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
+                    <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """;
 
     public string SeatMaintenanceSubject { get; set; } = "Cinema Booking - Seat Maintenance";
     public string SeatMaintenanceBody { get; set; } =
@@ -169,7 +377,7 @@ public sealed class EmailTemplatesSettings
     public string ManualRefundCompletedSubject { get; set; } =
         "Cinema Booking - Refund Transfer Completed";
     public string ManualRefundCompletedBody { get; set; } =
-        "Your refund of {0:N0} for {1} has been transferred successfully. Bank transaction code: {2}.";
+        "Your refund of {0:N0} for {1} has been transferred successfully.";
 
     public string RefundCustomerConfirmationSubject { get; set; } =
         "Cinema Booking - Confirm Manual Refund Details";

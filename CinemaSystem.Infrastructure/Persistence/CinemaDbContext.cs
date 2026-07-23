@@ -1721,6 +1721,30 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(30)
                 .HasDefaultValue("ACTIVE")
                 .HasColumnName("voucherStatus");
+            entity.Property(e => e.Category)
+                .HasMaxLength(50)
+                .IsRequired(false)
+                .HasDefaultValue("EVENT")
+                .HasColumnName("category");
+            entity.Property(e => e.ApplicableScope)
+                .HasMaxLength(50)
+                .IsRequired(false)
+                .HasDefaultValue("TOTAL_ORDER")
+                .HasColumnName("applicableScope");
+            entity.Property(e => e.TargetType)
+                .HasMaxLength(50)
+                .IsRequired(false)
+                .HasDefaultValue("ALL_CUSTOMERS")
+                .HasColumnName("targetType");
+            entity.Property(e => e.TargetCustomerIds)
+                .HasColumnName("targetCustomerIds");
+            entity.Property(e => e.SpecificFbItemIds)
+                .HasColumnName("specificFbItemIds");
+            entity.Property(e => e.IsPrivate)
+                .HasDefaultValue(false)
+                .HasColumnName("isPrivate");
+            entity.Property(e => e.RequiredTicketCount)
+                .HasColumnName("requiredTicketCount");
         });
 
         modelBuilder.Entity<VoucherUsage>(entity =>

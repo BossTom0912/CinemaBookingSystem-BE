@@ -35,4 +35,19 @@ public sealed class UpdateVoucherRequest
 
     [Required]
     public DateTime EndDate { get; init; }
+
+    public string? Category { get; init; }
+
+    public string? ApplicableScope { get; init; }
+
+    public string? TargetType { get; init; }
+
+    public string? TargetCustomerIds { get; init; }
+
+    public string? SpecificFbItemIds { get; init; }
+
+    public bool IsPrivate { get; init; } = false;
+
+    [Range(1, int.MaxValue, ErrorMessage = "RequiredTicketCount must be greater than zero.")]
+    public int? RequiredTicketCount { get; init; }
 }
