@@ -43,8 +43,8 @@ public sealed class NotificationService : INotificationService
         int pageSize,
         CancellationToken cancellationToken)
     {
-        var userExists = await _dbContext.Users.AnyAsync(u => u.UserId == userId, cancellationToken);
-        if (!userExists)
+        var user = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId, cancellationToken);
+        if (user == null)
         {
             return ServiceResult<PagedList<NotificationResponse>>.Fail(
                 404,
@@ -52,9 +52,14 @@ public sealed class NotificationService : INotificationService
                 "USER_NOT_FOUND");
         }
 
-        var query = _dbContext.Notifications
-            .AsNoTracking()
-            .Where(n => n.UserId == userId);
+        var query = _dbContext.Notifications.AsNoTracking();
+
+        // For normal Customers, filter by their own UserId.
+        // For Staff, Managers, Admins in the Management Dashboard, return all system notifications.
+        if (user.RoleId == AuthConstants.RoleIds.Customer)
+        {
+            query = query.Where(n => n.UserId == userId);
+        }
 
         if (isRead.HasValue)
         {
@@ -436,17 +441,29 @@ public sealed class NotificationService : INotificationService
 
     public async Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(CancellationToken cancellationToken)
     {
-        // Internal app feed displays general operations notifications in the last 24 hours
-        var cutoff = _clock.UtcNow.AddHours(-24);
         var notifications = await _dbContext.Notifications
             .AsNoTracking()
-            .Where(n => n.CreatedAt >= cutoff && (n.Title.Contains("Lệnh") || n.Title.Contains("sự cố") || n.Title.Contains("Cảnh báo") || n.Title.Contains("khẩn cấp") || n.Title.Contains("Emergency")))
             .OrderByDescending(n => n.CreatedAt)
-            .Take(50)
+            .Take(100)
             .ToListAsync(cancellationToken);
 
-        // Group/Distinct by title and message to keep clean feed (don't duplicate broadcasts)
-        var distinctList = notifications
+        var filtered = notifications
+            .Where(n => n.Title.Contains("Lệnh") ||
+                        n.Title.Contains("chuẩn bị") ||
+                        n.Title.Contains("bảo trì") ||
+                        n.Title.Contains("Cảnh báo") ||
+                        n.Title.Contains("vận hành") ||
+                        n.Title.Contains("khẩn cấp") ||
+                        n.Title.Contains("Emergency") ||
+                        n.Title.Contains("Internal") ||
+                        n.Message.Contains("nội bộ") ||
+                        n.Message.Contains("Nhân viên") ||
+                        n.Message.Contains("Quản lý"))
+            .ToList();
+
+        var listToReturn = filtered.Count > 0 ? filtered : notifications.Take(20).ToList();
+
+        var distinctList = listToReturn
             .GroupBy(n => new { n.Title, n.Message })
             .Select(g => g.First())
             .Select(MapToResponse)
