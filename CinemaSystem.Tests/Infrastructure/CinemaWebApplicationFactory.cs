@@ -433,10 +433,9 @@ public sealed class FakeAiEmailService : IAiEmailService
         string token,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null,
-        string? targetSeatType = null)
+        string? compensationNote = null)
     {
-        var body = $"Movie {movieTitle}. Old time: {oldTime}, New time: {newTime}. Cutoff: {cutoffTime}. Booking {bookingId}. Token {token}. Voucher {compensationVoucherCode}. Seat {targetSeatType}. Note {compensationNote}.";
+        var body = $"Movie {movieTitle}. Old time: {oldTime}, New time: {newTime}. Cutoff: {cutoffTime}. Booking {bookingId}. Token {token}. Voucher {compensationVoucherCode}. Note {compensationNote}.";
         return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 
@@ -450,10 +449,9 @@ public sealed class FakeAiEmailService : IAiEmailService
         string bookingId,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null,
-        string? targetSeatType = null)
+        string? compensationNote = null)
     {
-        var body = $"Movie {movieTitle}. Time: {timeStr}, Old Room: {oldRoomName}, New Room: {newRoomName}. Booking {bookingId}. Voucher {compensationVoucherCode}. Seat {targetSeatType}. Note {compensationNote}.";
+        var body = $"Movie {movieTitle}. Time: {timeStr}, Old Room: {oldRoomName}, New Room: {newRoomName}. Booking {bookingId}. Voucher {compensationVoucherCode}. Note {compensationNote}.";
         return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
 }
