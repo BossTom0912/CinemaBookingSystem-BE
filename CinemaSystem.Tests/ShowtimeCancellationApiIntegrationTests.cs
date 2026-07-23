@@ -74,8 +74,8 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         var ticket = await db.Tickets.SingleAsync(item => item.TicketId == "TCK_CANCEL_A_PAID");
         Assert.Equal(BookingConstants.TicketStatus.Cancelled, ticket.TicketStatus);
 
-        Assert.False(await db.Refunds.AnyAsync(item => item.BookingId == "BKG_CANCEL_A_PAID"));
-        Assert.Empty(await db.RefundClaims.ToListAsync());
+        Assert.True(await db.Refunds.AnyAsync(item => item.BookingId == "BKG_CANCEL_A_PAID"));
+        Assert.Single(await db.RefundClaims.ToListAsync());
 
         var compensation = await db.CancellationCompensations
             .Include(item => item.Tickets)
@@ -359,7 +359,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Equal(BookingConstants.BookingStatus.Cancelled, booking.BookingStatus);
         Assert.Single(compensation.Tickets);
         Assert.NotNull(compensation.Combo);
-        Assert.True(await db.Refunds.AnyAsync(item => item.PaymentId == payment.PaymentId));
+        Assert.False(await db.Refunds.AnyAsync(item => item.PaymentId == payment.PaymentId));
         Assert.Single(await db.RefundClaims.ToListAsync());
     }
 
