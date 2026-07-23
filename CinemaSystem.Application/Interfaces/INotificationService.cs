@@ -34,4 +34,13 @@ public interface INotificationService
         CancellationToken cancellationToken);
 
     Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(CancellationToken cancellationToken);
+
+    Task<ServiceResult<IReadOnlyList<UserFilterItemResponse>>> GetFilteredUsersAsync(
+        bool? isFlagged,
+        bool? hasBooked,
+        string? roomId,
+        string? showtimeId,
+        string? movieId,
+        string? targetGroup,
+        CancellationToken cancellationToken);
 }

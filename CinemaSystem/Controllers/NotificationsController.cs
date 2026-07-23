@@ -97,6 +97,22 @@ public sealed class NotificationsController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet("filter-users")]
+    [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager},{AuthConstants.Roles.Staff}")]
+    public async Task<IActionResult> GetFilteredUsers(
+        [FromQuery] bool? isFlagged,
+        [FromQuery] bool? hasBooked,
+        [FromQuery] string? roomId,
+        [FromQuery] string? showtimeId,
+        [FromQuery] string? movieId,
+        [FromQuery] string? targetGroup,
+        CancellationToken cancellationToken)
+    {
+        var result = await _notificationService.GetFilteredUsersAsync(
+            isFlagged, hasBooked, roomId, showtimeId, movieId, targetGroup, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private string? GetUserId()
     {
         return User.FindFirst(AuthConstants.Claims.UserId)?.Value

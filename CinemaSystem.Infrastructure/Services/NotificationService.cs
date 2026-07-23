@@ -455,6 +455,96 @@ public sealed class NotificationService : INotificationService
         return ServiceResult<IReadOnlyList<NotificationResponse>>.Ok(distinctList, "Internal operational feed retrieved successfully.");
     }
 
+    public async Task<ServiceResult<IReadOnlyList<UserFilterItemResponse>>> GetFilteredUsersAsync(
+        bool? isFlagged,
+        bool? hasBooked,
+        string? roomId,
+        string? showtimeId,
+        string? movieId,
+        string? targetGroup,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Users.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(targetGroup))
+        {
+            var group = targetGroup.Trim().ToUpperInvariant();
+            if (group == DomainConstants.NotificationTargetGroup.Customers)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Customer);
+            }
+            else if (group == DomainConstants.NotificationTargetGroup.Staff)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Staff);
+            }
+            else if (group == DomainConstants.NotificationTargetGroup.Managers)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Manager);
+            }
+            else if (group == DomainConstants.NotificationTargetGroup.Admins)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Admin);
+            }
+        }
+
+        if (isFlagged == true)
+        {
+            query = query.Where(u => u.IsBlocked || u.SpamViolationCount > 0);
+        }
+
+        if (hasBooked == true)
+        {
+            var bookedUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => bookedUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(roomId))
+        {
+            var rId = roomId.Trim();
+            var roomUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.RoomId == rId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => roomUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(showtimeId))
+        {
+            var stId = showtimeId.Trim();
+            var showtimeUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.ShowtimeId == stId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => showtimeUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(movieId))
+        {
+            var mId = movieId.Trim();
+            var movieUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.MovieId == mId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => movieUserIds.Contains(u.UserId));
+        }
+
+        var users = await query
+            .Take(100)
+            .Select(u => new UserFilterItemResponse
+            {
+                UserId = u.UserId,
+                FullName = u.FullName ?? string.Empty,
+                Email = u.Email ?? string.Empty,
+                Role = u.RoleId
+            })
+            .ToListAsync(cancellationToken);
+
+        return ServiceResult<IReadOnlyList<UserFilterItemResponse>>.Ok(users, $"Retrieved {users.Count} matching users.");
+    }
+
     private NotificationResponse MapToResponse(Notification n)
     {
         var (channel, type, status) = DetermineMetadata(n.Title, n.Message);
