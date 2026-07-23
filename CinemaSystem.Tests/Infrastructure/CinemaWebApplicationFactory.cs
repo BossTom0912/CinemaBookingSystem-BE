@@ -456,4 +456,20 @@ public sealed class FakeAiEmailService : IAiEmailService
         var body = $"Movie {movieTitle}. Time: {timeStr}, Old Room: {oldRoomName}, New Room: {newRoomName}. Booking {bookingId}. Voucher {compensationVoucherCode}. Seat {targetSeatType}. Note {compensationNote}.";
         return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
     }
+
+    public Task SendVoucherGiftEmailAsync(
+        string toEmail,
+        string customerName,
+        string voucherTitle,
+        string voucherCode,
+        string discountText,
+        string validityText,
+        string? description,
+        string? category,
+        CancellationToken cancellationToken)
+    {
+        var subject = $"[CinemaSystem] 🎁 Bạn vừa nhận được Voucher ưu đãi đặc biệt: [{voucherCode}]";
+        var body = $"Voucher {voucherTitle} ({voucherCode}). Discount: {discountText}. Validity: {validityText}. Description: {description}. Category: {category}.";
+        return _emailService.SendEmailAsync(toEmail, subject, body, cancellationToken);
+    }
 }
