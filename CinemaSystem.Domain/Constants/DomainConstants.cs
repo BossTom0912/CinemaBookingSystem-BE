@@ -160,6 +160,10 @@ public static class DomainConstants
         public const string Internal = "Internal";
         public const string Loyalty = "Loyalty";
         public const string Promotional = "Promotional";
+        public const string Maintenance = "Maintenance";
+        public const string Emergency = "Emergency";
+        public const string CustomerCare = "CustomerCare";
+        public const string SpecialEvent = "SpecialEvent";
     }
 
     public static class VoucherUsageStatus

@@ -201,6 +201,185 @@ public sealed class NotificationApiIntegrationTests
         Assert.Contains(notifs, n => n.UserId == staff2);
     }
 
+    [Fact]
+    public async Task GetNotifications_WithStaffToken_ReturnsOnlyStaffNotifications()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var staffId = "USR_STAFF_FILTER_TEST";
+        var custId = "USR_CUST_OTHER_TEST";
+
+        await SeedStaffUserAsync(factory, staffId, "staff_filter@test.com");
+        await SeedUserAsync(factory, custId, "cust_other@test.com");
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_STAFF_1",
+                UserId = staffId,
+                Title = "Lệnh chuẩn bị phòng chiếu",
+                Message = "Suất chiếu dọn dẹp phòng.",
+                CreatedAt = DateTime.UtcNow
+            });
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_CUST_1",
+                UserId = custId,
+                Title = "Xác nhận đặt vé",
+                Message = "Vé xem phim của bạn đã đặt thành công.",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Staff(staffId));
+
+        var response = await client.GetAsync("/api/notifications?pageIndex=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<PagedList<NotificationResponse>>>(JsonOptions);
+        Assert.True(body!.Success);
+        Assert.NotNull(body.Data);
+        Assert.Single(body.Data.Items);
+        Assert.Equal("Lệnh chuẩn bị phòng chiếu", body.Data.Items[0].Title);
+    }
+
+    [Fact]
+    public async Task GetInternalFeed_WithStaffToken_ExcludesManagerOnlyAlerts()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var staffId = "USR_STAFF_FEED_TEST";
+        var managerId = "USR_MGR_FEED_TEST";
+
+        await SeedStaffUserAsync(factory, staffId, "staff_feed@test.com");
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_STAFF_FEED_1",
+                UserId = staffId,
+                Title = "Lệnh chuẩn bị phòng chiếu",
+                Message = "Dọn phòng chiếu 1.",
+                CreatedAt = DateTime.UtcNow
+            });
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_MGR_FEED_1",
+                UserId = managerId,
+                Title = "Cảnh báo tồn kho thấp",
+                Message = "Nguyên liệu quầy bắp nước chạm ngưỡng.",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Staff(staffId));
+
+        var response = await client.GetAsync("/api/notifications/internal-feed");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<NotificationResponse>>>(JsonOptions);
+        Assert.True(body!.Success);
+        Assert.NotNull(body.Data);
+        Assert.DoesNotContain(body.Data, n => n.Title.Contains("tồn kho"));
+    }
+
+    [Fact]
+    public async Task Manager_SendNotification_ToStaff_Succeeds()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var managerId = "USR_MGR_SEND_TEST";
+        var staffId = "USR_STAFF_TARGET_TEST";
+        await SeedManagerUserAsync(factory, managerId, "mgr_send@test.com");
+        await SeedStaffUserAsync(factory, staffId, "staff_target@test.com");
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager(managerId));
+
+        var response = await client.PostAsJsonAsync("/api/notifications/send", new SendNotificationRequest
+        {
+            TargetGroup = "STAFF",
+            Title = "Nhắc ca trực",
+            Message = "Vui lòng có mặt đúng giờ ca làm chiều.",
+            Type = "Internal"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<NotificationResponse>>(JsonOptions);
+        Assert.True(body!.Success);
+    }
+
+    [Fact]
+    public async Task Manager_SendNotification_ToCustomer_FailsWithForbidden()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var managerId = "USR_MGR_SEND_FAIL";
+        await SeedManagerUserAsync(factory, managerId, "mgr_fail@test.com");
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager(managerId));
+
+        var response = await client.PostAsJsonAsync("/api/notifications/send", new SendNotificationRequest
+        {
+            TargetGroup = "CUSTOMERS",
+            Title = "Thông báo ưu đãi",
+            Message = "Không được phép gửi từ Manager."
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Staff_SendNotification_FailsWithForbidden()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var staffId = "USR_STAFF_SEND_FAIL";
+        await SeedStaffUserAsync(factory, staffId, "staff_send_fail@test.com");
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Staff(staffId));
+
+        var response = await client.PostAsJsonAsync("/api/notifications/send", new SendNotificationRequest
+        {
+            TargetGroup = "STAFF",
+            Title = "Thử gửi thông báo",
+            Message = "Staff không được phép gửi."
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    private static async Task SeedManagerUserAsync(CinemaWebApplicationFactory factory, string userId, string email)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+
+        var managerRole = await db.Roles.FirstOrDefaultAsync(r => r.RoleId == AuthConstants.RoleIds.Manager);
+        if (managerRole == null)
+        {
+            managerRole = new Role { RoleId = AuthConstants.RoleIds.Manager, RoleName = AuthConstants.Roles.Manager, Description = "Manager" };
+            db.Roles.Add(managerRole);
+        }
+
+        db.Users.Add(new User
+        {
+            UserId = userId,
+            RoleId = managerRole.RoleId,
+            Email = email,
+            PasswordHash = "hash",
+            FullName = "Test Manager",
+            Status = AuthConstants.UserStatus.Active,
+            EmailVerified = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+    }
+
     private static async Task SeedUserAsync(CinemaWebApplicationFactory factory, string userId, string email)
     {
         await using var scope = factory.Services.CreateAsyncScope();

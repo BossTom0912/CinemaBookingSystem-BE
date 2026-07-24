@@ -75,7 +75,13 @@ public sealed class NotificationsController : ControllerBase
         [FromBody] SendNotificationRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _notificationService.SendNotificationAsync(request, cancellationToken);
+        var senderUserId = GetUserId();
+        if (string.IsNullOrWhiteSpace(senderUserId))
+        {
+            return Unauthorized(ApiResponse<object>.Fail("User is not authenticated."));
+        }
+
+        var result = await _notificationService.SendNotificationAsync(senderUserId, request, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -93,7 +99,8 @@ public sealed class NotificationsController : ControllerBase
     [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager},{AuthConstants.Roles.Staff}")]
     public async Task<IActionResult> GetInternalFeed(CancellationToken cancellationToken)
     {
-        var result = await _notificationService.GetInternalFeedAsync(cancellationToken);
+        var userId = GetUserId();
+        var result = await _notificationService.GetInternalFeedAsync(userId, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -110,6 +117,27 @@ public sealed class NotificationsController : ControllerBase
     {
         var result = await _notificationService.GetFilteredUsersAsync(
             isFlagged, hasBooked, roomId, showtimeId, movieId, targetGroup, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("delete")]
+    [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager}")]
+    public async Task<IActionResult> DeleteNotifications(
+        [FromBody] DeleteNotificationsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _notificationService.DeleteNotificationsAsync(request.NotificationIds, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPut("{id}")]
+    [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager}")]
+    public async Task<IActionResult> UpdateNotification(
+        [FromRoute] string id,
+        [FromBody] UpdateNotificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _notificationService.UpdateNotificationAsync(id, request.Title, request.Message, cancellationToken);
         return ToActionResult(result);
     }
 

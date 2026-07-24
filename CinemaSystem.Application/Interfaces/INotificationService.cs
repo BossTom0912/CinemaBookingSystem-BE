@@ -29,11 +29,16 @@ public interface INotificationService
         SendNotificationRequest request,
         CancellationToken cancellationToken);
 
+    Task<ServiceResult<NotificationResponse>> SendNotificationAsync(
+        string? senderUserId,
+        SendNotificationRequest request,
+        CancellationToken cancellationToken);
+
     Task<ServiceResult<bool>> TriggerSystemNotificationAsync(
         TriggerSystemNotificationRequest request,
         CancellationToken cancellationToken);
 
-    Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(CancellationToken cancellationToken);
+    Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(string? userId = null, CancellationToken cancellationToken = default);
 
     Task<ServiceResult<IReadOnlyList<UserFilterItemResponse>>> GetFilteredUsersAsync(
         bool? isFlagged,
@@ -42,5 +47,15 @@ public interface INotificationService
         string? showtimeId,
         string? movieId,
         string? targetGroup,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> DeleteNotificationsAsync(
+        List<string> notificationIds,
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> UpdateNotificationAsync(
+        string notificationId,
+        string title,
+        string message,
         CancellationToken cancellationToken);
 }
