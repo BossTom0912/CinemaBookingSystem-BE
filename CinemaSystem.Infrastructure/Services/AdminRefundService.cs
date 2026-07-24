@@ -110,6 +110,7 @@ public class AdminRefundService : IAdminRefundService
                         booking.BookingStatus = DomainConstants.EntityStatus.ProcessingUnstable;
                         // Lấy email khách hàng (ưu tiên tài khoản đăng nhập, nếu không có thì lấy email khách vãng lai)
                         var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                        var customerName = booking.CustomerProfile?.User?.FullName ?? booking.GuestName;
                         // Nếu có email hợp lệ
                         if (!string.IsNullOrEmpty(customerEmail))
                         {
@@ -120,7 +121,8 @@ public class AdminRefundService : IAdminRefundService
                                     "Thông báo cập nhật suất chiếu đột xuất / Unexpected Showtime Update Notice", 
                                     "Thay đổi đột xuất thông tin suất chiếu", 
                                     $"Suất chiếu của phim {showtime.Movie.Title} đã bị thay đổi đột xuất ngoài ý muốn. Chi tiết lý do: {reason}. Xin vui lòng chờ rạp chiếu phim xử lý và phản hồi thêm.", 
-                                    CancellationToken.None));
+                                    CancellationToken.None,
+                                    customerName));
                         }
                     }
                     // Bỏ qua các bước hủy tiếp theo cho suất chiếu này
@@ -226,12 +228,13 @@ public class AdminRefundService : IAdminRefundService
 
                     // Send cancellation email using AI service
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+                    var customerName = booking.CustomerProfile?.User?.FullName ?? booking.GuestName;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
                         string subject = _emailTemplates.ShowtimeCancellationSubject;
                         string details = $"Suất chiếu phim {showtime.Movie?.Title ?? "bạn đã đặt"} vào lúc {showtime.StartTime:dd/MM/yyyy HH:mm} bị hủy bỏ do sự cố/lỗi kỹ thuật của rạp chiếu phim.";
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                            ai.SendAiApologyEmailAsync(customerEmail, subject, reason, details, CancellationToken.None));
+                            ai.SendAiApologyEmailAsync(customerEmail, subject, reason, details, CancellationToken.None, customerName));
                     }
                 }
             }

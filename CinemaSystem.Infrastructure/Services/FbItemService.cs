@@ -327,6 +327,9 @@ public sealed class FbItemService : IFbItemService
                     decimal? receivedAmount = request.ReceivedAmount;
                     decimal? changeAmount = request.ChangeAmount ?? (receivedAmount.HasValue ? Math.Max(0, receivedAmount.Value - totalAmount) : null);
 
+                    // Resolve valid StaffProfileId (converts UserId like U_STATIC_STAFF to StaffProfileId if needed)
+                    var validStaffProfileId = await ResolveStaffProfileIdAsync(staffProfileId, cancellationToken);
+
                     var now = DateTime.UtcNow;
                     string targetBookingId;
 
@@ -351,7 +354,7 @@ public sealed class FbItemService : IFbItemService
                         existingBooking.TotalAmount += totalAmount;
                         existingBooking.FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled;
                         existingBooking.FbFulfilledAt = now;
-                        existingBooking.FbFulfilledByStaffProfileId = staffProfileId;
+                        existingBooking.FbFulfilledByStaffProfileId = validStaffProfileId;
                     }
                     else
                     {
@@ -359,12 +362,30 @@ public sealed class FbItemService : IFbItemService
                             ? request.BookingId
                             : $"BKG_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
 
+                        var showtimeIdToUse = request.ShowtimeId;
+                        if (string.IsNullOrWhiteSpace(showtimeIdToUse))
+                        {
+                            showtimeIdToUse = await _dbContext.Showtimes
+                                .AsNoTracking()
+                                .Where(s => s.Room.CinemaId == cinemaId)
+                                .Select(s => s.ShowtimeId)
+                                .FirstOrDefaultAsync(cancellationToken);
+
+                            if (string.IsNullOrWhiteSpace(showtimeIdToUse))
+                            {
+                                showtimeIdToUse = await _dbContext.Showtimes
+                                    .AsNoTracking()
+                                    .Select(s => s.ShowtimeId)
+                                    .FirstOrDefaultAsync(cancellationToken) ?? "ST_DEFAULT";
+                            }
+                        }
+
                         var booking = new Booking
                         {
                             BookingId = targetBookingId,
-                            ShowtimeId = request.ShowtimeId,
+                            ShowtimeId = showtimeIdToUse,
                             CustomerProfileId = request.CustomerProfileId,
-                            CreatedByStaffProfileId = staffProfileId,
+                            CreatedByStaffProfileId = validStaffProfileId,
                             BookingChannel = FbConstants.Channel.Counter,
                             GuestName = request.GuestName,
                             GuestPhone = request.GuestPhone,
@@ -373,7 +394,7 @@ public sealed class FbItemService : IFbItemService
                             TotalAmount = totalAmount,
                             FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled,
                             FbFulfilledAt = now,
-                            FbFulfilledByStaffProfileId = staffProfileId,
+                            FbFulfilledByStaffProfileId = validStaffProfileId,
                             CreatedAt = now,
                             BookingFbItems = bookingFbItems
                         };
@@ -519,9 +540,11 @@ public sealed class FbItemService : IFbItemService
             return ServiceResult<FbFulfillmentResponse>.Fail(400, FbConstants.Messages.BookingCancelledError, FbConstants.ErrorCodes.BookingCancelled);
         }
 
+        var validStaffProfileId = await ResolveStaffProfileIdAsync(staffProfileId, cancellationToken);
+
         booking.FbFulfillmentStatus = FbConstants.FulfillmentStatus.Fulfilled;
         booking.FbFulfilledAt = DateTime.UtcNow;
-        booking.FbFulfilledByStaffProfileId = staffProfileId;
+        booking.FbFulfilledByStaffProfileId = validStaffProfileId;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -590,5 +613,39 @@ public sealed class FbItemService : IFbItemService
             Price = fbItem.Price,
             ItemStatus = fbItem.ItemStatus
         };
+    }
+
+    private async Task<string?> ResolveStaffProfileIdAsync(string? staffIdentifier, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(staffIdentifier))
+        {
+            return await _dbContext.StaffProfiles
+                .AsNoTracking()
+                .Select(sp => sp.StaffProfileId)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        var profileExists = await _dbContext.StaffProfiles
+            .AsNoTracking()
+            .AnyAsync(sp => sp.StaffProfileId == staffIdentifier, cancellationToken);
+
+        if (profileExists)
+        {
+            return staffIdentifier;
+        }
+
+        var staffProfile = await _dbContext.StaffProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(sp => sp.UserId == staffIdentifier, cancellationToken);
+
+        if (staffProfile != null)
+        {
+            return staffProfile.StaffProfileId;
+        }
+
+        return await _dbContext.StaffProfiles
+            .AsNoTracking()
+            .Select(sp => sp.StaffProfileId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }

@@ -16,6 +16,17 @@ public sealed class SendNotificationRequest
 
     public string? BookingId { get; init; }
 
+    // Conditional Single/Group User Filters
+    public bool? IsFlagged { get; init; }
+
+    public bool? HasBooked { get; init; }
+
+    public string? RoomId { get; init; }
+
+    public string? ShowtimeId { get; init; }
+
+    public string? MovieId { get; init; }
+
     [Required]
     [MaxLength(255)]
     public string Title { get; init; } = string.Empty;
@@ -24,7 +35,7 @@ public sealed class SendNotificationRequest
     [MaxLength(1000)]
     public string Message { get; init; } = string.Empty;
 
-    public string Channel { get; init; } = "App"; // App, Email, SMS, Signage, Internal
+    public string Channel { get; init; } = "App"; // App, Email, SMS, Internal
 
     public string Type { get; init; } = "Transactional"; // Transactional, Loyalty, Promotional, Internal
 }

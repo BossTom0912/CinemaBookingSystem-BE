@@ -21,17 +21,20 @@ public sealed class NotificationService : INotificationService
     private readonly IEmailService _emailService;
     private readonly IClock _clock;
     private readonly ILogger<NotificationService> _logger;
+    private readonly IUserHeartbeatTracker _heartbeatTracker;
 
     public NotificationService(
         CinemaDbContext dbContext,
         IEmailService emailService,
         IClock clock,
-        ILogger<NotificationService> logger)
+        ILogger<NotificationService> logger,
+        IUserHeartbeatTracker heartbeatTracker)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _emailService = emailService ?? throw new ArgumentNullException(nameof(emailService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _heartbeatTracker = heartbeatTracker ?? throw new ArgumentNullException(nameof(heartbeatTracker));
     }
 
     private static string NewId() => CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification);
@@ -43,8 +46,8 @@ public sealed class NotificationService : INotificationService
         int pageSize,
         CancellationToken cancellationToken)
     {
-        var userExists = await _dbContext.Users.AnyAsync(u => u.UserId == userId, cancellationToken);
-        if (!userExists)
+        var user = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId, cancellationToken);
+        if (user == null)
         {
             return ServiceResult<PagedList<NotificationResponse>>.Fail(
                 404,
@@ -54,7 +57,19 @@ public sealed class NotificationService : INotificationService
 
         var query = _dbContext.Notifications
             .AsNoTracking()
-            .Where(n => n.UserId == userId);
+            .Include(n => n.User)
+            .ThenInclude(u => u.StaffProfile)
+            .ThenInclude(sp => sp.Cinema)
+            .AsQueryable();
+
+        // For Customers, Staff, and Managers, filter by their own UserId.
+        // For Admins in the Management Dashboard, return all system notifications.
+        if (user.RoleId == AuthConstants.RoleIds.Customer ||
+            user.RoleId == AuthConstants.RoleIds.Staff ||
+            user.RoleId == AuthConstants.RoleIds.Manager)
+        {
+            query = query.Where(n => n.UserId == userId);
+        }
 
         if (isRead.HasValue)
         {
@@ -128,55 +143,143 @@ public sealed class NotificationService : INotificationService
         return ServiceResult<bool>.Ok(true, "All notifications marked as read.");
     }
 
-    public async Task<ServiceResult<NotificationResponse>> SendNotificationAsync(
+    public Task<ServiceResult<NotificationResponse>> SendNotificationAsync(
         SendNotificationRequest request,
         CancellationToken cancellationToken)
     {
+        return SendNotificationAsync(senderUserId: null, request, cancellationToken);
+    }
+
+    public async Task<ServiceResult<NotificationResponse>> SendNotificationAsync(
+        string? senderUserId,
+        SendNotificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        User? sender = null;
+        if (!string.IsNullOrWhiteSpace(senderUserId) && !senderUserId.Equals("SYSTEM", StringComparison.OrdinalIgnoreCase))
+        {
+            sender = await _dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == senderUserId, cancellationToken);
+        }
+
+        // RBAC Enforcement Rules:
+        // - Staff cannot send broadcast notifications.
+        // - Manager can ONLY send notifications to Staff.
+        // - Admin can send notifications to Manager, Staff, Customer, and ALL.
+
+        if (sender != null && sender.RoleId == AuthConstants.RoleIds.Staff)
+        {
+            return ServiceResult<NotificationResponse>.Fail(403, "Staff members are not authorized to send broadcast notifications.", "FORBIDDEN_SENDER_ROLE");
+        }
+
+        if (sender != null && sender.RoleId == AuthConstants.RoleIds.Manager)
+        {
+            if (!string.IsNullOrWhiteSpace(request.TargetGroup))
+            {
+                var targetGroupUpper = request.TargetGroup.Trim().ToUpperInvariant();
+                if (targetGroupUpper != DomainConstants.NotificationTargetGroup.Staff &&
+                    targetGroupUpper != DomainConstants.NotificationTargetGroup.Admins &&
+                    targetGroupUpper != "ADMIN" &&
+                    targetGroupUpper != "ADMINS")
+                {
+                    return ServiceResult<NotificationResponse>.Fail(403, "Managers are authorized to send notifications to Staff or Admin.", "FORBIDDEN_TARGET_GROUP");
+                }
+            }
+        }
+
         var targetUsers = new List<User>();
+
+        var query = _dbContext.Users.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(request.TargetGroup))
         {
             var group = request.TargetGroup.Trim().ToUpperInvariant();
-            var query = _dbContext.Users.AsNoTracking();
 
-            if (group == "CUSTOMERS")
+            if (group == DomainConstants.NotificationTargetGroup.Customers)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Customer);
             }
-            else if (group == "STAFF")
+            else if (group == DomainConstants.NotificationTargetGroup.Staff)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Staff);
             }
-            else if (group == "MANAGERS")
+            else if (group == DomainConstants.NotificationTargetGroup.Managers)
             {
                 query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Manager);
             }
-            else if (group == "ADMINS")
+            else if (group == DomainConstants.NotificationTargetGroup.Admins || group == "ADMIN" || group == "ADMINS")
             {
-                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Admin);
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Admin || u.RoleId == "ADMIN" || u.RoleId == "ROLE_ADMIN" || u.UserId.StartsWith("USR-ADMIN") || u.UserId.StartsWith("usr-admin"));
             }
-            else if (group != "ALL")
+            else if (group != DomainConstants.NotificationTargetGroup.All)
             {
                 return ServiceResult<NotificationResponse>.Fail(400, $"Unknown TargetGroup: '{group}'. Valid options are: ALL, CUSTOMERS, STAFF, MANAGERS, ADMINS.", "INVALID_TARGET_GROUP");
             }
-
-            targetUsers = await query.ToListAsync(cancellationToken);
         }
         else if (request.UserIds != null && request.UserIds.Count > 0)
         {
-            targetUsers = await _dbContext.Users
-                .AsNoTracking()
-                .Where(u => request.UserIds.Contains(u.UserId))
-                .ToListAsync(cancellationToken);
+            query = query.Where(u => request.UserIds.Contains(u.UserId));
         }
         else if (!string.IsNullOrWhiteSpace(request.UserId))
         {
-            var user = await _dbContext.Users
+            query = query.Where(u => u.UserId == request.UserId);
+        }
+
+        // Apply conditional filters
+        if (request.IsFlagged == true)
+        {
+            query = query.Where(u => u.IsBlocked || u.SpamViolationCount > 0);
+        }
+
+        if (request.HasBooked == true)
+        {
+            var bookedUserIds = _dbContext.Bookings
                 .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.UserId == request.UserId, cancellationToken);
-            if (user != null)
+                .Where(b => b.CustomerProfile != null)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => bookedUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RoomId))
+        {
+            var roomId = request.RoomId.Trim();
+            var roomUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.RoomId == roomId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => roomUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ShowtimeId))
+        {
+            var showtimeId = request.ShowtimeId.Trim();
+            var showtimeUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.ShowtimeId == showtimeId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => showtimeUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.MovieId))
+        {
+            var movieId = request.MovieId.Trim();
+            var movieUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.MovieId == movieId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => movieUserIds.Contains(u.UserId));
+        }
+
+        targetUsers = await query.ToListAsync(cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(request.TargetGroup))
+        {
+            var gUpper = request.TargetGroup.Trim().ToUpperInvariant();
+            if (gUpper == DomainConstants.NotificationTargetGroup.Admins || gUpper == "ADMIN" || gUpper == "ADMINS")
             {
-                targetUsers.Add(user);
+                if (sender != null && !targetUsers.Any(u => u.UserId == sender.UserId))
+                {
+                    targetUsers.Add(sender);
+                }
             }
         }
 
@@ -185,12 +288,22 @@ public sealed class NotificationService : INotificationService
             return ServiceResult<NotificationResponse>.Fail(400, "No target users found for notification dispatch.", "NO_RECIPIENTS_FOUND");
         }
 
+        // Additional Manager validation: Ensure target recipients are Staff or Admin
+        if (sender != null && sender.RoleId == AuthConstants.RoleIds.Manager)
+        {
+            var invalidTargets = targetUsers.Where(u => u.RoleId != AuthConstants.RoleIds.Staff && u.RoleId != AuthConstants.RoleIds.Admin && u.RoleId != "ADMIN" && u.RoleId != "ROLE_ADMIN").ToList();
+            if (invalidTargets.Count > 0)
+            {
+                return ServiceResult<NotificationResponse>.Fail(403, "Managers are authorized to send notifications to Staff or Admin.", "FORBIDDEN_RECIPIENT_ROLE");
+            }
+        }
+
         var status = "Sent";
         var firstNotifId = string.Empty;
 
         foreach (var user in targetUsers)
         {
-            if (request.Channel.Equals("Email", StringComparison.OrdinalIgnoreCase))
+            if (request.Channel.Equals(DomainConstants.NotificationChannel.Email, StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -202,8 +315,8 @@ public sealed class NotificationService : INotificationService
                     status = "Failed";
                 }
             }
-            else if (request.Channel.Equals("SMS", StringComparison.OrdinalIgnoreCase) ||
-                     request.Channel.Equals("Push", StringComparison.OrdinalIgnoreCase))
+            else if (request.Channel.Equals(DomainConstants.NotificationChannel.SMS, StringComparison.OrdinalIgnoreCase) ||
+                     request.Channel.Equals(DomainConstants.NotificationChannel.Push, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("Simulating {Channel} delivery to User {UserId}: [{Title}] {Message}", 
                     request.Channel, user.UserId, request.Title, request.Message);
@@ -397,45 +510,190 @@ public sealed class NotificationService : INotificationService
         return ServiceResult<bool>.Ok(true, $"System notification of type '{type}' broadcasted to {notifications.Count} users.");
     }
 
-    public async Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetSignageFeedAsync(CancellationToken cancellationToken)
+    public async Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(
+        string? userId = null,
+        CancellationToken cancellationToken = default)
     {
-        // Digital signage displays messages related to room ready or room cleanups in the last 6 hours
-        var cutoff = _clock.UtcNow.AddHours(-6);
-        var notifications = await _dbContext.Notifications
-            .AsNoTracking()
-            .Where(n => n.CreatedAt >= cutoff && (n.Title.Contains("dọn dẹp") || n.Title.Contains("soát vé") || n.Title.Contains("Room")))
-            .OrderByDescending(n => n.CreatedAt)
-            .Take(20)
-            .ToListAsync(cancellationToken);
+        User? user = null;
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            user = await _dbContext.Users
+                .AsNoTracking()
+                .Include(u => u.StaffProfile)
+                .FirstOrDefaultAsync(u => u.UserId == userId, cancellationToken);
+        }
 
-        var mapped = notifications.Select(MapToResponse).ToList();
-        return ServiceResult<IReadOnlyList<NotificationResponse>>.Ok(mapped, "Signage feed retrieved successfully.");
-    }
-
-    public async Task<ServiceResult<IReadOnlyList<NotificationResponse>>> GetInternalFeedAsync(CancellationToken cancellationToken)
-    {
-        // Internal app feed displays general operations notifications in the last 24 hours
-        var cutoff = _clock.UtcNow.AddHours(-24);
-        var notifications = await _dbContext.Notifications
+        var query = _dbContext.Notifications
             .AsNoTracking()
-            .Where(n => n.CreatedAt >= cutoff && (n.Title.Contains("Lệnh") || n.Title.Contains("sự cố") || n.Title.Contains("Cảnh báo") || n.Title.Contains("khẩn cấp") || n.Title.Contains("Emergency")))
+            .Include(n => n.User)
+            .ThenInclude(u => u.StaffProfile)
+            .ThenInclude(sp => sp.Cinema)
+            .AsQueryable();
+
+        if (user != null && user.RoleId == AuthConstants.RoleIds.Staff)
+        {
+            query = query.Where(n => n.UserId == userId || n.User.RoleId == AuthConstants.RoleIds.Staff);
+        }
+        else if (user != null && user.RoleId == AuthConstants.RoleIds.Manager)
+        {
+            var managerCinemaId = user.StaffProfile?.CinemaId;
+            if (!string.IsNullOrEmpty(managerCinemaId))
+            {
+                query = query.Where(n => (n.User.StaffProfile != null && n.User.StaffProfile.CinemaId == managerCinemaId) ||
+                                         n.UserId == userId ||
+                                         n.Message.Contains("Báo cáo từ Manager"));
+            }
+            else
+            {
+                query = query.Where(n => n.User.RoleId == AuthConstants.RoleIds.Staff ||
+                                         n.UserId == userId ||
+                                         n.Message.Contains("Báo cáo từ Manager"));
+            }
+        }
+
+        var notifications = await query
             .OrderByDescending(n => n.CreatedAt)
             .Take(50)
             .ToListAsync(cancellationToken);
 
-        // Group/Distinct by title and message to keep clean feed (don't duplicate broadcasts)
-        var distinctList = notifications
-            .GroupBy(n => new { n.Title, n.Message })
-            .Select(g => g.First())
-            .Select(MapToResponse)
-            .ToList();
+        List<NotificationResponse> result;
+        if (user != null && user.RoleId == AuthConstants.RoleIds.Manager)
+        {
+            result = notifications.Select(MapToResponse).ToList();
+        }
+        else
+        {
+            var filtered = notifications
+                .Where(n => n.Title.Contains("Lệnh") ||
+                            n.Title.Contains("chuẩn bị") ||
+                            n.Title.Contains("bảo trì") ||
+                            n.Title.Contains("Cảnh báo") ||
+                            n.Title.Contains("vận hành") ||
+                            n.Title.Contains("khẩn cấp") ||
+                            n.Title.Contains("Emergency") ||
+                            n.Title.Contains("Internal") ||
+                            n.Message.Contains("nội bộ") ||
+                            n.Message.Contains("Nhân viên") ||
+                            n.Message.Contains("Quản lý"))
+                .ToList();
 
-        return ServiceResult<IReadOnlyList<NotificationResponse>>.Ok(distinctList, "Internal operational feed retrieved successfully.");
+            var listToReturn = filtered.Count > 0 ? filtered : notifications.Take(20).ToList();
+            result = listToReturn.Select(MapToResponse).ToList();
+        }
+
+        return ServiceResult<IReadOnlyList<NotificationResponse>>.Ok(result, "Internal operational feed retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<UserFilterItemResponse>>> GetFilteredUsersAsync(
+        bool? isFlagged,
+        bool? hasBooked,
+        string? roomId,
+        string? showtimeId,
+        string? movieId,
+        string? targetGroup,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Users.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(targetGroup))
+        {
+            var group = targetGroup.Trim().ToUpperInvariant();
+            if (group == DomainConstants.NotificationTargetGroup.Customers)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Customer);
+            }
+            else if (group == DomainConstants.NotificationTargetGroup.Staff)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Staff);
+            }
+            else if (group == DomainConstants.NotificationTargetGroup.Managers)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Manager);
+            }
+            else if (group == DomainConstants.NotificationTargetGroup.Admins)
+            {
+                query = query.Where(u => u.RoleId == AuthConstants.RoleIds.Admin);
+            }
+        }
+
+        if (isFlagged == true)
+        {
+            query = query.Where(u => u.IsBlocked || u.SpamViolationCount > 0);
+        }
+
+        if (hasBooked == true)
+        {
+            var bookedUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => bookedUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(roomId))
+        {
+            var rId = roomId.Trim();
+            var roomUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.RoomId == rId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => roomUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(showtimeId))
+        {
+            var stId = showtimeId.Trim();
+            var showtimeUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.ShowtimeId == stId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => showtimeUserIds.Contains(u.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(movieId))
+        {
+            var mId = movieId.Trim();
+            var movieUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.Showtime.MovieId == mId)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => movieUserIds.Contains(u.UserId));
+        }
+
+        var rawUsers = await query
+            .Take(100)
+            .Select(u => new
+            {
+                u.UserId,
+                FullName = u.FullName ?? string.Empty,
+                Email = u.Email ?? string.Empty,
+                Role = u.RoleId
+            })
+            .ToListAsync(cancellationToken);
+
+        var users = rawUsers.Select(u => new UserFilterItemResponse
+        {
+            UserId = u.UserId,
+            FullName = u.FullName,
+            Email = u.Email,
+            Role = u.Role,
+            IsOnline = _heartbeatTracker.IsUserOnline(u.UserId, u.Email),
+            LastActiveAt = _heartbeatTracker.GetLastActiveAt(u.UserId, u.Email)
+        }).ToList();
+
+        return ServiceResult<IReadOnlyList<UserFilterItemResponse>>.Ok(users, $"Retrieved {users.Count} matching users.");
     }
 
     private NotificationResponse MapToResponse(Notification n)
     {
         var (channel, type, status) = DetermineMetadata(n.Title, n.Message);
+        string? cinemaIdStr = n.User?.StaffProfile?.CinemaId;
+        int? cinemaId = null;
+        if (int.TryParse(cinemaIdStr, out var parsedId))
+        {
+            cinemaId = parsedId;
+        }
+
         return new NotificationResponse
         {
             NotificationId = n.NotificationId,
@@ -447,39 +705,84 @@ public sealed class NotificationService : INotificationService
             CreatedAt = n.CreatedAt,
             Channel = channel,
             Type = type,
-            Status = status
+            Status = status,
+            CinemaId = cinemaId,
+            CinemaName = n.User?.StaffProfile?.Cinema?.CinemaName ?? (cinemaIdStr != null ? $"Rạp #{cinemaIdStr}" : null)
         };
     }
 
     private static (string Channel, string Type, string Status) DetermineMetadata(string title, string message)
     {
-        var channel = "App";
-        var type = "Transactional";
+        var channel = DomainConstants.NotificationChannel.App;
+        var type = DomainConstants.NotificationType.Transactional;
         var status = "Sent";
 
         var combined = $"{title} {message}".ToLowerInvariant();
 
         if (combined.Contains("cảnh báo") || combined.Contains("lệnh") || combined.Contains("khẩn cấp") || combined.Contains("sự cố"))
         {
-            type = "Internal";
-            channel = combined.Contains("kỹ thuật") ? "SMS" : "Internal";
+            type = DomainConstants.NotificationType.Internal;
+            channel = combined.Contains("kỹ thuật") ? DomainConstants.NotificationChannel.SMS : DomainConstants.NotificationChannel.Internal;
         }
         else if (combined.Contains("voucher") || combined.Contains("sinh nhật") || combined.Contains("khảo sát") || combined.Contains("điểm thưởng"))
         {
-            type = "Loyalty";
-            channel = combined.Contains("sinh nhật") ? "Email" : "App";
+            type = DomainConstants.NotificationType.Loyalty;
+            channel = combined.Contains("sinh nhật") ? DomainConstants.NotificationChannel.Email : DomainConstants.NotificationChannel.App;
         }
         else if (combined.Contains("khuyến mãi") || combined.Contains("promo") || combined.Contains("bom tấn") || combined.Contains("ưu đãi"))
         {
-            type = "Promotional";
-            channel = "Push";
+            type = DomainConstants.NotificationType.Promotional;
+            channel = DomainConstants.NotificationChannel.Push;
         }
 
         if (combined.Contains("hủy") || combined.Contains("hoàn tiền") || combined.Contains("refund") || combined.Contains("xác nhận"))
         {
-            channel = "Email";
+            channel = DomainConstants.NotificationChannel.Email;
         }
 
         return (channel, type, status);
+    }
+
+    public async Task<ServiceResult<bool>> DeleteNotificationsAsync(
+        List<string> notificationIds,
+        CancellationToken cancellationToken)
+    {
+        if (notificationIds == null || notificationIds.Count == 0)
+        {
+            return ServiceResult<bool>.Ok(true, "No notifications specified for deletion.");
+        }
+
+        var notifs = await _dbContext.Notifications
+            .Where(n => notificationIds.Contains(n.NotificationId))
+            .ToListAsync(cancellationToken);
+
+        if (notifs.Count > 0)
+        {
+            _dbContext.Notifications.RemoveRange(notifs);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return ServiceResult<bool>.Ok(true, $"Successfully deleted {notifs.Count} notification(s).");
+    }
+
+    public async Task<ServiceResult<bool>> UpdateNotificationAsync(
+        string notificationId,
+        string title,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        var notif = await _dbContext.Notifications
+            .FirstOrDefaultAsync(n => n.NotificationId == notificationId, cancellationToken);
+
+        if (notif == null)
+        {
+            return ServiceResult<bool>.Fail(404, "Notification not found.", "NOT_FOUND");
+        }
+
+        notif.Title = title.Trim();
+        notif.Message = message.Trim();
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(true, "Notification updated successfully.");
     }
 }

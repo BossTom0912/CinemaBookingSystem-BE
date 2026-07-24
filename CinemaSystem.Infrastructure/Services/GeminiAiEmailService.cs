@@ -11,10 +11,15 @@ namespace CinemaSystem.Infrastructure.Services;
 public class GeminiAiEmailService : IAiEmailService
 {
     private readonly IEmailService _emailService;
+    private readonly RefundSettings _refundSettings;
 
-    public GeminiAiEmailService(IOptions<GeminiSettings> settings, IEmailService emailService)
+    public GeminiAiEmailService(
+        IOptions<GeminiSettings> settings,
+        IEmailService emailService,
+        IOptions<RefundSettings>? refundSettings = null)
     {
         _emailService = emailService;
+        _refundSettings = refundSettings?.Value ?? new RefundSettings();
     }
 
     public async Task SendAiApologyEmailAsync(
@@ -22,10 +27,12 @@ public class GeminiAiEmailService : IAiEmailService
         string subject, 
         string reason, 
         string details, 
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? customerName = null)
     {
         var formattedSubject = subject.StartsWith("[CinemaSystem]") ? subject : $"[CinemaSystem] Thông báo dịch vụ - {subject}";
-        
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
+
         var bodyHtml = $"""
             <!DOCTYPE html>
             <html>
@@ -35,7 +42,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -45,11 +51,9 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
-                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
-                            
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi.
                             </p>
@@ -85,7 +89,7 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- TIẾNG ANH -->
                         <div>
-                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
                             
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 12px;'>
                                 First and foremost, thank you for choosing CinemaSystem. We sincerely apologize for the inconvenience regarding <strong>{reason}</strong> for your movie booking.
@@ -142,12 +146,18 @@ public class GeminiAiEmailService : IAiEmailService
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
         string? compensationNote = null,
-        string? targetSeatType = null)
+        string? targetSeatType = null,
+        string? customerName = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh giờ chiếu phim \"{movieTitle}\" (Mã vé: #{bookingId})";
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
 
-        var confirmAcceptUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=true&token={token}";
-        var confirmRefundUrl = $"http://localhost:5173/booking/confirm-time-change?bookingId={bookingId}&accept=false&token={token}";
+        var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
+            ? "http://localhost:5173"
+            : _refundSettings.FrontendBaseUrl.TrimEnd('/');
+
+        var confirmAcceptUrl = $"{baseUrl}/booking/confirm-time-change?bookingId={bookingId}&accept=true&token={token}";
+        var confirmRefundUrl = $"{baseUrl}/booking/confirm-time-change?bookingId={bookingId}&accept=false&token={token}";
 
         var compVoucherDisplayVi = !string.IsNullOrWhiteSpace(compensationVoucherCode)
             ? $"[{compensationVoucherCode.Trim()}]"
@@ -171,7 +181,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -181,15 +190,13 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
-                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
 
                             <p style='font-size: 14px; color: #334155; margin-bottom: 12px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành tới Quý khách vì đã luôn tin tưởng và ủng hộ dịch vụ của chúng tôi.
                             </p>
-
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Do có sự điều chỉnh trong lịch chiếu, chúng tôi xin thông báo về thay đổi giờ chiếu cho bộ phim <strong>{movieTitle}</strong> trong đơn hàng của Quý khách như sau:
                             </p>
@@ -267,7 +274,7 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- TIẾNG ANH -->
                         <div>
-                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 12px;'>
                                 Thank you for choosing CinemaSystem. We are writing to inform you of a showtime adjustment for your upcoming movie booking.
                             </p>
@@ -371,9 +378,11 @@ public class GeminiAiEmailService : IAiEmailService
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
         string? compensationNote = null,
-        string? targetSeatType = null)
+        string? targetSeatType = null,
+        string? customerName = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh phòng chiếu - Mã vé: #{bookingId}";
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
 
         var compParts = new List<string>();
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode)) compParts.Add($"Voucher: [{compensationVoucherCode.Trim()}]");
@@ -390,7 +399,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -400,11 +408,9 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
-                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi Quý khách hàng,</p>
-
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi. Chúng tôi xin thông báo về việc thay đổi phòng chiếu cho suất phim của Quý khách.
                             </p>
@@ -460,7 +466,7 @@ public class GeminiAiEmailService : IAiEmailService
 
                         <!-- TIẾNG ANH -->
                         <div>
-                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear Valued Customer,</p>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
                                 We regret to inform you that your screening room for <strong>{movieTitle}</strong> has been changed from {oldRoomName} to {newRoomName}.
                             </p>
@@ -519,6 +525,179 @@ public class GeminiAiEmailService : IAiEmailService
                         <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
                         <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
                     </div>
+
+                </div>
+            </body>
+            </html>
+            """;
+
+        await _emailService.SendEmailAsync(toEmail, formattedSubject, bodyHtml, cancellationToken);
+    }
+
+    public async Task SendVoucherGiftEmailAsync(
+        string toEmail,
+        string customerName,
+        string voucherTitle,
+        string voucherCode,
+        string discountText,
+        string validityText,
+        string? description,
+        string? category,
+        CancellationToken cancellationToken)
+    {
+        var formattedSubject = $"[CinemaSystem] Bạn vừa nhận được Voucher ưu đãi đặc biệt: [{voucherCode}]";
+        var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
+            ? "http://localhost:5173"
+            : _refundSettings.FrontendBaseUrl.TrimEnd('/');
+
+        var categoryDisplayVi = string.IsNullOrWhiteSpace(category) ? "ƯU ĐÃI ĐẶC BIỆT" : category.Trim().ToUpperInvariant();
+        var categoryDisplayEn = string.IsNullOrWhiteSpace(category) ? "SPECIAL OFFER" : category.Trim().ToUpperInvariant();
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
+
+        var descriptionRowVi = !string.IsNullOrWhiteSpace(description)
+            ? $"""
+                <tr>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold; background-color: #f8fafc;'>Điều kiện áp dụng</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0;'>{description}</td>
+                </tr>
+              """
+            : "";
+
+        var descriptionRowEn = !string.IsNullOrWhiteSpace(description)
+            ? $"""
+                <tr>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold; background-color: #f8fafc; color: #475569;'>Terms & Conditions</td>
+                    <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{description}</td>
+                </tr>
+              """
+            : "";
+
+        var bodyHtml = $"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset='utf-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+            </head>
+            <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
+                <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                    <!-- HEADER -->
+                    <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #f59e0b;'>
+                        <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                        <p style='color: #fbbf24; margin: 4px 0 0 0; font-size: 14px; font-weight: bold;'>THÔNG BÁO TẶNG VOUCHER ƯU ĐÃI</p>
+                        <p style='color: #94a3b8; margin: 2px 0 0 0; font-size: 11px; text-transform: uppercase;'>Exclusive Voucher Gift Notification</p>
+                    </div>
+
+                    <!-- CONTENT -->
+                    <div style='padding: 30px;'>
+                        <!-- TIẾNG VIỆT -->
+                        <div style='margin-bottom: 25px;'>
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
+                            <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                                Chúc mừng! CinemaSystem xin trân trọng gửi tặng Quý khách một voucher ưu đãi đặc biệt dành riêng cho tài khoản của Quý khách.
+                            </p>
+
+                            <!-- VOUCHER CARD BOX (VI) -->
+                            <div style='background: linear-gradient(135deg, #fffbe6 0%, #fef3c7 100%); border: 2px dashed #f59e0b; border-radius: 10px; padding: 20px; text-align: center; margin: 20px 0;'>
+                                <span style='display: inline-block; background-color: #d97706; color: #ffffff; font-size: 11px; font-weight: bold; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; margin-bottom: 8px;'>{categoryDisplayVi}</span>
+                                <h3 style='margin: 4px 0 10px 0; font-size: 18px; color: #78350f; font-weight: bold;'>{voucherTitle}</h3>
+                                <div style='margin: 12px 0; padding: 10px; background-color: #ffffff; border: 1px solid #fde68a; border-radius: 8px; display: inline-block;'>
+                                    <span style='font-size: 11px; color: #92400e; display: block; margin-bottom: 4px; font-weight: bold; letter-spacing: 1px;'>MÃ VOUCHER</span>
+                                    <span style='font-family: monospace; font-size: 24px; font-weight: bold; color: #b45309; letter-spacing: 3px;'>{voucherCode}</span>
+                                </div>
+
+                                <p style='margin: 8px 0 0 0; font-size: 15px; font-weight: bold; color: #b45309;'>{discountText}</p>
+                                <p style='margin: 4px 0 0 0; font-size: 12px; color: #78350f;'>Hạn sử dụng: <strong>{validityText}</strong></p>
+                            </div>
+
+                            <!-- CHI TIẾT BẢNG (VI) -->
+                            <div style='margin: 15px 0;'>
+                                <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
+                                    <tbody>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold; width: 35%; background-color: #f8fafc;'>Mức ưu đãi</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{discountText}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold; background-color: #f8fafc;'>Thời hạn áp dụng</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0;'>{validityText}</td>
+                                        </tr>
+                                        {descriptionRowVi}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- BUTTON CTA (VI) -->
+                            <div style='text-align: center; margin: 25px 0 15px 0;'>
+                                <a href='{baseUrl}' style='display: inline-block; padding: 12px 28px; background-color: #0f172a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; border: 2px solid #000000;'>[ DÙNG VOUCHER NGAY ]</a>
+                            </div>
+
+                            <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                                Trân trọng,<br>
+                                <strong>Ban Quản trị CinemaSystem</strong>
+                            </p>
+                        </div>
+
+                        <!-- DIVIDER -->
+                        <hr style='border: none; border-top: 1px dashed #cbd5e1; margin: 25px 0;' />
+
+                        <!-- TIẾNG ANH -->
+                        <div>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
+                            <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
+                                Congratulations! CinemaSystem is pleased to present you with an exclusive discount voucher for your account.
+                            </p>
+
+                            <!-- VOUCHER CARD BOX (EN) -->
+                            <div style='background: linear-gradient(135deg, #fffbe6 0%, #fef3c7 100%); border: 2px dashed #f59e0b; border-radius: 10px; padding: 20px; text-align: center; margin: 20px 0;'>
+                                <span style='display: inline-block; background-color: #d97706; color: #ffffff; font-size: 11px; font-weight: bold; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; margin-bottom: 8px;'>{categoryDisplayEn}</span>
+                                <h3 style='margin: 4px 0 10px 0; font-size: 18px; color: #78350f; font-weight: bold;'>{voucherTitle}</h3>
+                                <div style='margin: 12px 0; padding: 10px; background-color: #ffffff; border: 1px solid #fde68a; border-radius: 8px; display: inline-block;'>
+                                    <span style='font-size: 11px; color: #92400e; display: block; margin-bottom: 4px; font-weight: bold; letter-spacing: 1px;'>VOUCHER CODE</span>
+                                    <span style='font-family: monospace; font-size: 24px; font-weight: bold; color: #b45309; letter-spacing: 3px;'>{voucherCode}</span>
+                                </div>
+
+                                <p style='margin: 8px 0 0 0; font-size: 15px; font-weight: bold; color: #b45309;'>{discountText}</p>
+                                <p style='margin: 4px 0 0 0; font-size: 12px; color: #78350f;'>Valid until: <strong>{validityText}</strong></p>
+                            </div>
+
+                            <!-- CHI TIẾT BẢNG (EN) -->
+                            <div style='margin: 15px 0;'>
+                                <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 12px; text-align: left;'>
+                                    <tbody>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold; width: 35%; background-color: #f8fafc; color: #475569;'>Discount Benefit</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{discountText}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold; background-color: #f8fafc; color: #475569;'>Validity Period</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{validityText}</td>
+                                        </tr>
+                                        {descriptionRowEn}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- BUTTON CTA (EN) -->
+                            <div style='text-align: center; margin: 25px 0 15px 0;'>
+                                <a href='{baseUrl}' style='display: inline-block; padding: 12px 28px; background-color: #0f172a; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 12px; border: 2px solid #000000;'>[ USE VOUCHER NOW ]</a>
+                            </div>
+
+                            <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                                Sincerely,<br>
+                                <strong>CinemaSystem Management Team</strong>
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <!-- FOOTER -->
+                    <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                        <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
+                        <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
+                        <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                    </div>
+
                 </div>
             </body>
             </html>

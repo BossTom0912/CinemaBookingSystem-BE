@@ -23,4 +23,8 @@ public sealed class NotificationResponse
     public string Type { get; init; } = "Transactional"; // Transactional, Loyalty, Promotional, Internal
 
     public string Status { get; init; } = "Sent"; // Created, Sending, Sent, Failed
+
+    public int? CinemaId { get; init; }
+
+    public string? CinemaName { get; init; }
 }

@@ -10,7 +10,8 @@ public interface IAiEmailService
         string subject, 
         string reason, 
         string details, 
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? customerName = null);
 
     Task SendAiTimeChangeEmailAsync(
         string toEmail,
@@ -24,7 +25,8 @@ public interface IAiEmailService
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
         string? compensationNote = null,
-        string? targetSeatType = null);
+        string? targetSeatType = null,
+        string? customerName = null);
 
     Task SendAiRoomChangeEmailAsync(
         string toEmail,
@@ -37,5 +39,17 @@ public interface IAiEmailService
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
         string? compensationNote = null,
-        string? targetSeatType = null);
+        string? targetSeatType = null,
+        string? customerName = null);
+
+    Task SendVoucherGiftEmailAsync(
+        string toEmail,
+        string customerName,
+        string voucherTitle,
+        string voucherCode,
+        string discountText,
+        string validityText,
+        string? description,
+        string? category,
+        CancellationToken cancellationToken);
 }

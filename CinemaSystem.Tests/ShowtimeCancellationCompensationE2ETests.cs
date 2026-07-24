@@ -79,7 +79,7 @@ public sealed class ShowtimeCancellationCompensationE2ETests
         var clock = new FakeClock(DateTime.UtcNow);
         await SeedTargetUserAsync(db);
 
-        var notifService = new NotificationService(db, MockNoOpEmailService(), clock, NullLogger<NotificationService>.Instance);
+        var notifService = new NotificationService(db, MockNoOpEmailService(), clock, NullLogger<NotificationService>.Instance, new UserHeartbeatTracker());
 
         // ACT: Admin cancels showtime and dispatches notification to customer
         var request = new SendNotificationRequest
@@ -222,7 +222,7 @@ public sealed class ShowtimeCancellationCompensationE2ETests
         var clock = new FakeClock(DateTime.UtcNow);
         await SeedTargetUserAsync(db);
 
-        var notifService = new NotificationService(db, MockNoOpEmailService(), clock, NullLogger<NotificationService>.Instance);
+        var notifService = new NotificationService(db, MockNoOpEmailService(), clock, NullLogger<NotificationService>.Instance, new UserHeartbeatTracker());
 
         // ACT: Admin modifies showtime room/time, triggering alert to affected customer
         var request = new SendNotificationRequest
