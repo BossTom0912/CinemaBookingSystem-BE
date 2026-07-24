@@ -1,8 +1,9 @@
 -- ==========================================
 -- FILE: cinema-booking-schema.sql
--- Purpose: Canonical full reset schema for CinemaBookingDB.
--- This script drops and recreates the database. Do not run it against
--- an environment whose data must be retained.
+-- Purpose: Single canonical schema for CinemaBookingDB.
+-- This script drops and recreates the database, then applies the complete
+-- schema and standard seed data. Do not run it against an environment whose
+-- data must be retained.
 -- ==========================================
 /*
 ============================================================
@@ -128,7 +129,7 @@ CREATE TABLE [MOVIE] (
     [dailyViews] INT NOT NULL DEFAULT 0,
 
     CONSTRAINT [CK_MOVIE_DURATION] CHECK ([durationMinutes] > 0),
-    CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK ([highlight] IS NULL OR [highlight] IN ('HOT', 'NEW', 'TRENDING')),
+    CONSTRAINT [CK_MOVIE_HIGHLIGHT] CHECK ([highlight] IS NULL OR [highlight] IN ('POPULAR', 'COMING_SOON', 'NEW', 'HOT', 'TRENDING')),
     CONSTRAINT [CK_MOVIE_STATUS] CHECK ([movieStatus] IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED')),
     CONSTRAINT [FK_MOVIE_LANGUAGE] FOREIGN KEY ([languageId]) REFERENCES [LANGUAGE]([languageId])
 );
@@ -159,6 +160,13 @@ CREATE TABLE [VOUCHER] (
     [startDate] DATETIME2 NOT NULL,
     [endDate] DATETIME2 NOT NULL,
     [voucherStatus] NVARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    [category] NVARCHAR(50) NULL,
+    [applicableScope] NVARCHAR(50) NULL,
+    [targetType] NVARCHAR(50) NULL,
+    [targetCustomerIds] NVARCHAR(MAX) NULL,
+    [specificFbItemIds] NVARCHAR(MAX) NULL,
+    [isPrivate] BIT NOT NULL DEFAULT 0,
+    [requiredTicketCount] INT NULL,
 
     CONSTRAINT [UQ_VOUCHER_CODE] UNIQUE ([voucherCode]),
     CONSTRAINT [CK_VOUCHER_DISCOUNT_TYPE] CHECK ([discountType] IN ('AMOUNT', 'PERCENT')),
@@ -742,6 +750,29 @@ CREATE TABLE [MANUAL_REFUND_PROCESS] (
 );
 GO
 
+CREATE TABLE [REFUND_CUSTOMER_CONFIRMATION] (
+    [refundCustomerConfirmationId] NVARCHAR(50) PRIMARY KEY,
+    [manualRefundProcessId] NVARCHAR(50) NOT NULL,
+    [tokenHash] CHAR(64) NOT NULL,
+    [status] NVARCHAR(30) NOT NULL,
+    [expiresAt] DATETIME2 NOT NULL,
+    [confirmedAt] DATETIME2 NULL,
+    [createdAt] DATETIME2 NOT NULL,
+    [revokedAt] DATETIME2 NULL,
+
+    CONSTRAINT [UQ_REFUND_CUSTOMER_CONFIRMATION_PROCESS]
+        UNIQUE ([manualRefundProcessId]),
+    CONSTRAINT [UQ_REFUND_CUSTOMER_CONFIRMATION_TOKEN]
+        UNIQUE ([tokenHash]),
+    CONSTRAINT [CK_REFUND_CUSTOMER_CONFIRMATION_STATUS]
+        CHECK ([status] IN
+            ('AWAITING_CUSTOMER', 'CONFIRMED_BY_CUSTOMER', 'EXPIRED', 'REVOKED')),
+    CONSTRAINT [FK_REFUND_CUSTOMER_CONFIRMATION_PROCESS]
+        FOREIGN KEY ([manualRefundProcessId])
+        REFERENCES [MANUAL_REFUND_PROCESS]([manualRefundProcessId]) ON DELETE CASCADE
+);
+GO
+
 CREATE INDEX [IX_REFUND_CLAIM_CUSTOMER_PROFILE_ID]
     ON [REFUND_CLAIM]([customerProfileId]);
 CREATE INDEX [IX_REFUND_CLAIM_STATUS]
@@ -753,6 +784,8 @@ CREATE INDEX [IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS]
         ([customerProfileId], [requestStatus], [createdAt]);
 CREATE INDEX [IX_MANUAL_REFUND_PROCESS_STATUS_CREATED]
     ON [MANUAL_REFUND_PROCESS]([processStatus], [createdAt]);
+CREATE INDEX [IX_REFUND_CUSTOMER_CONFIRMATION_STATUS]
+    ON [REFUND_CUSTOMER_CONFIRMATION]([status], [expiresAt]);
 CREATE UNIQUE INDEX [UX_MANUAL_REFUND_BANK_TRANSACTION_CODE]
     ON [MANUAL_REFUND_PROCESS]([bankTransactionCode])
     WHERE [bankTransactionCode] IS NOT NULL;

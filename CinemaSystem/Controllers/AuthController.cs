@@ -73,6 +73,11 @@ public sealed class AuthController : ControllerBase
             request.MapTo<Contracts.Auth.LoginRequest>(),
             cancellationToken);
 
+        if (result.Success && result.Data != null && !string.IsNullOrEmpty(result.Data.RefreshToken))
+        {
+            SetRefreshTokenCookie(result.Data.RefreshToken);
+        }
+
         // Luồng quay về: AuthService -> ServiceResult<AuthResponse> -> mapping DTO
         // API tại Controller -> client nhận access token, refresh token và role.
         return ToActionResult(result.MapDataTo<Contracts.Auth.AuthResponse, AuthResponse>());
@@ -85,6 +90,12 @@ public sealed class AuthController : ControllerBase
         var result = await _authService.GoogleLoginAsync(
             request.MapTo<Contracts.Auth.GoogleLoginRequest>(),
             cancellationToken);
+
+        if (result.Success && result.Data != null && !string.IsNullOrEmpty(result.Data.RefreshToken))
+        {
+            SetRefreshTokenCookie(result.Data.RefreshToken);
+        }
+
         return ToActionResult(result.MapDataTo<Contracts.Auth.AuthResponse, AuthResponse>());
     }
 
@@ -92,12 +103,26 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> RefreshToken(RefreshTokenRequest request, CancellationToken cancellationToken)
     {
+        var tokenToRefresh = string.IsNullOrWhiteSpace(request?.RefreshToken)
+            ? Request.Cookies["refreshToken"]
+            : request.RefreshToken;
+
+        var mappedRequest = new Contracts.Auth.RefreshTokenRequest
+        {
+            RefreshToken = tokenToRefresh ?? string.Empty
+        };
+
         // Bước tiếp theo: AuthService (Infrastructure/Auth) hash token client gửi,
         // đối chiếu REFRESH_TOKEN, revoke token cũ rồi gọi JwtTokenService tạo cặp
         // access/refresh token mới. Controller không tự thao tác token hoặc DB.
         var result = await _authService.RefreshTokenAsync(
-            request.MapTo<Contracts.Auth.RefreshTokenRequest>(),
+            mappedRequest,
             cancellationToken);
+
+        if (result.Success && result.Data != null && !string.IsNullOrEmpty(result.Data.RefreshToken))
+        {
+            SetRefreshTokenCookie(result.Data.RefreshToken);
+        }
 
         // Kết quả quay lại Controller để map Contracts DTO sang API DTO.
         return ToActionResult(result.MapDataTo<Contracts.Auth.TokenResponse, TokenResponse>());
@@ -107,12 +132,23 @@ public sealed class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Logout(LogoutRequest request, CancellationToken cancellationToken)
     {
+        var tokenToRevoke = string.IsNullOrWhiteSpace(request?.RefreshToken)
+            ? Request.Cookies["refreshToken"]
+            : request.RefreshToken;
+
+        var mappedRequest = new Contracts.Auth.LogoutRequest
+        {
+            RefreshToken = tokenToRevoke ?? string.Empty
+        };
+
         // Bước tiếp theo: AuthService tại Infrastructure/Auth tìm refresh-token
         // hash trong DB và đánh dấu revoke; lý do là logout cần persistence chứ
         // không chỉ xóa dữ liệu ở Controller.
         var result = await _authService.LogoutAsync(
-            request.MapTo<Contracts.Auth.LogoutRequest>(),
+            mappedRequest,
             cancellationToken);
+
+        Response.Cookies.Delete("refreshToken");
 
         // Sau khi revoke hoàn tất, ServiceResult quay lại để tạo HTTP response.
         return ToActionResult(result);
@@ -162,6 +198,19 @@ public sealed class AuthController : ControllerBase
 
         // Khi transaction nghiệp vụ hoàn tất, kết quả quay lại Controller.
         return ToActionResult(result);
+    }
+
+    private void SetRefreshTokenCookie(string refreshToken)
+    {
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
     }
 
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)

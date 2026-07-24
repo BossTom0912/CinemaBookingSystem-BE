@@ -19,14 +19,11 @@ Public register (`POST /api/auth/register`) cũng đọc policy: chỉ role có
 
 ## SQL cần áp dụng
 
-Chạy **một** trong hai cơ chế sau khi deploy backend:
-
-1. EF migration `20260718020000_AddRoleProvisioningPolicies`; hoặc
-2. Với database hiện hữu, chạy một lần script idempotent
-   [`../database/cinema-booking-schema-upgrade.sql`](../database/cinema-booking-schema-upgrade.sql).
-
-Không chạy full-reset script trên database cần giữ dữ liệu. Với database local
-mới, [`../database/cinema-booking-schema.sql`](../database/cinema-booking-schema.sql)
+Khi deploy backend, dùng EF migration
+`20260718020000_AddRoleProvisioningPolicies` hoặc một data migration được
+review cho database hiện hữu. Không chạy full-reset script trên database cần
+giữ dữ liệu. Với database local mới,
+[`../database/cinema-booking-schema.sql`](../database/cinema-booking-schema.sql)
 đã bao gồm schema và seed này.
 
 ### Bảng mới

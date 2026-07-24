@@ -26,7 +26,22 @@ using Hangfire.InMemory;
 //    CinemaSystem.Infrastructure/Extensions/DependencyInjection.cs.
 // 3) Request runtime đi tiếp: middleware -> Controller trong
 //    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
-var builder = WebApplication.CreateBuilder(args);
+
+Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
+
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args
+});
+
+// Xóa nguồn config mặc định và vô hiệu hóa reloadOnChange để tránh lỗi inotify trên Linux của Render
+builder.Configuration.Sources.Clear();
+builder.Configuration
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables();
+
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
@@ -157,7 +172,8 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(corsSettings.AllowedOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
@@ -197,9 +213,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization(options =>
 {
-    // Policy chỉ định role được phép đi qua Controller. Muốn biết policy nào
-    // được dùng thật, tìm [Authorize(Policy = ...)] trong CinemaSystem/Controllers.
-    // Có policy nhưng không có Controller sử dụng thì mới chỉ là hạ tầng quyền.
     options.AddPolicy(AuthConstants.Policies.CanViewMoviesAndShowtimes, policy =>
         policy.RequireAssertion(_ => true));
     options.AddPolicy(AuthConstants.Policies.CanRegisterOrLogin, policy =>
@@ -249,12 +262,13 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole(AuthConstants.Roles.Admin));
     options.AddPolicy(AuthConstants.Policies.CanManageSystem, policy =>
         policy.RequireRole(AuthConstants.Roles.Admin));
-    // approval-specific policies removed
 });
 
 var app = builder.Build();
 
-// Ensure database migrations and column auto-add scripts run on application startup
+// ========================================================
+// 1. MANG PHẦN MIGRATE VÀ SEED RA NGOÀI ĐỂ LUÔN LUÔN CHẠY
+// ========================================================
 try
 {
     using var scope = app.Services.CreateScope();
@@ -269,24 +283,28 @@ catch (Exception ex)
     migLogger.LogWarning(ex, "Database migration skipped because the database is unavailable.");
 }
 
+try
+{
+    using var scope = app.Services.CreateScope();
+    var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
+    // Truyền tham số true để bắt buộc Seed dữ liệu mẫu trong mọi môi trường
+    await databaseMaintenance.SeedAsync(true);
+}
+catch (Exception ex)
+{
+    var seedLogger = app.Services
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Program");
+    seedLogger.LogWarning(ex, "Database seeding skipped because the database is unavailable.");
+}
+// ========================================================
+
+// 2. Swagger và Hangfire Dashboard chỉ bật ở Development
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-
-    try
-    {
-        using var scope = app.Services.CreateScope();
-        var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
-        await databaseMaintenance.SeedAsync(app.Environment.IsDevelopment());
-    }
-    catch (Exception ex)
-    {
-        var seedLogger = app.Services
-            .GetRequiredService<ILoggerFactory>()
-            .CreateLogger("Program");
-        seedLogger.LogWarning(ex, "Database seeding skipped because the database is unavailable.");
-    }
+    app.UseHangfireDashboard("/hangfire");
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
@@ -303,11 +321,6 @@ app.UseCors(ApiConstants.FrontendCorsPolicy);
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
-
-if (app.Environment.IsDevelopment())
-{
-    app.UseHangfireDashboard("/hangfire");
-}
 
 app.MapControllers();
 app.Run();

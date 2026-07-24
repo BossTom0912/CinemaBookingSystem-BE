@@ -53,6 +53,7 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
                 IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[VOUCHER]') AND name = 'requiredTicketCount')
                     ALTER TABLE [VOUCHER] ADD [requiredTicketCount] INT NULL;
 
+                -- Gán giá trị mặc định cho các dòng dữ liệu voucher đã tồn tại trước đó
                 UPDATE [VOUCHER] SET [category] = 'EVENT' WHERE [category] IS NULL;
                 UPDATE [VOUCHER] SET [applicableScope] = 'TOTAL_ORDER' WHERE [applicableScope] IS NULL;
                 UPDATE [VOUCHER] SET [targetType] = 'ALL_CUSTOMERS' WHERE [targetType] IS NULL;

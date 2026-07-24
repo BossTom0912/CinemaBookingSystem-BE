@@ -33,9 +33,10 @@ Nguồn đặc tả có thứ tự ưu tiên:
 - `docs/requirements/business-rules.docx`, BR-38 đến BR-41 và BR-45 đến BR-46:
   giới hạn refund cho các trường hợp ngoài hủy suất và loại trừ việc tính tiền
   bù cho voucher này.
-- `docs/database/cinema-booking-schema.sql`: schema chuẩn khi tạo lại database.
-- `docs/database/cinema-booking-schema-upgrade.sql`: script nâng cấp giữ dữ
-  liệu cho database đang tồn tại.
+- `docs/database/cinema-booking-schema.sql`: script schema chuẩn duy nhất khi
+  tạo lại database.
+- Database đang tồn tại cần dùng EF migration hoặc data migration được review;
+  không chạy script reset để giữ dữ liệu nghiệp vụ.
 
 Các báo cáo `SCRUM-192-cancel-showtime-refund.md` và
 `SCRUM-193-customer-assisted-refund.md` là tài liệu lịch sử của chính sách cũ,
@@ -160,13 +161,8 @@ Các trường/bảng mới:
 - `COMPENSATION_TICKET`
 - `COMPENSATION_COMBO`
 
-Triển khai database đang có dữ liệu bằng:
-
-```powershell
-sqlcmd -S <server> -d master -E -b -i docs\database\cinema-booking-schema-upgrade.sql
-```
-
-Hoặc áp dụng migration:
+Triển khai database đang có dữ liệu bằng EF migration hoặc một data migration
+được review. Ví dụ áp dụng migration:
 
 ```powershell
 dotnet ef database update --project CinemaSystem.Infrastructure --startup-project CinemaSystem

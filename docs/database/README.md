@@ -1,42 +1,31 @@
 # Database scripts
 
-Thư mục này chỉ có hai script schema chuẩn. Không chạy các patch feature rời
-hoặc copy từng đoạn SQL từ báo cáo cũ.
+Thư mục này có **một script schema chuẩn**:
+[`cinema-booking-schema.sql`](cinema-booking-schema.sql). Không chạy patch
+feature rời hoặc copy từng đoạn SQL từ báo cáo cũ.
 
-## Chọn đúng script
+Script xóa toàn bộ database `CinemaBookingDB`, sau đó tạo lại đầy đủ bảng,
+khóa ngoại, constraint, index và seed chuẩn. Không dùng trên shared, staging
+hoặc production database nếu chưa có backup và phê duyệt xóa dữ liệu.
 
-| Trường hợp | Script | Ảnh hưởng dữ liệu |
-|---|---|---|
-| Tạo mới database local/demo | [`cinema-booking-schema.sql`](cinema-booking-schema.sql) | **Xóa toàn bộ database `CinemaBookingDB` hiện có**, sau đó tạo lại schema và seed chuẩn. |
-| Nâng cấp database đang dùng | [`cinema-booking-schema-upgrade.sql`](cinema-booking-schema-upgrade.sql) | Giữ dữ liệu nghiệp vụ; chỉ thêm/sửa schema theo các guard idempotent và thêm dữ liệu tham chiếu khi thiếu. |
-
-> Không dùng script reset trên shared, staging hay production database nếu chưa
-> có backup và phê duyệt xóa dữ liệu.
+Database đang có dữ liệu cần giữ không được chạy script này. Hãy dùng một data
+migration được review riêng cho đúng trạng thái database đó.
 
 ## Chạy bằng SQL Server
 
 Chạy từ thư mục gốc repository. Tùy môi trường, thay `-E` bằng thông tin xác
 thực SQL Server phù hợp.
 
-### 1. Reset toàn bộ database local
+### Reset toàn bộ database local/demo
 
 ```powershell
 sqlcmd -S . -E -b -f 65001 -i "docs\database\cinema-booking-schema.sql"
 ```
 
 Script tạo lại `CinemaBookingDB`, toàn bộ bảng, khóa ngoại, index, constraint
-và seed tham chiếu mặc định.
-
-### 2. Nâng cấp, không xóa dữ liệu
-
-```powershell
-sqlcmd -S . -d CinemaBookingDB -E -b -f 65001 -i "docs\database\cinema-booking-schema-upgrade.sql"
-```
-
-Script có guard `IF OBJECT_ID`, `COL_LENGTH` và kiểm tra index/constraint để
-có thể chạy lại. Nó bao gồm các thay đổi đang được hỗ trợ như checkout,
-ticket scan, customer voucher, refund/manual-refund, banner, F&B fulfillment
-và cancellation-compensation voucher.
+và seed chuẩn; bao gồm checkout, ticket scan, customer voucher,
+refund/manual-refund, banner, F&B fulfillment và cancellation-compensation
+voucher.
 
 Sau khi chạy, xác minh nhanh:
 
@@ -47,6 +36,7 @@ WHERE [name] IN
 (
     N'BANNER',
     N'CUSTOMER_VOUCHER',
+    N'REFUND_CUSTOMER_CONFIRMATION',
     N'CANCELLATION_COMPENSATION',
     N'COMPENSATION_TICKET',
     N'COMPENSATION_COMBO'
@@ -77,11 +67,8 @@ vậy, không chạy chúng vào production.
 
 ## Quy tắc bảo trì
 
-- Thêm thay đổi schema mới vào **cả hai** script chuẩn khi thay đổi hỗ trợ cả
-  database mới lẫn database đang tồn tại.
-- Script upgrade không được chứa `DROP DATABASE`, `DROP TABLE`, `DELETE` hay
-  `TRUNCATE` dữ liệu nghiệp vụ.
-- Seed reference phải idempotent; seed fixture test phải giữ tách khỏi script
-  upgrade.
-- Khi một patch feature đã được gộp vào hai script chuẩn, xóa patch rời để
-  tránh người khác chạy trùng hoặc dùng schema cũ.
+- Thêm thay đổi schema mới vào `cinema-booking-schema.sql`; không tạo patch
+  feature rời.
+- Seed fixture test phải giữ tách khỏi script schema chuẩn.
+- Khi một patch feature đã được gộp vào script chuẩn, xóa patch rời để tránh
+  người khác chạy trùng hoặc dùng schema cũ.
