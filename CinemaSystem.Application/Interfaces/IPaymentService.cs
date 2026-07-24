@@ -7,7 +7,8 @@ public interface IPaymentService
     Task<CreatePaymentResponse> CreatePaymentAsync(
         CreatePaymentRequest request,
         string userId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? clientIpAddress = null);
 
     Task ConfirmPaymentAsync(
         string transactionContent,

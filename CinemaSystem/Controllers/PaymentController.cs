@@ -39,6 +39,9 @@ public class PaymentController : ControllerBase
     // POST /api/payment
     [HttpPost]
     [Authorize(Policy = AuthConstants.Policies.CanPayOnline)]
+    [ProducesResponseType(
+        typeof(ApiResponse<CreatePaymentResponse>),
+        StatusCodes.Status200OK)]
     public async Task<IActionResult> CreatePayment([FromBody] CreatePaymentRequest request, CancellationToken cancellationToken)
     {
         var userId = GetUserId();
@@ -54,7 +57,8 @@ public class PaymentController : ControllerBase
         var response = await _paymentService.CreatePaymentAsync(
             request.MapTo<Contracts.Payments.CreatePaymentRequest>(),
             userId,
-            cancellationToken);
+            cancellationToken,
+            HttpContext.Connection.RemoteIpAddress?.ToString());
 
         // PaymentService xử lý DB xong thì DTO quay lại đây. Bước nghiệp vụ sau
         // đó không ở request này: SePay sẽ gọi endpoint webhook bên dưới.

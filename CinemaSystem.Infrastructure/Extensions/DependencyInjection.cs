@@ -8,6 +8,7 @@ using CinemaSystem.Infrastructure.Email;
 using CinemaSystem.Infrastructure.Identity;
 using CinemaSystem.Infrastructure.Movies;
 using CinemaSystem.Infrastructure.Persistence;
+using CinemaSystem.Infrastructure.Payments;
 using CinemaSystem.Infrastructure.Rooms;
 using CinemaSystem.Infrastructure.Refunds;
 using CinemaSystem.Infrastructure.Security;
@@ -305,9 +306,59 @@ public static class DependencyInjection
             .Validate(options => !string.IsNullOrWhiteSpace(options.BankAccount), "SePay bank account is required.")
             .ValidateOnStart();
 
+        services.AddOptions<VnPaySettings>()
+            .Configure(options =>
+            {
+                options.Enabled = ReadBool(
+                    configuration[$"{VnPaySettings.SectionName}:Enabled"],
+                    options.Enabled);
+                options.TmnCode =
+                    configuration[$"{VnPaySettings.SectionName}:TmnCode"] ?? string.Empty;
+                options.HashSecret =
+                    configuration[$"{VnPaySettings.SectionName}:HashSecret"] ?? string.Empty;
+                options.PaymentUrl =
+                    configuration[$"{VnPaySettings.SectionName}:PaymentUrl"] ?? string.Empty;
+                options.ReturnUrl =
+                    configuration[$"{VnPaySettings.SectionName}:ReturnUrl"] ?? string.Empty;
+                options.PreferredBankCode =
+                    configuration[$"{VnPaySettings.SectionName}:PreferredBankCode"];
+                options.Locale = ReadString(
+                    configuration[$"{VnPaySettings.SectionName}:Locale"],
+                    options.Locale);
+                options.OrderType = ReadString(
+                    configuration[$"{VnPaySettings.SectionName}:OrderType"],
+                    options.OrderType);
+            })
+            .Validate(
+                options => !options.Enabled || !string.IsNullOrWhiteSpace(options.TmnCode),
+                "VNPAY terminal code is required when VNPAY is enabled.")
+            .Validate(
+                options => !options.Enabled
+                    || SecretSettingsValidator.IsConfigured(options.HashSecret, 16),
+                "VNPAY hash secret must be configured when VNPAY is enabled.")
+            .Validate(
+                options => !options.Enabled
+                    || Uri.TryCreate(options.PaymentUrl, UriKind.Absolute, out _),
+                "VNPAY payment URL must be absolute when VNPAY is enabled.")
+            .Validate(
+                options => !options.Enabled
+                    || Uri.TryCreate(options.ReturnUrl, UriKind.Absolute, out _),
+                "VNPAY return URL must be absolute when VNPAY is enabled.")
+            .Validate(
+                options => !options.Enabled || !string.IsNullOrWhiteSpace(options.Locale),
+                "VNPAY locale is required when VNPAY is enabled.")
+            .Validate(
+                options => !options.Enabled || !string.IsNullOrWhiteSpace(options.OrderType),
+                "VNPAY order type is required when VNPAY is enabled.")
+            .ValidateOnStart();
+
         services.AddSingleton<HmacVerifyHelper>();
+        services.AddSingleton<VnPayGateway>();
+        services.AddSingleton<IPaymentGateway>(
+            provider => provider.GetRequiredService<VnPayGateway>());
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IPaymentWebhookService, PaymentWebhookService>();
+        services.AddScoped<IVnPayCallbackService, VnPayCallbackService>();
         services.AddScoped<ICinemaDiagnosticsService, CinemaDiagnosticsService>();
         services.AddScoped<IDatabaseMaintenanceService, DatabaseMaintenanceService>();
         services.AddSingleton<IWebhookSignatureVerifier, HmacVerifyHelper>();
