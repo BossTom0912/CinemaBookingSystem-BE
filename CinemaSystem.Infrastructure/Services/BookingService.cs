@@ -1236,7 +1236,7 @@ public sealed class BookingService : IBookingService
 
     private static string BuildSeatLockKey(string showtimeId, string seatId)
     {
-        return $"seat-lock:{showtimeId}:{seatId}";
+        return DomainConstants.SeatLock.BuildKey(showtimeId, seatId);
     }
 
     private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);

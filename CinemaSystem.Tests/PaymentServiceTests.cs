@@ -1,4 +1,5 @@
 using CinemaSystem.Contracts.Payments;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
@@ -85,6 +86,40 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task CreatePayment_VnPayProvider_ReturnsGatewayCheckoutUrl()
+    {
+        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        gateway.SetupGet(item => item.ProviderName).Returns("VNPAY");
+        gateway
+            .Setup(item => item.CreateCheckoutUrl(
+                It.Is<PaymentGatewayCheckoutRequest>(request =>
+                    request.Amount == 120000m
+                    && request.ClientIpAddress == "203.0.113.10")))
+            .Returns("https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?signed=true");
+
+        var fixture = Fixture.Create(paymentGateways: [gateway.Object]);
+        await fixture.SeedPendingBookingAsync();
+        var provider = await fixture.DbContext.PaymentProviders.SingleAsync();
+        provider.ProviderName = "VNPAY";
+        await fixture.DbContext.SaveChangesAsync();
+
+        var result = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST",
+            clientIpAddress: "203.0.113.10");
+
+        Assert.Equal("VNPAY", result.PaymentProviderName);
+        Assert.NotNull(result.CheckoutUrl);
+        Assert.Empty(result.BankName);
+        Assert.Empty(result.BankAccount);
+        gateway.VerifyAll();
+    }
+
+    [Fact]
     public async Task CreatePayment_BookingOwnedByAnotherCustomer_ThrowsUnauthorized()
     {
         var fixture = Fixture.Create();
@@ -143,7 +178,9 @@ public sealed class PaymentServiceTests
 
         public PaymentService Service { get; }
 
-        public static Fixture Create(decimal? paymentAmountOverride = null)
+        public static Fixture Create(
+            decimal? paymentAmountOverride = null,
+            IEnumerable<IPaymentGateway>? paymentGateways = null)
         {
             var options = new DbContextOptionsBuilder<CinemaDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -174,7 +211,8 @@ public sealed class PaymentServiceTests
                     dbContext,
                     Options.Create(new CancellationCompensationSettings()),
                     new CinemaSystem.Infrastructure.Time.SystemClock()),
-                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()));
+                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()),
+                paymentGateways ?? Array.Empty<IPaymentGateway>());
 
             return new Fixture(dbContext, service);
         }

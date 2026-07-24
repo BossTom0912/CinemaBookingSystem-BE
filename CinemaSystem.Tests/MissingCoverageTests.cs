@@ -1402,7 +1402,8 @@ public sealed class PaymentServiceMissingCoverageTests
                     Microsoft.Extensions.Options.Options.Create(
                         new CancellationCompensationSettings()),
                     new CinemaSystem.Infrastructure.Time.SystemClock()),
-                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()));
+                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()),
+                Array.Empty<IPaymentGateway>());
             return new Fixture(dbContext, service);
         }
 
