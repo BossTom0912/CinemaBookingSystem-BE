@@ -35,7 +35,7 @@ public partial class LinkVoucherUsageToCustomerVoucher : Migration
                     MIN(claim.[customerVoucherId]) AS [customerVoucherId]
                 FROM dbo.[VOUCHER_USAGE] AS usage
                 INNER JOIN dbo.[CUSTOMER_VOUCHER] AS claim
-                    ON claim.[voucherId] = usage.[voucherId]
+                    ON claim.[voucherId] = usage.[voucherId]    
                    AND claim.[customerProfileId] = usage.[customerProfileId]
                    AND claim.[isUsed] = 1
                 WHERE usage.[customerVoucherId] IS NULL

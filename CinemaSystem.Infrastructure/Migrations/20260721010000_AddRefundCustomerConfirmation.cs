@@ -1,9 +1,12 @@
+using CinemaSystem.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace CinemaSystem.Infrastructure.Migrations;
 
+[DbContext(typeof(CinemaDbContext))]
 [Migration("20260721010000_AddRefundCustomerConfirmation")]
 public partial class AddRefundCustomerConfirmation : Migration
 {

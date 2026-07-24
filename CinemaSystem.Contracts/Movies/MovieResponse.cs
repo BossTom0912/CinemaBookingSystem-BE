@@ -14,6 +14,8 @@ public sealed class MovieResponse
 
     public string MovieStatus { get; init; } = string.Empty;
 
+    public bool HasUpcomingOpenShowtime { get; init; }
+
     public string? ImagePoster { get; init; }
 
     public string? ImageBanner { get; init; }
