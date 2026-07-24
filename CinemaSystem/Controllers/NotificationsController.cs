@@ -18,10 +18,26 @@ namespace CinemaSystem.Controllers;
 public sealed class NotificationsController : ControllerBase
 {
     private readonly INotificationService _notificationService;
+    private readonly IUserHeartbeatTracker _heartbeatTracker;
 
-    public NotificationsController(INotificationService notificationService)
+    public NotificationsController(
+        INotificationService notificationService,
+        IUserHeartbeatTracker heartbeatTracker)
     {
         _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
+        _heartbeatTracker = heartbeatTracker ?? throw new ArgumentNullException(nameof(heartbeatTracker));
+    }
+
+    [HttpPost("heartbeat")]
+    public IActionResult RecordHeartbeat()
+    {
+        var userId = GetUserId();
+        var email = User.FindFirstValue(ClaimTypes.Email);
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            _heartbeatTracker.RecordHeartbeat(userId, email);
+        }
+        return Ok(ApiResponse<object>.Ok(new { isOnline = true }, "Heartbeat recorded."));
     }
 
     [HttpGet]

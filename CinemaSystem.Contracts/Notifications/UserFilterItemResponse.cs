@@ -6,4 +6,6 @@ public sealed class UserFilterItemResponse
     public string FullName { get; init; } = string.Empty;
     public string Email { get; init; } = string.Empty;
     public string Role { get; init; } = string.Empty;
+    public bool IsOnline { get; init; }
+    public System.DateTime? LastActiveAt { get; init; }
 }

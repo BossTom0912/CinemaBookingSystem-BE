@@ -21,17 +21,20 @@ public sealed class NotificationService : INotificationService
     private readonly IEmailService _emailService;
     private readonly IClock _clock;
     private readonly ILogger<NotificationService> _logger;
+    private readonly IUserHeartbeatTracker _heartbeatTracker;
 
     public NotificationService(
         CinemaDbContext dbContext,
         IEmailService emailService,
         IClock clock,
-        ILogger<NotificationService> logger)
+        ILogger<NotificationService> logger,
+        IUserHeartbeatTracker heartbeatTracker)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _emailService = emailService ?? throw new ArgumentNullException(nameof(emailService));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _heartbeatTracker = heartbeatTracker ?? throw new ArgumentNullException(nameof(heartbeatTracker));
     }
 
     private static string NewId() => CinemaSystem.Domain.Utilities.IdGenerator.NewId(DomainConstants.EntityIdPrefix.Notification);
@@ -657,16 +660,26 @@ public sealed class NotificationService : INotificationService
             query = query.Where(u => movieUserIds.Contains(u.UserId));
         }
 
-        var users = await query
+        var rawUsers = await query
             .Take(100)
-            .Select(u => new UserFilterItemResponse
+            .Select(u => new
             {
-                UserId = u.UserId,
+                u.UserId,
                 FullName = u.FullName ?? string.Empty,
                 Email = u.Email ?? string.Empty,
                 Role = u.RoleId
             })
             .ToListAsync(cancellationToken);
+
+        var users = rawUsers.Select(u => new UserFilterItemResponse
+        {
+            UserId = u.UserId,
+            FullName = u.FullName,
+            Email = u.Email,
+            Role = u.Role,
+            IsOnline = _heartbeatTracker.IsUserOnline(u.UserId, u.Email),
+            LastActiveAt = _heartbeatTracker.GetLastActiveAt(u.UserId, u.Email)
+        }).ToList();
 
         return ServiceResult<IReadOnlyList<UserFilterItemResponse>>.Ok(users, $"Retrieved {users.Count} matching users.");
     }

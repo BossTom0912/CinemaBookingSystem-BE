@@ -238,6 +238,7 @@ public static class DependencyInjection
                 });
         });
 
+        services.AddSingleton<IUserHeartbeatTracker, UserHeartbeatTracker>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IAccountProvisioningService, AccountProvisioningService>();
         services.AddScoped<ICustomerService, CustomerService>();
