@@ -27,6 +27,8 @@ using Hangfire.InMemory;
 // 3) Request runtime đi tiếp: middleware -> Controller trong
 //    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
 
+Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
+
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args
