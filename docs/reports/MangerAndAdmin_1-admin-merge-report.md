@@ -28,9 +28,10 @@ The final integrated solution:
   `CinemaBookingDB`;
 - preserves the Manager cinema-scope and customer-assisted refund use cases.
 
-The pre-existing untracked file
-`docs/database/CancelPerformanceAndGenerateDataRefund_Admin_DB_Changes.txt`
-was inspected and preserved, but was not overwritten or staged.
+The former standalone database note was consolidated and removed during the
+2026-07-24 documentation cleanup. The current handoff is
+`docs/reports/README.md`; the supported schema is
+`docs/database/cinema-booking-schema.sql`.
 
 ## 2. Documents used
 
