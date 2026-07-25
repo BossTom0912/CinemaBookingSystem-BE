@@ -69,12 +69,32 @@ public class PaymentController : ControllerBase
 
     // POST /api/payment/sepay-webhook
     [HttpPost(ApiConstants.SepayWebhookRouteSegment)]
+    [AllowAnonymous]
     public async Task<IActionResult> SepayWebhook(
-        [FromBody] JsonElement payload,
+        [FromBody] JsonElement payload = default,
         [FromHeader(Name = "x-sepay-signature")] string? signatureHeader = null,
         [FromHeader(Name = "x-sepay-timestamp")] string? timestampHeader = null)
     {
-        var body = payload.GetRawText();
+        string body = string.Empty;
+        if (Request?.Body is not null && Request.Body.CanRead)
+        {
+            Request.EnableBuffering();
+            if (Request.Body.CanSeek)
+            {
+                Request.Body.Position = 0;
+            }
+            using var reader = new System.IO.StreamReader(Request.Body, System.Text.Encoding.UTF8, leaveOpen: true);
+            body = await reader.ReadToEndAsync();
+            if (Request.Body.CanSeek)
+            {
+                Request.Body.Position = 0;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(body) && payload.ValueKind != JsonValueKind.Undefined && payload.ValueKind != JsonValueKind.Null)
+        {
+            body = payload.GetRawText();
+        }
 
         // Bước tiếp theo 1: IPaymentWebhookService -> PaymentWebhookService tại
         // Infrastructure/Services để kiểm header, parse payload và gọi

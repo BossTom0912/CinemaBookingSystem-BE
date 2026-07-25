@@ -211,44 +211,36 @@ public sealed class RequestedFlowApiIntegrationTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+
+        if (await db.Cinemas.FindAsync("CIN_FLOW") is not null)
+        {
+            return;
+        }
         var now = DateTime.UtcNow;
 
-        db.Roles.AddRange(
-            new Role
+        foreach (var (roleId, roleName, desc) in new[]
+        {
+            (AuthConstants.RoleIds.Admin, AuthConstants.Roles.Admin, "Admin"),
+            (AuthConstants.RoleIds.Customer, AuthConstants.Roles.Customer, "Customer")
+        })
+        {
+            if (!db.Roles.Local.Any(r => r.RoleId == roleId) && !db.Roles.Any(r => r.RoleId == roleId))
             {
-                RoleId = AuthConstants.RoleIds.Admin,
-                RoleName = AuthConstants.Roles.Admin,
-                Description = "Admin"
-            },
-            new Role
+                db.Roles.Add(new Role { RoleId = roleId, RoleName = roleName, Description = desc });
+            }
+        }
+
+        foreach (var user in new[]
+        {
+            new User { UserId = "USR_TEST_ADMIN", RoleId = AuthConstants.RoleIds.Admin, Email = "admin@test.com", PasswordHash = "HASH", FullName = "Test Admin", Status = AuthConstants.UserStatus.Active, EmailVerified = true, CreatedAt = now },
+            new User { UserId = "USR_FLOW_CUSTOMER", RoleId = AuthConstants.RoleIds.Customer, Email = "flow-customer@test.com", PasswordHash = "HASH", FullName = "Flow Customer", Status = AuthConstants.UserStatus.Active, EmailVerified = true, CreatedAt = now }
+        })
+        {
+            if (!db.Users.Local.Any(u => u.UserId == user.UserId) && !db.Users.Any(u => u.UserId == user.UserId))
             {
-                RoleId = AuthConstants.RoleIds.Customer,
-                RoleName = AuthConstants.Roles.Customer,
-                Description = "Customer"
-            });
-        db.Users.AddRange(
-            new User
-            {
-                UserId = "USR_TEST_ADMIN",
-                RoleId = AuthConstants.RoleIds.Admin,
-                Email = "admin@test.com",
-                PasswordHash = "HASH",
-                FullName = "Test Admin",
-                Status = AuthConstants.UserStatus.Active,
-                EmailVerified = true,
-                CreatedAt = now
-            },
-            new User
-            {
-                UserId = "USR_FLOW_CUSTOMER",
-                RoleId = AuthConstants.RoleIds.Customer,
-                Email = "flow-customer@test.com",
-                PasswordHash = "HASH",
-                FullName = "Flow Customer",
-                Status = AuthConstants.UserStatus.Active,
-                EmailVerified = true,
-                CreatedAt = now
-            });
+                db.Users.Add(user);
+            }
+        }
         db.CustomerProfiles.Add(new CustomerProfile
         {
             CustomerProfileId = "CUS_FLOW",

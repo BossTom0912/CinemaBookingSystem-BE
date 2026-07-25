@@ -444,22 +444,28 @@ public sealed class TicketScanApiIntegrationTests
                 now.AddMinutes(ScanWindow.LateShowtimeStartOffsetMinutes),
                 now.AddMinutes(ScanWindow.LateShowtimeEndOffsetMinutes));
 
-            db.Roles.Add(new Role
+            if (!db.Roles.Any(r => r.RoleId == AuthConstants.RoleIds.Admin))
             {
-                RoleId = AuthConstants.RoleIds.Admin,
-                RoleName = AuthConstants.Roles.Admin
-            });
-            db.Users.Add(new User
+                db.Roles.Add(new Role
+                {
+                    RoleId = AuthConstants.RoleIds.Admin,
+                    RoleName = AuthConstants.Roles.Admin
+                });
+            }
+            if (!db.Users.Any(u => u.UserId == TestUsers.Admin))
             {
-                UserId = TestUsers.Admin,
-                RoleId = AuthConstants.RoleIds.Admin,
-                Email = "ticket-admin@test.com",
-                PasswordHash = "TEST_HASH",
-                FullName = "Ticket Admin",
-                Status = AuthConstants.UserStatus.Active,
-                EmailVerified = true,
-                CreatedAt = now
-            });
+                db.Users.Add(new User
+                {
+                    UserId = TestUsers.Admin,
+                    RoleId = AuthConstants.RoleIds.Admin,
+                    Email = "ticket-admin@test.com",
+                    PasswordHash = "TEST_HASH",
+                    FullName = "Ticket Admin",
+                    Status = AuthConstants.UserStatus.Active,
+                    EmailVerified = true,
+                    CreatedAt = now
+                });
+            }
 
             await db.SaveChangesAsync();
         }

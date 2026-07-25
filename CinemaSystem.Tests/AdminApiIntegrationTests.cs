@@ -235,99 +235,66 @@ public sealed class AdminApiIntegrationTests
             CinemaStatus = DomainConstants.CinemaStatus.Active
         });
 
-        db.Roles.AddRange(
-            new Role
-            {
-                RoleId = AuthConstants.RoleIds.Customer,
-                RoleName = AuthConstants.Roles.Customer,
-                Description = "Customer"
-            },
-            new Role
-            {
-                RoleId = AuthConstants.RoleIds.Staff,
-                RoleName = AuthConstants.Roles.Staff,
-                Description = "Staff"
-            },
-            new Role
-            {
-                RoleId = AuthConstants.RoleIds.Manager,
-                RoleName = AuthConstants.Roles.Manager,
-                Description = "Manager"
-            },
-            new Role
-            {
-                RoleId = AuthConstants.RoleIds.Admin,
-                RoleName = AuthConstants.Roles.Admin,
-                Description = "Admin"
-            });
-
-        db.RoleProvisioningPolicies.AddRange(
-            new RoleProvisioningPolicy
-            {
-                RoleId = AuthConstants.RoleIds.Customer,
-                ProfileKind = DomainConstants.AccountProfileKind.Customer,
-                RequiresCinema = false,
-                IsActive = true,
-                IsPublicRegistrationAllowed = true
-            },
-            new RoleProvisioningPolicy
-            {
-                RoleId = AuthConstants.RoleIds.Staff,
-                ProfileKind = DomainConstants.AccountProfileKind.Staff,
-                RequiresCinema = true,
-                DefaultStaffPosition = "Staff",
-                IsActive = true,
-                IsPublicRegistrationAllowed = false
-            },
-            new RoleProvisioningPolicy
-            {
-                RoleId = AuthConstants.RoleIds.Manager,
-                ProfileKind = DomainConstants.AccountProfileKind.Staff,
-                RequiresCinema = true,
-                DefaultStaffPosition = "Manager",
-                IsActive = true,
-                IsPublicRegistrationAllowed = false
-            },
-            new RoleProvisioningPolicy
-            {
-                RoleId = AuthConstants.RoleIds.Admin,
-                ProfileKind = DomainConstants.AccountProfileKind.None,
-                RequiresCinema = false,
-                IsActive = true,
-                IsPublicRegistrationAllowed = false
-            });
-
-        db.RoleAssignmentRules.AddRange(
-            new RoleAssignmentRule
-            {
-                GrantorRoleId = AuthConstants.RoleIds.Admin,
-                GranteeRoleId = AuthConstants.RoleIds.Customer,
-                IsActive = true
-            },
-            new RoleAssignmentRule
-            {
-                GrantorRoleId = AuthConstants.RoleIds.Admin,
-                GranteeRoleId = AuthConstants.RoleIds.Staff,
-                IsActive = true
-            },
-            new RoleAssignmentRule
-            {
-                GrantorRoleId = AuthConstants.RoleIds.Admin,
-                GranteeRoleId = AuthConstants.RoleIds.Manager,
-                IsActive = true
-            });
-
-        db.Users.Add(new User
+        foreach (var (roleId, roleName) in new[]
         {
-            UserId = "USR_TEST_ADMIN",
-            RoleId = AuthConstants.RoleIds.Admin,
-            Email = "admin@test.com",
-            PasswordHash = "test-hash",
-            FullName = "Test Admin",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = DateTime.UtcNow
-        });
+            (AuthConstants.RoleIds.Customer, AuthConstants.Roles.Customer),
+            (AuthConstants.RoleIds.Staff, AuthConstants.Roles.Staff),
+            (AuthConstants.RoleIds.Manager, AuthConstants.Roles.Manager),
+            (AuthConstants.RoleIds.Admin, AuthConstants.Roles.Admin)
+        })
+        {
+            if (!db.Roles.Any(r => r.RoleId == roleId))
+            {
+                db.Roles.Add(new Role
+                {
+                    RoleId = roleId,
+                    RoleName = roleName,
+                    Description = roleName
+                });
+            }
+        }
+
+        foreach (var policy in new[]
+        {
+            new RoleProvisioningPolicy { RoleId = AuthConstants.RoleIds.Customer, ProfileKind = DomainConstants.AccountProfileKind.Customer, RequiresCinema = false, IsActive = true, IsPublicRegistrationAllowed = true },
+            new RoleProvisioningPolicy { RoleId = AuthConstants.RoleIds.Staff, ProfileKind = DomainConstants.AccountProfileKind.Staff, RequiresCinema = true, DefaultStaffPosition = "Staff", IsActive = true, IsPublicRegistrationAllowed = false },
+            new RoleProvisioningPolicy { RoleId = AuthConstants.RoleIds.Manager, ProfileKind = DomainConstants.AccountProfileKind.Staff, RequiresCinema = true, DefaultStaffPosition = "Manager", IsActive = true, IsPublicRegistrationAllowed = false },
+            new RoleProvisioningPolicy { RoleId = AuthConstants.RoleIds.Admin, ProfileKind = DomainConstants.AccountProfileKind.None, RequiresCinema = false, IsActive = true, IsPublicRegistrationAllowed = false }
+        })
+        {
+            if (!db.RoleProvisioningPolicies.Any(p => p.RoleId == policy.RoleId))
+            {
+                db.RoleProvisioningPolicies.Add(policy);
+            }
+        }
+
+        foreach (var rule in new[]
+        {
+            new RoleAssignmentRule { GrantorRoleId = AuthConstants.RoleIds.Admin, GranteeRoleId = AuthConstants.RoleIds.Customer, IsActive = true },
+            new RoleAssignmentRule { GrantorRoleId = AuthConstants.RoleIds.Admin, GranteeRoleId = AuthConstants.RoleIds.Staff, IsActive = true },
+            new RoleAssignmentRule { GrantorRoleId = AuthConstants.RoleIds.Admin, GranteeRoleId = AuthConstants.RoleIds.Manager, IsActive = true }
+        })
+        {
+            if (!db.RoleAssignmentRules.Any(r => r.GrantorRoleId == rule.GrantorRoleId && r.GranteeRoleId == rule.GranteeRoleId))
+            {
+                db.RoleAssignmentRules.Add(rule);
+            }
+        }
+
+        if (!db.Users.Any(u => u.UserId == "USR_TEST_ADMIN"))
+        {
+            db.Users.Add(new User
+            {
+                UserId = "USR_TEST_ADMIN",
+                RoleId = AuthConstants.RoleIds.Admin,
+                Email = "admin@test.com",
+                PasswordHash = "test-hash",
+                FullName = "Test Admin",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
 
         await db.SaveChangesAsync();
     }
@@ -336,17 +303,31 @@ public sealed class AdminApiIntegrationTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        db.Users.Add(new User
+
+        if (!db.Roles.Any(r => r.RoleId == AuthConstants.RoleIds.Customer))
         {
-            UserId = "USR_EXISTING",
-            RoleId = AuthConstants.RoleIds.Customer,
-            Email = email,
-            PasswordHash = "hash",
-            FullName = "Existing",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
+            db.Roles.Add(new Role
+            {
+                RoleId = AuthConstants.RoleIds.Customer,
+                RoleName = AuthConstants.Roles.Customer,
+                Description = "Customer"
+            });
+        }
+
+        if (!db.Users.Any(u => u.UserId == "USR_EXISTING"))
+        {
+            db.Users.Add(new User
+            {
+                UserId = "USR_EXISTING",
+                RoleId = AuthConstants.RoleIds.Customer,
+                Email = email,
+                PasswordHash = "hash",
+                FullName = "Existing",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
     }
 }

@@ -224,17 +224,18 @@ public static class DependencyInjection
                 "Missing connection string 'DefaultConnection'. Add 'ConnectionStrings: { \"DefaultConnection\": \"...\" }' to appsettings.json or appsettings.{Environment}.json in the CinemaSystem project.");
         }
 
+        // Đã đổi từ UseSqlServer sang UseNpgsql tại đây
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseSqlServer(
+            options.UseNpgsql(
                 defaultConnection,
-                sqlOptions =>
+                npgsqlOptions =>
                 {
-                    sqlOptions.EnableRetryOnFailure(
+                    npgsqlOptions.EnableRetryOnFailure(
                         maxRetryCount: 1,
                         maxRetryDelay: TimeSpan.FromSeconds(2),
-                        errorNumbersToAdd: null);
-                    sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                        errorCodesToAdd: null);
+                    npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 });
         });
 
@@ -281,24 +282,14 @@ public static class DependencyInjection
         services.AddSingleton<IOtpGenerator, CryptoOtpGenerator>();
         services.AddSingleton<IClock, SystemClock>();
 
-        // Register Sepay settings and payment related services
-        var sepaySection = configuration.GetSection(SepaySettings.SectionName);
-        // Manually read Sepay settings and register so project doesn't rely on IConfiguration binder extensions
-        var sepaySettings = new SepaySettings();
-        // Lightweight binding without IConfigurationBinder extension to avoid extra package references
-        sepaySettings.WebhookSecret = sepaySection["WebhookSecret"] ?? string.Empty;
-        sepaySettings.BankName = sepaySection["BankName"] ?? string.Empty;
-        sepaySettings.BankAccount = sepaySection["BankAccount"] ?? string.Empty;
-        sepaySettings.DevelopmentPaymentAmountOverride = ReadDecimal(
-            sepaySection["DevelopmentPaymentAmountOverride"]);
         services.AddOptions<SepaySettings>()
-            .Configure(options =>
+            .Configure<IConfiguration>((options, config) =>
             {
-                options.WebhookSecret = sepaySettings.WebhookSecret;
-                options.BankName = sepaySettings.BankName;
-                options.BankAccount = sepaySettings.BankAccount;
-                options.DevelopmentPaymentAmountOverride =
-                    sepaySettings.DevelopmentPaymentAmountOverride;
+                var section = config.GetSection(SepaySettings.SectionName);
+                options.WebhookSecret = section["WebhookSecret"] ?? string.Empty;
+                options.BankName = section["BankName"] ?? string.Empty;
+                options.BankAccount = section["BankAccount"] ?? string.Empty;
+                options.DevelopmentPaymentAmountOverride = ReadDecimal(section["DevelopmentPaymentAmountOverride"]);
             })
             .Validate(
                 options => SecretSettingsValidator.IsConfigured(options.WebhookSecret, 16),
@@ -395,7 +386,7 @@ public static class DependencyInjection
         services.AddScoped<ICancellationCompensationService, CancellationCompensationService>();
         services.AddScoped<IBannerService, CinemaSystem.Infrastructure.Banners.BannerService>();
         services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
-        
+
 
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieHighlightClassificationJob>();
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieBannerAutofillJob>();

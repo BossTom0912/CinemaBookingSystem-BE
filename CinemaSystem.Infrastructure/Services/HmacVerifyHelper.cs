@@ -8,20 +8,21 @@ namespace CinemaSystem.Infrastructure.Services;
 
 public sealed class HmacVerifyHelper : IWebhookSignatureVerifier
 {
-    private readonly SepaySettings _settings;
+    private readonly IOptionsMonitor<SepaySettings> _optionsMonitor;
 
-    public HmacVerifyHelper(IOptions<SepaySettings> options)
+    public HmacVerifyHelper(IOptionsMonitor<SepaySettings> optionsMonitor)
     {
-        _settings = options.Value;
+        _optionsMonitor = optionsMonitor;
     }
 
     // Verify signature using timestamp.payload and secret key (sha256)
     public bool Verify(string signature, string timestamp, string payload)
     {
         if (string.IsNullOrEmpty(signature) || string.IsNullOrEmpty(timestamp)) return false;
-        if (string.IsNullOrWhiteSpace(_settings.WebhookSecret)) return false;
 
-        var secret = _settings.WebhookSecret ?? string.Empty;
+        var secret = _optionsMonitor.CurrentValue.WebhookSecret;
+        if (string.IsNullOrWhiteSpace(secret)) return false;
+
         var expectedRaw = timestamp + "." + payload;
         var expectedHash = ComputeHmacSha256(expectedRaw, secret);
         var expected = "sha256=" + expectedHash;
