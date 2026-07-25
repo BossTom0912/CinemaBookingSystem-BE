@@ -502,6 +502,7 @@ public sealed class ShowtimeService : IShowtimeService
                         var newTimeStr = normalizedStartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
                         var cutoffTimeStr = normalizedStartTime.AddHours(-2).ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
                         var bookingId = booking.BookingId;
+                        var customerName = booking.CustomerProfile?.User?.FullName;
                         
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
                             ai.SendAiTimeChangeEmailAsync(
@@ -515,10 +516,12 @@ public sealed class ShowtimeService : IShowtimeService
                                 encodedToken, 
                                 CancellationToken.None,
                                 request.CompensationVoucherCode,
-                                request.CompensationNote));
+                                request.CompensationNote,
+                                customerName));
                     }
                     else if (roomChanged && !timeChanged)
                     {
+                        var customerName = booking.CustomerProfile?.User?.FullName;
                         string subject = "Thông báo điều chỉnh phòng chiếu & Quyền lợi dành cho Quý khách / Showtime Room Update";
                         var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
                         var timeStr = showtime.StartTime.ToString("HH:mm - dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture);
@@ -533,7 +536,8 @@ public sealed class ShowtimeService : IShowtimeService
                                 booking.BookingId, 
                                 CancellationToken.None,
                                 request.CompensationVoucherCode,
-                                request.CompensationNote));
+                                request.CompensationNote,
+                                customerName));
                     }
                     else
                     {
@@ -802,6 +806,7 @@ public sealed class ShowtimeService : IShowtimeService
         foreach(var booking in paidBookings)
         {
             var email = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            var customerName = booking.CustomerProfile?.User?.FullName;
             
             if (!string.IsNullOrEmpty(email))
             {
@@ -820,7 +825,8 @@ public sealed class ShowtimeService : IShowtimeService
                         booking.BookingId, 
                         CancellationToken.None,
                         request.CompensationVoucherCode,
-                        request.CompensationNote));
+                        request.CompensationNote,
+                        customerName));
             }
         }
 

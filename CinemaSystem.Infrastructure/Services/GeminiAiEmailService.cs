@@ -145,10 +145,11 @@ public class GeminiAiEmailService : IAiEmailService
         string token,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null)
+        string? compensationNote = null,
+        string? customerName = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh giờ chiếu phim \"{movieTitle}\" (Mã vé: #{bookingId})";
-        const string displayName = "Quý khách";
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
 
         var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
             ? "http://localhost:5173"
@@ -371,10 +372,11 @@ public class GeminiAiEmailService : IAiEmailService
         string bookingId,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null)
+        string? compensationNote = null,
+        string? customerName = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh phòng chiếu - Mã vé: #{bookingId}";
-        const string displayName = "Quý khách";
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
 
         var compParts = new List<string>();
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode)) compParts.Add($"Voucher: [{compensationVoucherCode.Trim()}]");

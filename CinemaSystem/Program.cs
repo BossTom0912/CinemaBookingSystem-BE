@@ -27,21 +27,9 @@ using Hangfire.InMemory;
 // 3) Request runtime đi tiếp: middleware -> Controller trong
 //    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
 
-Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
-
-var builder = WebApplication.CreateBuilder(new WebApplicationOptions
-{
-    Args = args
-});
+var builder = WebApplication.CreateBuilder(args);
 
 // Xóa nguồn config mặc định và vô hiệu hóa reloadOnChange để tránh lỗi inotify trên Linux của Render
-builder.Configuration.Sources.Clear();
-builder.Configuration
-    .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
-    .AddEnvironmentVariables();
-
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
