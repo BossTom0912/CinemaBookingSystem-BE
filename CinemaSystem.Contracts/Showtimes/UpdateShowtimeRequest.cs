@@ -24,5 +24,4 @@ public sealed class UpdateShowtimeRequest
 
     public string? CompensationVoucherCode { get; init; }
     public string? CompensationNote { get; init; }
-    public string? TargetSeatType { get; init; }
 }

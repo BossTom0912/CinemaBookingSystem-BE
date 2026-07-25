@@ -145,12 +145,10 @@ public class GeminiAiEmailService : IAiEmailService
         string token,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null,
-        string? targetSeatType = null,
-        string? customerName = null)
+        string? compensationNote = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh giờ chiếu phim \"{movieTitle}\" (Mã vé: #{bookingId})";
-        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
+        const string displayName = "Quý khách";
 
         var baseUrl = string.IsNullOrWhiteSpace(_refundSettings.FrontendBaseUrl)
             ? "http://localhost:5173"
@@ -163,10 +161,6 @@ public class GeminiAiEmailService : IAiEmailService
             ? $"[{compensationVoucherCode.Trim()}]"
             : "—";
 
-        if (!string.IsNullOrWhiteSpace(targetSeatType))
-        {
-            compVoucherDisplayVi += $" (Ưu tiên nâng hạng ghế: {targetSeatType.Trim()})";
-        }
         if (!string.IsNullOrWhiteSpace(compensationNote))
         {
             compVoucherDisplayVi += $" ({compensationNote.Trim()})";
@@ -377,16 +371,13 @@ public class GeminiAiEmailService : IAiEmailService
         string bookingId,
         CancellationToken cancellationToken,
         string? compensationVoucherCode = null,
-        string? compensationNote = null,
-        string? targetSeatType = null,
-        string? customerName = null)
+        string? compensationNote = null)
     {
         var formattedSubject = $"[CinemaSystem] Thông báo điều chỉnh phòng chiếu - Mã vé: #{bookingId}";
-        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
+        const string displayName = "Quý khách";
 
         var compParts = new List<string>();
         if (!string.IsNullOrWhiteSpace(compensationVoucherCode)) compParts.Add($"Voucher: [{compensationVoucherCode.Trim()}]");
-        if (!string.IsNullOrWhiteSpace(targetSeatType)) compParts.Add($"Nâng hạng ghế: {targetSeatType.Trim()}");
         if (!string.IsNullOrWhiteSpace(compensationNote)) compParts.Add(compensationNote.Trim());
         var compensationText = compParts.Count > 0 ? string.Join(" | ", compParts) : "Không có";
 
