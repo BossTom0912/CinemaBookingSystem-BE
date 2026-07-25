@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using CinemaSystem.Application.Common;
@@ -126,7 +127,7 @@ public sealed class VnPayGateway : IPaymentGateway
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair =>
-                    $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+                    $"{WebUtility.UrlEncode(pair.Key)}={WebUtility.UrlEncode(pair.Value)}"));
     }
 
     private static string ComputeHmacSha512(string secret, string value)

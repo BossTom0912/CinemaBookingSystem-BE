@@ -43,7 +43,7 @@ public sealed class VnPayController : ControllerBase
                 responseCode = parameters.GetValueOrDefault("vnp_ResponseCode"),
                 transactionStatus = parameters.GetValueOrDefault("vnp_TransactionStatus")
             },
-            "VNPAY returned to the merchant. Payment status is confirmed by IPN."));
+            "VNPAY returned to the merchant. Final payment status is processed separately by IPN."));
     }
 
     private Dictionary<string, string> ReadQueryParameters()

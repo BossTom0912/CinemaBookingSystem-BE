@@ -34,7 +34,8 @@ public sealed class VnPayGatewayTests
         Assert.Equal("20260717151000", parameters["vnp_ExpireDate"]);
         Assert.Equal("T1234567890", parameters["vnp_TxnRef"]);
         Assert.Equal("https://merchant.test/api/payment/vnpay-return", parameters["vnp_ReturnUrl"]);
-        Assert.Contains("vnp_OrderInfo=Cinema%20booking%20PAY_TEST", url, StringComparison.Ordinal);
+        Assert.Contains("vnp_OrderInfo=Cinema+booking+PAY_TEST", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("%20", url, StringComparison.Ordinal);
         Assert.True(gateway.HasValidSignature(parameters));
         Assert.DoesNotContain(TestHashSecret, url, StringComparison.Ordinal);
     }
