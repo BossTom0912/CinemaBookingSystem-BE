@@ -458,6 +458,55 @@ public sealed class SeatApiIntegrationTests
       RowVersion = new byte[8]
     });
 
+    if (!dbContext.Roles.Any(r => r.RoleId == AuthConstants.RoleIds.Customer))
+    {
+      dbContext.Roles.Add(new Role
+      {
+        RoleId = AuthConstants.RoleIds.Customer,
+        RoleName = AuthConstants.Roles.Customer,
+        Description = "Customer"
+      });
+    }
+    if (!dbContext.Roles.Any(r => r.RoleId == AuthConstants.RoleIds.Staff))
+    {
+      dbContext.Roles.Add(new Role
+      {
+        RoleId = AuthConstants.RoleIds.Staff,
+        RoleName = AuthConstants.Roles.Staff,
+        Description = "Staff"
+      });
+    }
+
+    if (!dbContext.Users.Any(u => u.UserId == "USR_E2E_CUST"))
+    {
+      dbContext.Users.Add(new User
+      {
+        UserId = "USR_E2E_CUST",
+        RoleId = AuthConstants.RoleIds.Customer,
+        Email = "customer-e2e@example.com",
+        PasswordHash = "HASH",
+        FullName = "E2E Customer",
+        Status = AuthConstants.UserStatus.Active,
+        EmailVerified = true,
+        CreatedAt = DateTime.UtcNow
+      });
+    }
+
+    if (!dbContext.Users.Any(u => u.UserId == "USR_E2E_STAFF"))
+    {
+      dbContext.Users.Add(new User
+      {
+        UserId = "USR_E2E_STAFF",
+        RoleId = AuthConstants.RoleIds.Staff,
+        Email = "staff-e2e@example.com",
+        PasswordHash = "HASH",
+        FullName = "E2E Staff",
+        Status = AuthConstants.UserStatus.Active,
+        EmailVerified = true,
+        CreatedAt = DateTime.UtcNow
+      });
+    }
+
     await dbContext.SaveChangesAsync();
   }
 
@@ -511,6 +560,26 @@ public sealed class SeatApiIntegrationTests
 
         services.RemoveAll<ISeatLockStore>();
         services.AddSingleton<ISeatLockStore>(_seatLockStore);
+
+        services.PostConfigure<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(
+          Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme,
+          opts =>
+          {
+            var key = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+              System.Text.Encoding.UTF8.GetBytes(CinemaWebApplicationFactory.TestJwtSecret));
+
+            opts.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+              ValidateIssuer = true,
+              ValidIssuer = CinemaWebApplicationFactory.TestJwtIssuer,
+              ValidateAudience = true,
+              ValidAudience = CinemaWebApplicationFactory.TestJwtAudience,
+              ValidateLifetime = true,
+              ValidateIssuerSigningKey = true,
+              IssuerSigningKey = key,
+              ClockSkew = TimeSpan.Zero
+            };
+          });
       });
     }
   }

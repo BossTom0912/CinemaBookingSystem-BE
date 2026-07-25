@@ -6,8 +6,10 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
+using CinemaSystem.Application.Common;
 using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Contracts.Common;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Tests.Infrastructure;
@@ -277,37 +279,42 @@ public sealed class VoucherBookingIntegrationTests
         db.Movies.RemoveRange(db.Movies);
         db.Seats.RemoveRange(db.Seats);
         db.Rooms.RemoveRange(db.Rooms);
-        db.Cinemas.RemoveRange(db.Cinemas);
-        db.CustomerProfiles.RemoveRange(db.CustomerProfiles);
-        db.Users.RemoveRange(db.Users);
-        db.Roles.RemoveRange(db.Roles);
-        db.PaymentProviders.RemoveRange(db.PaymentProviders);
-
         await db.SaveChangesAsync();
 
-        // Seed Role, User, CustomerProfile
-        var customerRole = new Role { RoleId = "R_CUST", RoleName = "CUSTOMER" };
-        db.Roles.Add(customerRole);
+        // Seed Role, User, CustomerProfile safely
+        if (!db.Roles.Any(r => r.RoleId == AuthConstants.RoleIds.Customer))
+        {
+            db.Roles.Add(new Role
+            {
+                RoleId = AuthConstants.RoleIds.Customer,
+                RoleName = AuthConstants.Roles.Customer,
+                Description = "Customer role"
+            });
+        }
         
-        var user = new User
+        if (!db.Users.Any(u => u.UserId == "USR_TEST_CUSTOMER"))
         {
-            UserId = "USR_TEST_CUSTOMER",
-            RoleId = customerRole.RoleId,
-            Email = "customer@test.com",
-            PasswordHash = "HASH",
-            FullName = "Test Customer",
-            Status = "ACTIVE",
-            EmailVerified = true
-        };
-        db.Users.Add(user);
+            db.Users.Add(new User
+            {
+                UserId = "USR_TEST_CUSTOMER",
+                RoleId = AuthConstants.RoleIds.Customer,
+                Email = "customer@test.com",
+                PasswordHash = "HASH",
+                FullName = "Test Customer",
+                Status = DomainConstants.EntityStatus.Active,
+                EmailVerified = true
+            });
+        }
 
-        var customer = new CustomerProfile
+        if (!db.CustomerProfiles.Any(c => c.CustomerProfileId == "CUS_01"))
         {
-            CustomerProfileId = "CUS_01",
-            UserId = user.UserId,
-            MemberLevel = "STANDARD"
-        };
-        db.CustomerProfiles.Add(customer);
+            db.CustomerProfiles.Add(new CustomerProfile
+            {
+                CustomerProfileId = "CUS_01",
+                UserId = "USR_TEST_CUSTOMER",
+                MemberLevel = "STANDARD"
+            });
+        }
 
         // Seed Vouchers
         var voucher100 = new Voucher
@@ -344,7 +351,7 @@ public sealed class VoucherBookingIntegrationTests
             new CustomerVoucher
             {
                 CustomerVoucherId = "CV_100",
-                CustomerProfileId = customer.CustomerProfileId,
+                CustomerProfileId = "CUS_01",
                 VoucherId = voucher100.VoucherId,
                 ClaimedAt = DateTime.UtcNow.AddHours(-3),
                 IsUsed = false
@@ -352,7 +359,7 @@ public sealed class VoucherBookingIntegrationTests
             new CustomerVoucher
             {
                 CustomerVoucherId = "CV_10_USED",
-                CustomerProfileId = customer.CustomerProfileId,
+                CustomerProfileId = "CUS_01",
                 VoucherId = voucher10.VoucherId,
                 ClaimedAt = DateTime.UtcNow.AddHours(-3),
                 IsUsed = true,
@@ -361,7 +368,7 @@ public sealed class VoucherBookingIntegrationTests
             new CustomerVoucher
             {
                 CustomerVoucherId = "CV_10",
-                CustomerProfileId = customer.CustomerProfileId,
+                CustomerProfileId = "CUS_01",
                 VoucherId = voucher10.VoucherId,
                 ClaimedAt = DateTime.UtcNow.AddHours(-1),
                 IsUsed = false

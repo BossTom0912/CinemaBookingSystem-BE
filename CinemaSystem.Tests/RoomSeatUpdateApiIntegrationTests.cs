@@ -134,30 +134,37 @@ public sealed class RoomSeatUpdateApiIntegrationTests
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
 
-        db.Roles.AddRange(
-            new Role
-            {
-                RoleId = AuthConstants.RoleIds.Admin,
-                RoleName = AuthConstants.Roles.Admin,
-                Description = "Admin test role"
-            },
-            new Role
-            {
-                RoleId = AuthConstants.RoleIds.Manager,
-                RoleName = AuthConstants.Roles.Manager,
-                Description = "Manager test role"
-            });
-        db.Users.Add(new User
+        if (await db.Rooms.FindAsync("ROOM_RS_A") is not null)
         {
-            UserId = "USR_TEST_ADMIN",
-            RoleId = AuthConstants.RoleIds.Admin,
-            Email = "admin@test.com",
-            PasswordHash = "TEST_HASH",
-            FullName = "Test Admin",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = DateTime.UtcNow
-        });
+            return;
+        }
+
+        foreach (var (roleId, roleName, desc) in new[]
+        {
+            (AuthConstants.RoleIds.Admin, AuthConstants.Roles.Admin, "Admin test role"),
+            (AuthConstants.RoleIds.Manager, AuthConstants.Roles.Manager, "Manager test role")
+        })
+        {
+            if (!db.Roles.Local.Any(r => r.RoleId == roleId) && !db.Roles.Any(r => r.RoleId == roleId))
+            {
+                db.Roles.Add(new Role { RoleId = roleId, RoleName = roleName, Description = desc });
+            }
+        }
+
+        if (!db.Users.Local.Any(u => u.UserId == "USR_TEST_ADMIN") && !db.Users.Any(u => u.UserId == "USR_TEST_ADMIN"))
+        {
+            db.Users.Add(new User
+            {
+                UserId = "USR_TEST_ADMIN",
+                RoleId = AuthConstants.RoleIds.Admin,
+                Email = "admin@test.com",
+                PasswordHash = "TEST_HASH",
+                FullName = "Test Admin",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
         db.Cinemas.AddRange(
             new Cinema { CinemaId = "CIN_RS_A", CinemaName = "RoomSeat A", Address = "A", City = "HCM", CinemaStatus = "ACTIVE" },
             new Cinema { CinemaId = "CIN_RS_B", CinemaName = "RoomSeat B", Address = "B", City = "HCM", CinemaStatus = "ACTIVE" });

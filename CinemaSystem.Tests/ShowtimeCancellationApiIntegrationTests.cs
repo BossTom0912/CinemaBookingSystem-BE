@@ -673,228 +673,191 @@ public sealed class ShowtimeCancellationApiIntegrationTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        if (await db.Showtimes.FindAsync("SHW_CANCEL_A") is not null)
+        {
+            return;
+        }
+
         var now = DateTime.UtcNow;
 
-        db.Roles.Add(new Role
+        if (!db.Roles.Local.Any(r => r.RoleId == AuthConstants.RoleIds.Customer) && !db.Roles.Any(r => r.RoleId == AuthConstants.RoleIds.Customer))
         {
-            RoleId = AuthConstants.RoleIds.Customer,
-            RoleName = AuthConstants.Roles.Customer,
-            Description = "Customer"
-        });
-
-        db.Users.Add(new User
-        {
-            UserId = "USR_CANCEL_CUSTOMER_A",
-            RoleId = AuthConstants.RoleIds.Customer,
-            Email = "cancel-a@test.com",
-            PasswordHash = "HASH",
-            FullName = "Cancel Customer A",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = now
-        });
-        db.CustomerProfiles.Add(new CustomerProfile
-        {
-            CustomerProfileId = "CUS_CANCEL_A",
-            UserId = "USR_CANCEL_CUSTOMER_A",
-            MemberLevel = "STANDARD",
-            RewardPoints = 0
-        });
-
-        db.Users.Add(new User
-        {
-            UserId = "USR_CANCEL_CUSTOMER_B",
-            RoleId = AuthConstants.RoleIds.Customer,
-            Email = "cancel-b@test.com",
-            PasswordHash = "HASH",
-            FullName = "Cancel Customer B",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = now
-        });
-        db.CustomerProfiles.Add(new CustomerProfile
-        {
-            CustomerProfileId = "CUS_CANCEL_B",
-            UserId = "USR_CANCEL_CUSTOMER_B",
-            MemberLevel = "STANDARD",
-            RewardPoints = 0
-        });
-
-        db.Cinemas.AddRange(
-            new Cinema { CinemaId = "CIN_CANCEL_A", CinemaName = "Cancel A", Address = "A", City = "HCM", CinemaStatus = "ACTIVE" },
-            new Cinema { CinemaId = "CIN_CANCEL_B", CinemaName = "Cancel B", Address = "B", City = "HCM", CinemaStatus = "ACTIVE" });
-        db.Movies.Add(new Movie
-        {
-            MovieId = "MOV_CANCEL",
-            Title = "Cancel Movie",
-            DurationMinutes = 120,
-            AgeRating = "T13",
-            MovieStatus = "NOW_SHOWING"
-        });
-        db.SeatTypes.AddRange(
-            new SeatType
+            db.Roles.Add(new Role
             {
-                SeatTypeId = "SEAT_TYPE_CANCEL",
-                TypeName = "STANDARD",
-                ExtraFee = 0
-            },
-            new SeatType
-            {
-                SeatTypeId = "SEAT_TYPE_CANCEL_VIP",
-                TypeName = "VIP",
-                ExtraFee = 200000m
+                RoleId = AuthConstants.RoleIds.Customer,
+                RoleName = AuthConstants.Roles.Customer,
+                Description = "Customer"
             });
-        db.Rooms.AddRange(
+        }
+
+        foreach (var user in new[]
+        {
+            new User { UserId = "USR_CANCEL_CUSTOMER_A", RoleId = AuthConstants.RoleIds.Customer, Email = "cancel-a@test.com", PasswordHash = "HASH", FullName = "Cancel Customer A", Status = AuthConstants.UserStatus.Active, EmailVerified = true, CreatedAt = now },
+            new User { UserId = "USR_CANCEL_CUSTOMER_B", RoleId = AuthConstants.RoleIds.Customer, Email = "cancel-b@test.com", PasswordHash = "HASH", FullName = "Cancel Customer B", Status = AuthConstants.UserStatus.Active, EmailVerified = true, CreatedAt = now }
+        })
+        {
+            if (!db.Users.Any(u => u.UserId == user.UserId))
+            {
+                db.Users.Add(user);
+            }
+        }
+
+        foreach (var profile in new[]
+        {
+            new CustomerProfile { CustomerProfileId = "CUS_CANCEL_A", UserId = "USR_CANCEL_CUSTOMER_A", MemberLevel = "STANDARD", RewardPoints = 0 },
+            new CustomerProfile { CustomerProfileId = "CUS_CANCEL_B", UserId = "USR_CANCEL_CUSTOMER_B", MemberLevel = "STANDARD", RewardPoints = 0 }
+        })
+        {
+            if (!db.CustomerProfiles.Any(cp => cp.CustomerProfileId == profile.CustomerProfileId))
+            {
+                db.CustomerProfiles.Add(profile);
+            }
+        }
+
+        foreach (var cinema in new[]
+        {
+            new Cinema { CinemaId = "CIN_CANCEL_A", CinemaName = "Cancel A", Address = "A", City = "HCM", CinemaStatus = "ACTIVE" },
+            new Cinema { CinemaId = "CIN_CANCEL_B", CinemaName = "Cancel B", Address = "B", City = "HCM", CinemaStatus = "ACTIVE" }
+        })
+        {
+            if (!db.Cinemas.Any(c => c.CinemaId == cinema.CinemaId))
+            {
+                db.Cinemas.Add(cinema);
+            }
+        }
+
+        if (!db.Movies.Any(m => m.MovieId == "MOV_CANCEL"))
+        {
+            db.Movies.Add(new Movie { MovieId = "MOV_CANCEL", Title = "Cancel Movie", DurationMinutes = 120, AgeRating = "T13", MovieStatus = "NOW_SHOWING" });
+        }
+
+        foreach (var st in new[]
+        {
+            new SeatType { SeatTypeId = "SEAT_TYPE_CANCEL", TypeName = "STANDARD", ExtraFee = 0 },
+            new SeatType { SeatTypeId = "SEAT_TYPE_CANCEL_VIP", TypeName = "VIP", ExtraFee = 200000m }
+        })
+        {
+            if (!db.SeatTypes.Any(x => x.SeatTypeId == st.SeatTypeId))
+            {
+                db.SeatTypes.Add(st);
+            }
+        }
+
+        foreach (var room in new[]
+        {
             new Room { RoomId = "ROOM_CANCEL_A", CinemaId = "CIN_CANCEL_A", RoomName = "Room A", Capacity = 2, RoomStatus = "ACTIVE" },
-            new Room { RoomId = "ROOM_CANCEL_B", CinemaId = "CIN_CANCEL_B", RoomName = "Room B", Capacity = 1, RoomStatus = "ACTIVE" });
-        db.Seats.AddRange(
+            new Room { RoomId = "ROOM_CANCEL_B", CinemaId = "CIN_CANCEL_B", RoomName = "Room B", Capacity = 1, RoomStatus = "ACTIVE" }
+        })
+        {
+            if (!db.Rooms.Any(r => r.RoomId == room.RoomId))
+            {
+                db.Rooms.Add(room);
+            }
+        }
+
+        foreach (var seat in new[]
+        {
             new Seat { SeatId = "SEAT_CANCEL_A1", RoomId = "ROOM_CANCEL_A", SeatTypeId = "SEAT_TYPE_CANCEL", RowLabel = "A", SeatNumber = 1, SeatCode = "A1", IsActive = true },
             new Seat { SeatId = "SEAT_CANCEL_A2", RoomId = "ROOM_CANCEL_A", SeatTypeId = "SEAT_TYPE_CANCEL", RowLabel = "A", SeatNumber = 2, SeatCode = "A2", IsActive = true },
-            new Seat { SeatId = "SEAT_CANCEL_B1", RoomId = "ROOM_CANCEL_B", SeatTypeId = "SEAT_TYPE_CANCEL_VIP", RowLabel = "A", SeatNumber = 1, SeatCode = "A1", IsActive = true });
-        db.Showtimes.AddRange(
-            new Showtime
+            new Seat { SeatId = "SEAT_CANCEL_B1", RoomId = "ROOM_CANCEL_B", SeatTypeId = "SEAT_TYPE_CANCEL_VIP", RowLabel = "A", SeatNumber = 1, SeatCode = "A1", IsActive = true }
+        })
+        {
+            if (!db.Seats.Any(s => s.SeatId == seat.SeatId))
             {
-                ShowtimeId = "SHW_CANCEL_A",
-                MovieId = "MOV_CANCEL",
-                RoomId = "ROOM_CANCEL_A",
-                StartTime = now.AddDays(1),
-                EndTime = now.AddDays(1).AddHours(2),
-                BasePrice = 100000m,
-                Status = BookingConstants.ShowtimeStatus.Open,
-                CreatedAt = now
-            },
-            new Showtime
+                db.Seats.Add(seat);
+            }
+        }
+
+        foreach (var st in new[]
+        {
+            new Showtime { ShowtimeId = "SHW_CANCEL_A", MovieId = "MOV_CANCEL", RoomId = "ROOM_CANCEL_A", StartTime = now.AddDays(1), EndTime = now.AddDays(1).AddHours(2), BasePrice = 100000m, Status = BookingConstants.ShowtimeStatus.Open, CreatedAt = now },
+            new Showtime { ShowtimeId = "SHW_CANCEL_B", MovieId = "MOV_CANCEL", RoomId = "ROOM_CANCEL_B", StartTime = now.AddDays(1), EndTime = now.AddDays(1).AddHours(2), BasePrice = 100000m, Status = BookingConstants.ShowtimeStatus.Open, CreatedAt = now },
+            new Showtime { ShowtimeId = "SHW_CANCEL_EMPTY", MovieId = "MOV_CANCEL", RoomId = "ROOM_CANCEL_A", StartTime = now.AddDays(2), EndTime = now.AddDays(2).AddHours(2), BasePrice = 100000m, Status = BookingConstants.ShowtimeStatus.Open, CreatedAt = now },
+            new Showtime { ShowtimeId = "SHW_CANCEL_EMPTY_B", MovieId = "MOV_CANCEL", RoomId = "ROOM_CANCEL_B", StartTime = now.AddDays(3), EndTime = now.AddDays(3).AddHours(2), BasePrice = 100000m, Status = BookingConstants.ShowtimeStatus.Open, CreatedAt = now }
+        })
+        {
+            if (!db.Showtimes.Any(s => s.ShowtimeId == st.ShowtimeId))
             {
-                ShowtimeId = "SHW_CANCEL_B",
-                MovieId = "MOV_CANCEL",
-                RoomId = "ROOM_CANCEL_B",
-                StartTime = now.AddDays(1),
-                EndTime = now.AddDays(1).AddHours(2),
-                BasePrice = 100000m,
-                Status = BookingConstants.ShowtimeStatus.Open,
-                CreatedAt = now
-            },
-            new Showtime
-            {
-                ShowtimeId = "SHW_CANCEL_EMPTY",
-                MovieId = "MOV_CANCEL",
-                RoomId = "ROOM_CANCEL_A",
-                StartTime = now.AddDays(2),
-                EndTime = now.AddDays(2).AddHours(2),
-                BasePrice = 100000m,
-                Status = BookingConstants.ShowtimeStatus.Open,
-                CreatedAt = now
-            },
-            new Showtime
-            {
-                ShowtimeId = "SHW_CANCEL_EMPTY_B",
-                MovieId = "MOV_CANCEL",
-                RoomId = "ROOM_CANCEL_B",
-                StartTime = now.AddDays(3),
-                EndTime = now.AddDays(3).AddHours(2),
-                BasePrice = 100000m,
-                Status = BookingConstants.ShowtimeStatus.Open,
-                CreatedAt = now
-            });
-        db.ShowtimeSeats.AddRange(
+                db.Showtimes.Add(st);
+            }
+        }
+
+        foreach (var sts in new[]
+        {
             new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_A_PAID", ShowtimeId = "SHW_CANCEL_A", SeatId = "SEAT_CANCEL_A1", SeatStatus = BookingConstants.ShowtimeSeatStatus.Booked, RowVersion = new byte[8] },
             new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_A_PENDING", ShowtimeId = "SHW_CANCEL_A", SeatId = "SEAT_CANCEL_A2", SeatStatus = BookingConstants.ShowtimeSeatStatus.Locked, LockedUntil = now.AddMinutes(10), LockedByUserId = "USR_CANCEL_CUSTOMER_A", RowVersion = new byte[8] },
             new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_B_PAID", ShowtimeId = "SHW_CANCEL_B", SeatId = "SEAT_CANCEL_B1", SeatStatus = BookingConstants.ShowtimeSeatStatus.Booked, RowVersion = new byte[8] },
             new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_EMPTY_A1", ShowtimeId = "SHW_CANCEL_EMPTY", SeatId = "SEAT_CANCEL_A1", SeatStatus = BookingConstants.ShowtimeSeatStatus.Available, RowVersion = new byte[8] },
             new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_EMPTY_A2", ShowtimeId = "SHW_CANCEL_EMPTY", SeatId = "SEAT_CANCEL_A2", SeatStatus = BookingConstants.ShowtimeSeatStatus.Available, RowVersion = new byte[8] },
-            new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_EMPTY_B1", ShowtimeId = "SHW_CANCEL_EMPTY_B", SeatId = "SEAT_CANCEL_B1", SeatStatus = BookingConstants.ShowtimeSeatStatus.Available, RowVersion = new byte[8] });
-
-        db.PaymentProviders.Add(new PaymentProvider
+            new ShowtimeSeat { ShowtimeSeatId = "STS_CANCEL_EMPTY_B1", ShowtimeId = "SHW_CANCEL_EMPTY_B", SeatId = "SEAT_CANCEL_B1", SeatStatus = BookingConstants.ShowtimeSeatStatus.Available, RowVersion = new byte[8] }
+        })
         {
-            PaymentProviderId = "PAYPROV_CANCEL",
-            ProviderName = "SEPAY_CANCEL",
-            ProviderStatus = "ACTIVE"
-        });
-        db.BankDirectories.Add(new BankDirectory
-        {
-            BankCode = "VCB",
-            BankBin = "970436",
-            ShortName = "Vietcombank",
-            FullName = "Joint Stock Commercial Bank for Foreign Trade of Vietnam",
-            IsActive = true,
-            CreatedAt = now
-        });
+            if (!db.ShowtimeSeats.Any(s => s.ShowtimeSeatId == sts.ShowtimeSeatId))
+            {
+                db.ShowtimeSeats.Add(sts);
+            }
+        }
 
-        db.Bookings.AddRange(
-            new Booking
+        if (!db.PaymentProviders.Any(p => p.PaymentProviderId == "PAYPROV_CANCEL"))
+        {
+            db.PaymentProviders.Add(new PaymentProvider { PaymentProviderId = "PAYPROV_CANCEL", ProviderName = "SEPAY_CANCEL", ProviderStatus = "ACTIVE" });
+        }
+
+        if (!db.BankDirectories.Any(b => b.BankCode == "VCB"))
+        {
+            db.BankDirectories.Add(new BankDirectory { BankCode = "VCB", BankBin = "970436", ShortName = "Vietcombank", FullName = "Joint Stock Commercial Bank for Foreign Trade of Vietnam", IsActive = true, CreatedAt = now });
+        }
+
+        foreach (var bkg in new[]
+        {
+            new Booking { BookingId = "BKG_CANCEL_A_PAID", CustomerProfileId = "CUS_CANCEL_A", ShowtimeId = "SHW_CANCEL_A", BookingStatus = BookingConstants.BookingStatus.Paid, TotalAmount = 100000m, CreatedAt = now, BookingChannel = BookingConstants.BookingChannel.Online },
+            new Booking { BookingId = "BKG_CANCEL_A_PENDING", CustomerProfileId = "CUS_CANCEL_A", ShowtimeId = "SHW_CANCEL_A", BookingStatus = BookingConstants.BookingStatus.PendingPayment, TotalAmount = 100000m, CreatedAt = now, ExpiredAt = now.AddMinutes(10), BookingChannel = BookingConstants.BookingChannel.Online },
+            new Booking { BookingId = "BKG_CANCEL_B_PAID", CustomerProfileId = "CUS_CANCEL_B", ShowtimeId = "SHW_CANCEL_B", BookingStatus = BookingConstants.BookingStatus.Paid, TotalAmount = 100000m, CreatedAt = now, BookingChannel = BookingConstants.BookingChannel.Online }
+        })
+        {
+            if (!db.Bookings.Any(b => b.BookingId == bkg.BookingId))
             {
-                BookingId = "BKG_CANCEL_A_PAID",
-                CustomerProfileId = "CUS_CANCEL_A",
-                ShowtimeId = "SHW_CANCEL_A",
-                BookingStatus = BookingConstants.BookingStatus.Paid,
-                TotalAmount = 100000m,
-                CreatedAt = now,
-                BookingChannel = BookingConstants.BookingChannel.Online
-            },
-            new Booking
-            {
-                BookingId = "BKG_CANCEL_A_PENDING",
-                CustomerProfileId = "CUS_CANCEL_A",
-                ShowtimeId = "SHW_CANCEL_A",
-                BookingStatus = BookingConstants.BookingStatus.PendingPayment,
-                TotalAmount = 100000m,
-                CreatedAt = now,
-                ExpiredAt = now.AddMinutes(10),
-                BookingChannel = BookingConstants.BookingChannel.Online
-            },
-            new Booking
-            {
-                BookingId = "BKG_CANCEL_B_PAID",
-                CustomerProfileId = "CUS_CANCEL_B",
-                ShowtimeId = "SHW_CANCEL_B",
-                BookingStatus = BookingConstants.BookingStatus.Paid,
-                TotalAmount = 100000m,
-                CreatedAt = now,
-                BookingChannel = BookingConstants.BookingChannel.Online
-            });
-        db.BookingSeats.AddRange(
+                db.Bookings.Add(bkg);
+            }
+        }
+
+        foreach (var bks in new[]
+        {
             new BookingSeat { BookingSeatId = "BKS_CANCEL_A_PAID", BookingId = "BKG_CANCEL_A_PAID", ShowtimeSeatId = "STS_CANCEL_A_PAID", SeatPrice = 100000m },
             new BookingSeat { BookingSeatId = "BKS_CANCEL_A_PENDING", BookingId = "BKG_CANCEL_A_PENDING", ShowtimeSeatId = "STS_CANCEL_A_PENDING", SeatPrice = 100000m },
-            new BookingSeat { BookingSeatId = "BKS_CANCEL_B_PAID", BookingId = "BKG_CANCEL_B_PAID", ShowtimeSeatId = "STS_CANCEL_B_PAID", SeatPrice = 100000m });
-        db.Tickets.AddRange(
+            new BookingSeat { BookingSeatId = "BKS_CANCEL_B_PAID", BookingId = "BKG_CANCEL_B_PAID", ShowtimeSeatId = "STS_CANCEL_B_PAID", SeatPrice = 100000m }
+        })
+        {
+            if (!db.BookingSeats.Any(b => b.BookingSeatId == bks.BookingSeatId))
+            {
+                db.BookingSeats.Add(bks);
+            }
+        }
+
+        foreach (var tck in new[]
+        {
             new Ticket { TicketId = "TCK_CANCEL_A_PAID", BookingSeatId = "BKS_CANCEL_A_PAID", QrCode = "QR_CANCEL_A", TicketStatus = BookingConstants.TicketStatus.Unused, GeneratedAt = now },
-            new Ticket { TicketId = "TCK_CANCEL_B_PAID", BookingSeatId = "BKS_CANCEL_B_PAID", QrCode = "QR_CANCEL_B", TicketStatus = BookingConstants.TicketStatus.Unused, GeneratedAt = now });
-        db.Payments.AddRange(
-            new Payment
+            new Ticket { TicketId = "TCK_CANCEL_B_PAID", BookingSeatId = "BKS_CANCEL_B_PAID", QrCode = "QR_CANCEL_B", TicketStatus = BookingConstants.TicketStatus.Unused, GeneratedAt = now }
+        })
+        {
+            if (!db.Tickets.Any(t => t.TicketId == tck.TicketId))
             {
-                PaymentId = "PAY_CANCEL_A_SUCCESS",
-                BookingId = "BKG_CANCEL_A_PAID",
-                PaymentProviderId = "PAYPROV_CANCEL",
-                Amount = 100000m,
-                PaymentStatus = BookingConstants.PaymentStatus.Success,
-                PaymentMethod = "SEPAY",
-                TransactionCode = "TCANCELA001",
-                CreatedAt = now,
-                PaidAt = now
-            },
-            new Payment
+                db.Tickets.Add(tck);
+            }
+        }
+
+        foreach (var pay in new[]
+        {
+            new Payment { PaymentId = "PAY_CANCEL_A_SUCCESS", BookingId = "BKG_CANCEL_A_PAID", PaymentProviderId = "PAYPROV_CANCEL", Amount = 100000m, PaymentStatus = BookingConstants.PaymentStatus.Success, PaymentMethod = "SEPAY", TransactionCode = "TCANCELA001", CreatedAt = now, PaidAt = now },
+            new Payment { PaymentId = "PAY_CANCEL_A_PENDING", BookingId = "BKG_CANCEL_A_PENDING", PaymentProviderId = "PAYPROV_CANCEL", Amount = 100000m, PaymentStatus = BookingConstants.PaymentStatus.Pending, PaymentMethod = "SEPAY", TransactionCode = "TCANCELA002", CreatedAt = now },
+            new Payment { PaymentId = "PAY_CANCEL_B_SUCCESS", BookingId = "BKG_CANCEL_B_PAID", PaymentProviderId = "PAYPROV_CANCEL", Amount = 100000m, PaymentStatus = BookingConstants.PaymentStatus.Success, PaymentMethod = "SEPAY", TransactionCode = "TCANCELB001", CreatedAt = now, PaidAt = now }
+        })
+        {
+            if (!db.Payments.Any(p => p.PaymentId == pay.PaymentId))
             {
-                PaymentId = "PAY_CANCEL_A_PENDING",
-                BookingId = "BKG_CANCEL_A_PENDING",
-                PaymentProviderId = "PAYPROV_CANCEL",
-                Amount = 100000m,
-                PaymentStatus = BookingConstants.PaymentStatus.Pending,
-                PaymentMethod = "SEPAY",
-                TransactionCode = "TCANCELA002",
-                CreatedAt = now
-            },
-            new Payment
-            {
-                PaymentId = "PAY_CANCEL_B_SUCCESS",
-                BookingId = "BKG_CANCEL_B_PAID",
-                PaymentProviderId = "PAYPROV_CANCEL",
-                Amount = 100000m,
-                PaymentStatus = BookingConstants.PaymentStatus.Success,
-                PaymentMethod = "SEPAY",
-                TransactionCode = "TCANCELB001",
-                CreatedAt = now,
-                PaidAt = now
-            });
+                db.Payments.Add(pay);
+            }
+        }
 
         await db.SaveChangesAsync();
         await CinemaScopeTestData.SeedManagerScopeAsync(factory, "CIN_CANCEL_A");

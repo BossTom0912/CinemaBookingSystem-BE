@@ -366,18 +366,21 @@ public sealed class NotificationApiIntegrationTests
             db.Roles.Add(managerRole);
         }
 
-        db.Users.Add(new User
+        if (!await db.Users.AnyAsync(u => u.UserId == userId))
         {
-            UserId = userId,
-            RoleId = managerRole.RoleId,
-            Email = email,
-            PasswordHash = "hash",
-            FullName = "Test Manager",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
+            db.Users.Add(new User
+            {
+                UserId = userId,
+                RoleId = managerRole.RoleId,
+                Email = email,
+                PasswordHash = "hash",
+                FullName = "Test Manager",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     private static async Task SeedUserAsync(CinemaWebApplicationFactory factory, string userId, string email)
@@ -392,18 +395,21 @@ public sealed class NotificationApiIntegrationTests
             db.Roles.Add(customerRole);
         }
 
-        db.Users.Add(new User
+        if (!await db.Users.AnyAsync(u => u.UserId == userId))
         {
-            UserId = userId,
-            RoleId = customerRole.RoleId,
-            Email = email,
-            PasswordHash = "hash",
-            FullName = "Test Customer",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
+            db.Users.Add(new User
+            {
+                UserId = userId,
+                RoleId = customerRole.RoleId,
+                Email = email,
+                PasswordHash = "hash",
+                FullName = "Test Customer",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     private static async Task SeedStaffUserAsync(CinemaWebApplicationFactory factory, string userId, string email)
@@ -418,18 +424,21 @@ public sealed class NotificationApiIntegrationTests
             db.Roles.Add(staffRole);
         }
 
-        db.Users.Add(new User
+        if (!await db.Users.AnyAsync(u => u.UserId == userId))
         {
-            UserId = userId,
-            RoleId = staffRole.RoleId,
-            Email = email,
-            PasswordHash = "hash",
-            FullName = "Test Staff",
-            Status = AuthConstants.UserStatus.Active,
-            EmailVerified = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
+            db.Users.Add(new User
+            {
+                UserId = userId,
+                RoleId = staffRole.RoleId,
+                Email = email,
+                PasswordHash = "hash",
+                FullName = "Test Staff",
+                Status = AuthConstants.UserStatus.Active,
+                EmailVerified = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     private static async Task SeedUserAndNotificationsAsync(CinemaWebApplicationFactory factory, string userId)

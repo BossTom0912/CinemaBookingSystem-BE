@@ -160,48 +160,74 @@ public sealed class StaffShiftReportApiIntegrationTests
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
 
-        db.Roles.AddRange(
-            NewRole(AuthConstants.RoleIds.Staff, AuthConstants.Roles.Staff),
-            NewRole(AuthConstants.RoleIds.Manager, AuthConstants.Roles.Manager),
-            NewRole(AuthConstants.RoleIds.Admin, AuthConstants.Roles.Admin),
-            NewRole(AuthConstants.RoleIds.Customer, AuthConstants.Roles.Customer));
+        if (await db.StaffProfiles.FindAsync(StaffA) is not null)
+        {
+            return;
+        }
 
-        db.Cinemas.AddRange(
-            new Cinema
+        foreach (var (roleId, roleName) in new[]
+        {
+            (AuthConstants.RoleIds.Staff, AuthConstants.Roles.Staff),
+            (AuthConstants.RoleIds.Manager, AuthConstants.Roles.Manager),
+            (AuthConstants.RoleIds.Admin, AuthConstants.Roles.Admin),
+            (AuthConstants.RoleIds.Customer, AuthConstants.Roles.Customer)
+        })
+        {
+            if (!db.Roles.Local.Any(r => r.RoleId == roleId) && !db.Roles.Any(r => r.RoleId == roleId))
             {
-                CinemaId = CinemaA,
-                CinemaName = "Shift Cinema A",
-                Address = "A",
-                City = "HCM",
-                CinemaStatus = DomainConstants.CinemaStatus.Active
-            },
-            new Cinema
-            {
-                CinemaId = CinemaB,
-                CinemaName = "Shift Cinema B",
-                Address = "B",
-                City = "HCM",
-                CinemaStatus = DomainConstants.CinemaStatus.Active
-            });
+                db.Roles.Add(NewRole(roleId, roleName));
+            }
+        }
 
-        db.Users.AddRange(
+        foreach (var cinema in new[]
+        {
+            new Cinema { CinemaId = CinemaA, CinemaName = "Shift Cinema A", Address = "A", City = "HCM", CinemaStatus = DomainConstants.CinemaStatus.Active },
+            new Cinema { CinemaId = CinemaB, CinemaName = "Shift Cinema B", Address = "B", City = "HCM", CinemaStatus = DomainConstants.CinemaStatus.Active }
+        })
+        {
+            if (!db.Cinemas.Local.Any(c => c.CinemaId == cinema.CinemaId) && !db.Cinemas.Any(c => c.CinemaId == cinema.CinemaId))
+            {
+                db.Cinemas.Add(cinema);
+            }
+        }
+
+        foreach (var user in new[]
+        {
             NewUser("USR_TEST_STAFF", AuthConstants.RoleIds.Staff, "Staff A"),
             NewUser("USR_SHIFT_STAFF_B", AuthConstants.RoleIds.Staff, "Staff B"),
             NewUser("USR_SHIFT_STAFF_C", AuthConstants.RoleIds.Staff, "Staff C"),
-            NewUser("USR_TEST_MANAGER", AuthConstants.RoleIds.Manager, "Manager A"));
+            NewUser("USR_TEST_MANAGER", AuthConstants.RoleIds.Manager, "Manager A")
+        })
+        {
+            if (!db.Users.Local.Any(u => u.UserId == user.UserId) && !db.Users.Any(u => u.UserId == user.UserId))
+            {
+                db.Users.Add(user);
+            }
+        }
 
-        db.StaffProfiles.AddRange(
+        foreach (var staff in new[]
+        {
             NewStaffProfile(StaffA, "USR_TEST_STAFF", CinemaA, "Staff"),
             NewStaffProfile(StaffB, "USR_SHIFT_STAFF_B", CinemaA, "Staff"),
             NewStaffProfile(StaffC, "USR_SHIFT_STAFF_C", CinemaB, "Staff"),
-            NewStaffProfile("STF_SHIFT_MANAGER", "USR_TEST_MANAGER", CinemaA, "Manager"));
-
-        db.PaymentProviders.Add(new PaymentProvider
+            NewStaffProfile("STF_SHIFT_MANAGER", "USR_TEST_MANAGER", CinemaA, "Manager")
+        })
         {
-            PaymentProviderId = "PAY_PROVIDER_SHIFT",
-            ProviderName = "Shift Provider",
-            ProviderStatus = DomainConstants.ResourceStatus.Active
-        });
+            if (!db.StaffProfiles.Local.Any(s => s.StaffProfileId == staff.StaffProfileId) && !db.StaffProfiles.Any(s => s.StaffProfileId == staff.StaffProfileId))
+            {
+                db.StaffProfiles.Add(staff);
+            }
+        }
+
+        if (!db.PaymentProviders.Local.Any(p => p.PaymentProviderId == "PAY_PROVIDER_SHIFT") && !db.PaymentProviders.Any(p => p.PaymentProviderId == "PAY_PROVIDER_SHIFT"))
+        {
+            db.PaymentProviders.Add(new PaymentProvider
+            {
+                PaymentProviderId = "PAY_PROVIDER_SHIFT",
+                ProviderName = "Shift Provider",
+                ProviderStatus = DomainConstants.ResourceStatus.Active
+            });
+        }
 
         db.CheckinLogs.AddRange(
             NewCheckIn("CIL_SHIFT_A_1", StaffA, "USR_TEST_STAFF", "TCK_SHIFT_A_1", 9, BookingConstants.CheckInResult.Success),

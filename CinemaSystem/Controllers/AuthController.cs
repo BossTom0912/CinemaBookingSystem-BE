@@ -148,7 +148,7 @@ public sealed class AuthController : ControllerBase
             mappedRequest,
             cancellationToken);
 
-        Response.Cookies.Delete("refreshToken");
+        Response?.Cookies.Delete("refreshToken");
 
         // Sau khi revoke hoàn tất, ServiceResult quay lại để tạo HTTP response.
         return ToActionResult(result);
@@ -202,10 +202,12 @@ public sealed class AuthController : ControllerBase
 
     private void SetRefreshTokenCookie(string refreshToken)
     {
+        if (Response is null) return;
+
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = Request.IsHttps,
+            Secure = Request?.IsHttps ?? false,
             SameSite = SameSiteMode.Lax,
             Expires = DateTimeOffset.UtcNow.AddDays(7)
         };
