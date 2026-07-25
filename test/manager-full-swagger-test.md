@@ -130,7 +130,7 @@ Phương án sửa:
 - bổ sung index, unique constraint, foreign key và seed 5 ngân hàng;
 - loại bỏ `USE [CinemaBookingDB]` để không hardcode database name;
 - tạo handoff
-  `docs/database/SCRUM-193-customer-assisted-refund-db-changes.md`.
+  `docs/reports/SCRUM-193-customer-assisted-refund-db-changes.md`.
 
 Kiểm tra code sau thay đổi:
 

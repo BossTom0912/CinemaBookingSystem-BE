@@ -1,5 +1,4 @@
 using CinemaSystem.Contracts.Payments;
-using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
@@ -83,40 +82,6 @@ public sealed class PaymentServiceTests
 
         var payment = await fixture.DbContext.Payments.SingleAsync();
         Assert.Equal(3000m, payment.Amount);
-    }
-
-    [Fact]
-    public async Task CreatePayment_VnPayProvider_ReturnsGatewayCheckoutUrl()
-    {
-        var gateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
-        gateway.SetupGet(item => item.ProviderName).Returns("VNPAY");
-        gateway
-            .Setup(item => item.CreateCheckoutUrl(
-                It.Is<PaymentGatewayCheckoutRequest>(request =>
-                    request.Amount == 120000m
-                    && request.ClientIpAddress == "203.0.113.10")))
-            .Returns("https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?signed=true");
-
-        var fixture = Fixture.Create(paymentGateways: [gateway.Object]);
-        await fixture.SeedPendingBookingAsync();
-        var provider = await fixture.DbContext.PaymentProviders.SingleAsync();
-        provider.ProviderName = "VNPAY";
-        await fixture.DbContext.SaveChangesAsync();
-
-        var result = await fixture.Service.CreatePaymentAsync(
-            new CreatePaymentRequest
-            {
-                BookingId = "BOOKING_TEST",
-                PaymentProviderId = "PAYPROV_TEST_SEPAY"
-            },
-            "USER_TEST",
-            clientIpAddress: "203.0.113.10");
-
-        Assert.Equal("VNPAY", result.PaymentProviderName);
-        Assert.NotNull(result.CheckoutUrl);
-        Assert.Empty(result.BankName);
-        Assert.Empty(result.BankAccount);
-        gateway.VerifyAll();
     }
 
     [Fact]

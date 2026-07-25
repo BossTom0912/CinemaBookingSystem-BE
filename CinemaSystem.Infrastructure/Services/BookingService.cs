@@ -798,6 +798,7 @@ public sealed class BookingService : IBookingService
                 // 1. Giải phóng ghế & Hủy vé & Xóa BookingSeats để sẵn sàng cho lần đặt vé mới
                 if (booking.BookingSeats != null && booking.BookingSeats.Count > 0)
                 {
+                    var ticketsToRemove = new List<Ticket>();
                     foreach (var bs in booking.BookingSeats)
                     {
                         if (bs.ShowtimeSeat != null)
@@ -805,6 +806,7 @@ public sealed class BookingService : IBookingService
                             bs.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
                             bs.ShowtimeSeat.LockedUntil = null;
                             bs.ShowtimeSeat.LockedByUserId = null;
+                            bs.ShowtimeSeat.BookingSeat = null;
 
                             // Giải phóng khóa cache (Redis/Memory seat lock store)
                             var lockKey = $"seat-lock:{bs.ShowtimeSeat.ShowtimeId}:{bs.ShowtimeSeat.SeatId}";
@@ -812,8 +814,15 @@ public sealed class BookingService : IBookingService
                         }
                         if (bs.Ticket != null)
                         {
-                            _dbContext.Tickets.Remove(bs.Ticket);
+                            ticketsToRemove.Add(bs.Ticket);
+                            bs.Ticket = null;
                         }
+                        bs.ShowtimeSeat = null!;
+                    }
+
+                    if (ticketsToRemove.Count > 0)
+                    {
+                        _dbContext.Tickets.RemoveRange(ticketsToRemove);
                     }
                     _dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
                 }
@@ -892,7 +901,7 @@ public sealed class BookingService : IBookingService
         {
             var detail = ex.InnerException?.Message ?? ex.Message;
             _logger.LogError(ex, "Lỗi xảy ra khi xử lý xác nhận/từ chối đổi lịch chiếu cho đơn hàng {BookingId}: {Detail}", bookingId, detail);
-            return ServiceResult<bool>.Fail(500, $"Lỗi hệ thống khi xử lý yêu cầu: {detail}", "INTERNAL_ERROR");
+            return ServiceResult<bool>.Fail(500, "Lỗi hệ thống khi xử lý yêu cầu.", "INTERNAL_ERROR");
         }
     }
 
@@ -1121,8 +1130,6 @@ public sealed class BookingService : IBookingService
         var staleBookings = await _dbContext.Bookings
             .Include(item => item.BookingSeats)
                 .ThenInclude(item => item.ShowtimeSeat)
-            .Include(item => item.BookingSeats)
-                .ThenInclude(item => item.Ticket)
             .Include(item => item.Payments)
             .Include(item => item.VoucherUsage)
             .AsSplitQuery()
@@ -1178,6 +1185,7 @@ public sealed class BookingService : IBookingService
             {
                 showtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
                 showtimeSeat.LockedUntil = null;
+                showtimeSeat.LockedByUserId = null;
                 showtimeSeat.BookingSeat = null;
 
                 await _seatLockStore.ReleaseAsync(

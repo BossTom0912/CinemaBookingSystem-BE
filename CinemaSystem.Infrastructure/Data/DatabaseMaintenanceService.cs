@@ -28,7 +28,10 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
     // Phương thức bất đồng bộ để thực thi các file Migration lên cơ sở dữ liệu
     public async Task MigrateAsync(CancellationToken cancellationToken = default)
     {
-        // 1. Tự động bổ sung các cột mới cho bảng VOUCHER trước bằng Raw SQL để đảm bảo schema luôn đầy đủ
+        // Gọi phương thức MigrateAsync của EF Core để tự động cập nhật Database schema lên phiên bản mới nhất
+        await _dbContext.Database.MigrateAsync(cancellationToken);
+
+        // Tự động bổ sung các cột mới cho bảng VOUCHER nếu chưa tồn tại trong SQL Server
         const string sqlScript = """
             IF EXISTS (SELECT 1 FROM sys.tables WHERE object_id = OBJECT_ID(N'[VOUCHER]'))
             BEGIN
@@ -60,24 +63,7 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
             END
             """;
 
-        try
-        {
-            await _dbContext.Database.ExecuteSqlRawAsync(sqlScript, cancellationToken);
-        }
-        catch
-        {
-            // Ignore if DB is not ready yet
-        }
-
-        // 2. Chạy EF Core Migration
-        try
-        {
-            await _dbContext.Database.MigrateAsync(cancellationToken);
-        }
-        catch
-        {
-            // Ignore EF migration exceptions if schema is already up-to-date
-        }
+        await _dbContext.Database.ExecuteSqlRawAsync(sqlScript, cancellationToken);
     }
 
     // Phương thức bất đồng bộ để tạo dữ liệu mẫu (Seed data) vào cơ sở dữ liệu ban đầu

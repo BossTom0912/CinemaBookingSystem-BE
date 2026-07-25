@@ -1,0 +1,212 @@
+/*
+DEV ONLY - bookable showtimes for the public customer flow.
+
+Run the whole file against CinemaBookingDB. It creates four OPEN showtimes for
+movies that already exist in the local database, at the Bien Hoa cinema:
+
+- RM03 (VIP): Avengers: Secret Wars and Doctor Strange 3
+- RM04 (Sweetbox): Doraemon Movie 2026 and Lat Mat 8
+
+The first two showtimes begin about four hours after execution; the other two
+are scheduled for the following day. The script is rerunnable. A fixture with
+booking history is never moved or reset; only its missing available-seat rows
+are added. All stored times are UTC.
+*/
+
+USE [CinemaBookingDB];
+GO
+
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+GO
+
+IF OBJECT_ID(N'dbo.MOVIE', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SHOWTIME', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SHOWTIME_SEAT', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.SEAT', N'U') IS NULL
+   OR OBJECT_ID(N'dbo.ROOM', N'U') IS NULL
+BEGIN
+    THROW 53201, 'Required movie/showtime tables are missing.', 1;
+END;
+GO
+
+IF EXISTS
+(
+    SELECT 1
+    FROM (VALUES
+        ('MOV_AVENGERS_SECRET_WARS'),
+        ('MOV_DORAEMON_2026'),
+        ('MOV_DOCTOR_STRANGE_3'),
+        ('MOV_LAT_MAT_8')
+    ) AS requiredMovie(movieId)
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[MOVIE] AS movie
+        WHERE movie.[movieId] = requiredMovie.[movieId]
+          AND movie.[movieStatus] = 'NOW_SHOWING'
+    )
+)
+    THROW 53202, 'Required NOW_SHOWING movies are missing.', 1;
+
+IF EXISTS
+(
+    SELECT 1
+    FROM (VALUES ('RM03'), ('RM04')) AS requiredRoom(roomId)
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[ROOM] AS room
+        INNER JOIN dbo.[CINEMA] AS cinema ON cinema.[cinemaId] = room.[cinemaId]
+        WHERE room.[roomId] = requiredRoom.[roomId]
+          AND room.[roomStatus] = 'ACTIVE'
+          AND cinema.[cinemaStatus] = 'ACTIVE'
+    )
+)
+    THROW 53203, 'RM03 and RM04 must be in active cinemas.', 1;
+GO
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    DECLARE @BaseUtc DATETIME2 =
+        DATEADD(HOUR, DATEDIFF(HOUR, 0, SYSUTCDATETIME()) + 4, 0);
+
+    DECLARE @ExpectedShowtime TABLE
+    (
+        [showtimeId] NVARCHAR(50) PRIMARY KEY,
+        [movieId] NVARCHAR(50) NOT NULL,
+        [roomId] NVARCHAR(50) NOT NULL,
+        [startTime] DATETIME2 NOT NULL,
+        [durationWithCleaningMinutes] INT NOT NULL,
+        [basePrice] DECIMAL(18, 2) NOT NULL
+    );
+
+    INSERT INTO @ExpectedShowtime
+    VALUES
+        ('ST_BOOKABLE_BH_01', 'MOV_AVENGERS_SECRET_WARS', 'RM03',
+         @BaseUtc, 165, 120000.00),
+        ('ST_BOOKABLE_BH_02', 'MOV_DORAEMON_2026', 'RM04',
+         DATEADD(HOUR, 1, @BaseUtc), 120, 85000.00),
+        ('ST_BOOKABLE_BH_03', 'MOV_DOCTOR_STRANGE_3', 'RM03',
+         DATEADD(HOUR, 24, @BaseUtc), 135, 110000.00),
+        ('ST_BOOKABLE_BH_04', 'MOV_LAT_MAT_8', 'RM04',
+         DATEADD(HOUR, 25, @BaseUtc), 130, 90000.00);
+
+    DECLARE @RefreshableShowtime TABLE
+    (
+        [showtimeId] NVARCHAR(50) PRIMARY KEY
+    );
+
+    INSERT INTO @RefreshableShowtime ([showtimeId])
+    SELECT expected.[showtimeId]
+    FROM @ExpectedShowtime AS expected
+    LEFT JOIN dbo.[SHOWTIME] AS persisted
+        ON persisted.[showtimeId] = expected.[showtimeId]
+    WHERE persisted.[showtimeId] IS NULL
+       OR NOT EXISTS
+       (
+           SELECT 1
+           FROM dbo.[BOOKING] AS booking
+           WHERE booking.[showtimeId] = expected.[showtimeId]
+       );
+
+    UPDATE persisted
+    SET
+        persisted.[movieId] = expected.[movieId],
+        persisted.[roomId] = expected.[roomId],
+        persisted.[startTime] = expected.[startTime],
+        persisted.[endTime] = DATEADD(MINUTE, expected.[durationWithCleaningMinutes], expected.[startTime]),
+        persisted.[basePrice] = expected.[basePrice],
+        persisted.[status] = 'OPEN'
+    FROM dbo.[SHOWTIME] AS persisted
+    INNER JOIN @ExpectedShowtime AS expected
+        ON expected.[showtimeId] = persisted.[showtimeId]
+    INNER JOIN @RefreshableShowtime AS refreshable
+        ON refreshable.[showtimeId] = persisted.[showtimeId];
+
+    INSERT INTO dbo.[SHOWTIME]
+    (
+        [showtimeId], [movieId], [roomId], [startTime],
+        [endTime], [basePrice], [status]
+    )
+    SELECT
+        expected.[showtimeId], expected.[movieId], expected.[roomId],
+        expected.[startTime],
+        DATEADD(MINUTE, expected.[durationWithCleaningMinutes], expected.[startTime]),
+        expected.[basePrice], 'OPEN'
+    FROM @ExpectedShowtime AS expected
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME] AS persisted
+        WHERE persisted.[showtimeId] = expected.[showtimeId]
+    );
+
+    UPDATE showtimeSeat
+    SET
+        showtimeSeat.[seatStatus] = 'AVAILABLE',
+        showtimeSeat.[lockedUntil] = NULL,
+        showtimeSeat.[lockedByUserId] = NULL
+    FROM dbo.[SHOWTIME_SEAT] AS showtimeSeat
+    INNER JOIN @RefreshableShowtime AS refreshable
+        ON refreshable.[showtimeId] = showtimeSeat.[showtimeId];
+
+    INSERT INTO dbo.[SHOWTIME_SEAT]
+    (
+        [showtimeSeatId], [showtimeId], [seatId],
+        [seatStatus], [lockedUntil], [lockedByUserId]
+    )
+    SELECT
+        CONCAT('STS_', expected.[showtimeId], '_', seat.[seatId]),
+        expected.[showtimeId], seat.[seatId],
+        'AVAILABLE', NULL, NULL
+    FROM @ExpectedShowtime AS expected
+    INNER JOIN @RefreshableShowtime AS refreshable
+        ON refreshable.[showtimeId] = expected.[showtimeId]
+    INNER JOIN dbo.[SEAT] AS seat
+        ON seat.[roomId] = expected.[roomId]
+       AND seat.[isActive] = 1
+    WHERE NOT EXISTS
+    (
+        SELECT 1
+        FROM dbo.[SHOWTIME_SEAT] AS persistedSeat
+        WHERE persistedSeat.[showtimeId] = expected.[showtimeId]
+          AND persistedSeat.[seatId] = seat.[seatId]
+    );
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO
+
+SELECT
+    showtime.[showtimeId],
+    movie.[title],
+    room.[roomName],
+    CONVERT(varchar(33), showtime.[startTime], 126) AS [startTimeUtc],
+    DATEADD(HOUR, 7, showtime.[startTime]) AS [startTimeVietnam],
+    showtime.[basePrice],
+    COUNT(showtimeSeat.[showtimeSeatId]) AS [availableSeatCount],
+    showtime.[status]
+FROM dbo.[SHOWTIME] AS showtime
+INNER JOIN dbo.[MOVIE] AS movie ON movie.[movieId] = showtime.[movieId]
+INNER JOIN dbo.[ROOM] AS room ON room.[roomId] = showtime.[roomId]
+LEFT JOIN dbo.[SHOWTIME_SEAT] AS showtimeSeat
+    ON showtimeSeat.[showtimeId] = showtime.[showtimeId]
+   AND showtimeSeat.[seatStatus] = 'AVAILABLE'
+WHERE showtime.[showtimeId] IN
+(
+    'ST_BOOKABLE_BH_01',
+    'ST_BOOKABLE_BH_02',
+    'ST_BOOKABLE_BH_03',
+    'ST_BOOKABLE_BH_04'
+)
+GROUP BY
+    showtime.[showtimeId], movie.[title], room.[roomName],
+    showtime.[startTime], showtime.[basePrice], showtime.[status]
+ORDER BY showtime.[startTime];
+GO

@@ -1,5 +1,8 @@
 # Database scripts
 
+Project status, historical database reports, and the canonical SQL handoff are
+indexed in [`../reports/README.md`](../reports/README.md).
+
 Thư mục này có **một script schema chuẩn**:
 [`cinema-booking-schema.sql`](cinema-booking-schema.sql). Không chạy patch
 feature rời hoặc copy từng đoạn SQL từ báo cáo cũ.

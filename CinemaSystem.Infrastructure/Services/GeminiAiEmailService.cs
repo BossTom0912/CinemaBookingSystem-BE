@@ -14,7 +14,7 @@ public class GeminiAiEmailService : IAiEmailService
     private readonly RefundSettings _refundSettings;
 
     public GeminiAiEmailService(
-        IOptions<GeminiSettings> settings, 
+        IOptions<GeminiSettings> settings,
         IEmailService emailService,
         IOptions<RefundSettings>? refundSettings = null)
     {
@@ -42,7 +42,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -52,11 +51,9 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
                             <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
-                            
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi.
                             </p>
@@ -180,7 +177,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -190,7 +186,6 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
                             <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
@@ -198,7 +193,6 @@ public class GeminiAiEmailService : IAiEmailService
                             <p style='font-size: 14px; color: #334155; margin-bottom: 12px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành tới Quý khách vì đã luôn tin tưởng và ủng hộ dịch vụ của chúng tôi.
                             </p>
-
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Do có sự điều chỉnh trong lịch chiếu, chúng tôi xin thông báo về thay đổi giờ chiếu cho bộ phim <strong>{movieTitle}</strong> trong đơn hàng của Quý khách như sau:
                             </p>
@@ -400,7 +394,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #3b82f6;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -410,11 +403,9 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
                             <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
-
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và sử dụng dịch vụ của chúng tôi. Chúng tôi xin thông báo về việc thay đổi phòng chiếu cho suất phim của Quý khách.
                             </p>
@@ -585,7 +576,6 @@ public class GeminiAiEmailService : IAiEmailService
             </head>
             <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
                 <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
-                    
                     <!-- HEADER -->
                     <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #f59e0b;'>
                         <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
@@ -595,11 +585,9 @@ public class GeminiAiEmailService : IAiEmailService
 
                     <!-- CONTENT -->
                     <div style='padding: 30px;'>
-                        
                         <!-- TIẾNG VIỆT -->
                         <div style='margin-bottom: 25px;'>
                             <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
-                            
                             <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
                                 Chúc mừng! CinemaSystem xin trân trọng gửi tặng Quý khách một voucher ưu đãi đặc biệt dành riêng cho tài khoản của Quý khách.
                             </p>
@@ -608,7 +596,6 @@ public class GeminiAiEmailService : IAiEmailService
                             <div style='background: linear-gradient(135deg, #fffbe6 0%, #fef3c7 100%); border: 2px dashed #f59e0b; border-radius: 10px; padding: 20px; text-align: center; margin: 20px 0;'>
                                 <span style='display: inline-block; background-color: #d97706; color: #ffffff; font-size: 11px; font-weight: bold; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; margin-bottom: 8px;'>{categoryDisplayVi}</span>
                                 <h3 style='margin: 4px 0 10px 0; font-size: 18px; color: #78350f; font-weight: bold;'>{voucherTitle}</h3>
-                                
                                 <div style='margin: 12px 0; padding: 10px; background-color: #ffffff; border: 1px solid #fde68a; border-radius: 8px; display: inline-block;'>
                                     <span style='font-size: 11px; color: #92400e; display: block; margin-bottom: 4px; font-weight: bold; letter-spacing: 1px;'>MÃ VOUCHER</span>
                                     <span style='font-family: monospace; font-size: 24px; font-weight: bold; color: #b45309; letter-spacing: 3px;'>{voucherCode}</span>
@@ -652,7 +639,6 @@ public class GeminiAiEmailService : IAiEmailService
                         <!-- TIẾNG ANH -->
                         <div>
                             <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
-                            
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
                                 Congratulations! CinemaSystem is pleased to present you with an exclusive discount voucher for your account.
                             </p>
@@ -661,7 +647,6 @@ public class GeminiAiEmailService : IAiEmailService
                             <div style='background: linear-gradient(135deg, #fffbe6 0%, #fef3c7 100%); border: 2px dashed #f59e0b; border-radius: 10px; padding: 20px; text-align: center; margin: 20px 0;'>
                                 <span style='display: inline-block; background-color: #d97706; color: #ffffff; font-size: 11px; font-weight: bold; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; margin-bottom: 8px;'>{categoryDisplayEn}</span>
                                 <h3 style='margin: 4px 0 10px 0; font-size: 18px; color: #78350f; font-weight: bold;'>{voucherTitle}</h3>
-                                
                                 <div style='margin: 12px 0; padding: 10px; background-color: #ffffff; border: 1px solid #fde68a; border-radius: 8px; display: inline-block;'>
                                     <span style='font-size: 11px; color: #92400e; display: block; margin-bottom: 4px; font-weight: bold; letter-spacing: 1px;'>VOUCHER CODE</span>
                                     <span style='font-family: monospace; font-size: 24px; font-weight: bold; color: #b45309; letter-spacing: 3px;'>{voucherCode}</span>

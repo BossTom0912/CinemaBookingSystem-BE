@@ -21,8 +21,8 @@ public sealed class VoucherService : IVoucherService
     private readonly IAiEmailService? _aiEmailService;
 
     public VoucherService(
-        CinemaDbContext dbContext, 
-        IClock clock, 
+        CinemaDbContext dbContext,
+        IClock clock,
         IEmailService? emailService = null,
         IAiEmailService? aiEmailService = null)
     {

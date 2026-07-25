@@ -33,6 +33,7 @@ public sealed class MovieApiIntegrationTests
         Assert.Equal("Test Movie", movie.MovieNameVn);
         Assert.Contains("Action", movie.Genres!);
         Assert.Equal("HOT", movie.Highlight);
+        Assert.True(movie.HasUpcomingOpenShowtime);
     }
 
     [Fact]
@@ -76,6 +77,90 @@ public sealed class MovieApiIntegrationTests
             MovieId = movie.MovieId,
             GenreId = genre.GenreId
         });
+        db.Showtimes.Add(new Showtime
+        {
+            ShowtimeId = "SHW_MOV_01",
+            MovieId = movie.MovieId,
+            RoomId = "ROOM_01",
+            StartTime = DateTime.UtcNow.AddHours(1),
+            EndTime = DateTime.UtcNow.AddHours(3),
+            BasePrice = 90000,
+            Status = "OPEN"
+        });
         await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task GetMovies_PublicRequest_ReportsShowtimeAvailabilityWithoutHidingMovies()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedMovieAsync(factory);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            db.Movies.AddRange(
+                new Movie
+                {
+                    MovieId = "MOV_PAST",
+                    Title = "Past Showtime Movie",
+                    DurationMinutes = 120,
+                    MovieStatus = "NOW_SHOWING",
+                    ReleaseDate = DateOnly.FromDateTime(DateTime.UtcNow)
+                },
+                new Movie
+                {
+                    MovieId = "MOV_CANCELLED",
+                    Title = "Cancelled Showtime Movie",
+                    DurationMinutes = 120,
+                    MovieStatus = "NOW_SHOWING",
+                    ReleaseDate = DateOnly.FromDateTime(DateTime.UtcNow)
+                },
+                new Movie
+                {
+                    MovieId = "MOV_NO_SHOWTIME",
+                    Title = "No Showtime Movie",
+                    DurationMinutes = 120,
+                    MovieStatus = "NOW_SHOWING",
+                    ReleaseDate = DateOnly.FromDateTime(DateTime.UtcNow)
+                });
+            db.Showtimes.AddRange(
+                new Showtime
+                {
+                    ShowtimeId = "SHW_PAST",
+                    MovieId = "MOV_PAST",
+                    RoomId = "ROOM_02",
+                    StartTime = DateTime.UtcNow.AddHours(-3),
+                    EndTime = DateTime.UtcNow.AddHours(-1),
+                    BasePrice = 90000,
+                    Status = "OPEN"
+                },
+                new Showtime
+                {
+                    ShowtimeId = "SHW_CANCELLED",
+                    MovieId = "MOV_CANCELLED",
+                    RoomId = "ROOM_03",
+                    StartTime = DateTime.UtcNow.AddHours(1),
+                    EndTime = DateTime.UtcNow.AddHours(3),
+                    BasePrice = 90000,
+                    Status = "CANCELLED"
+                });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/api/movies?status=now_showing");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = JsonSerializer.Deserialize<ApiResponse<PagedList<MovieResponse>>>(
+            await response.Content.ReadAsStringAsync(),
+            JsonOptions);
+
+        Assert.True(body!.Success);
+        Assert.Equal(4, body.Data!.Items.Count);
+        Assert.True(body.Data.Items.Single(movie => movie.Id == "MOV_01").HasUpcomingOpenShowtime);
+        Assert.False(body.Data.Items.Single(movie => movie.Id == "MOV_PAST").HasUpcomingOpenShowtime);
+        Assert.False(body.Data.Items.Single(movie => movie.Id == "MOV_CANCELLED").HasUpcomingOpenShowtime);
+        Assert.False(body.Data.Items.Single(movie => movie.Id == "MOV_NO_SHOWTIME").HasUpcomingOpenShowtime);
     }
 }
