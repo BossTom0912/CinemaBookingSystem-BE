@@ -45,6 +45,10 @@ public partial class Voucher
 
     public string? SpecificFbItemIds { get; set; }
 
+    public string? ShowtimeId { get; set; }
+
+    public string? RoomId { get; set; }
+
     public bool IsPrivate { get; set; } = false;
 
     public int? RequiredTicketCount { get; set; }

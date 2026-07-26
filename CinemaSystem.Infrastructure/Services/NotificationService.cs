@@ -595,6 +595,9 @@ public sealed class NotificationService : INotificationService
     {
         var query = _dbContext.Users.AsNoTracking();
 
+        // Exclude accounts that have been canceled
+        query = query.Where(u => u.Status != DomainConstants.BookingStatus.Cancelled && u.Status != "CANCELLED");
+
         if (!string.IsNullOrWhiteSpace(targetGroup))
         {
             var group = targetGroup.Trim().ToUpperInvariant();
@@ -620,14 +623,26 @@ public sealed class NotificationService : INotificationService
         {
             query = query.Where(u => u.IsBlocked || u.SpamViolationCount > 0);
         }
+        else if (isFlagged == false)
+        {
+            query = query.Where(u => !u.IsBlocked && u.SpamViolationCount == 0);
+        }
 
         if (hasBooked == true)
         {
             var bookedUserIds = _dbContext.Bookings
                 .AsNoTracking()
-                .Where(b => b.CustomerProfile != null)
+                .Where(b => b.CustomerProfile != null && b.BookingStatus != DomainConstants.BookingStatus.Cancelled)
                 .Select(b => b.CustomerProfile.UserId);
             query = query.Where(u => bookedUserIds.Contains(u.UserId));
+        }
+        else if (hasBooked == false)
+        {
+            var bookedUserIds = _dbContext.Bookings
+                .AsNoTracking()
+                .Where(b => b.CustomerProfile != null && b.BookingStatus != DomainConstants.BookingStatus.Cancelled)
+                .Select(b => b.CustomerProfile.UserId);
+            query = query.Where(u => !bookedUserIds.Contains(u.UserId));
         }
 
         if (!string.IsNullOrWhiteSpace(roomId))
@@ -635,7 +650,10 @@ public sealed class NotificationService : INotificationService
             var rId = roomId.Trim();
             var roomUserIds = _dbContext.Bookings
                 .AsNoTracking()
-                .Where(b => b.CustomerProfile != null && b.Showtime.RoomId == rId)
+                .Where(b => b.CustomerProfile != null 
+                         && b.BookingStatus != DomainConstants.BookingStatus.Cancelled 
+                         && b.Showtime != null 
+                         && b.Showtime.RoomId == rId)
                 .Select(b => b.CustomerProfile.UserId);
             query = query.Where(u => roomUserIds.Contains(u.UserId));
         }
@@ -645,7 +663,9 @@ public sealed class NotificationService : INotificationService
             var stId = showtimeId.Trim();
             var showtimeUserIds = _dbContext.Bookings
                 .AsNoTracking()
-                .Where(b => b.CustomerProfile != null && b.ShowtimeId == stId)
+                .Where(b => b.CustomerProfile != null 
+                         && b.BookingStatus != DomainConstants.BookingStatus.Cancelled 
+                         && b.ShowtimeId == stId)
                 .Select(b => b.CustomerProfile.UserId);
             query = query.Where(u => showtimeUserIds.Contains(u.UserId));
         }
@@ -655,7 +675,10 @@ public sealed class NotificationService : INotificationService
             var mId = movieId.Trim();
             var movieUserIds = _dbContext.Bookings
                 .AsNoTracking()
-                .Where(b => b.CustomerProfile != null && b.Showtime.MovieId == mId)
+                .Where(b => b.CustomerProfile != null 
+                         && b.BookingStatus != DomainConstants.BookingStatus.Cancelled 
+                         && b.Showtime != null 
+                         && b.Showtime.MovieId == mId)
                 .Select(b => b.CustomerProfile.UserId);
             query = query.Where(u => movieUserIds.Contains(u.UserId));
         }

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Notifications;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Tests.Infrastructure;
@@ -492,4 +493,102 @@ public sealed class NotificationApiIntegrationTests
         await db.SaveChangesAsync();
         return showtime.ShowtimeId;
     }
+
+    [Fact]
+    public async Task GetFilteredUsers_WithStatusFlaggedBookedRoomShowtimeMovie_FiltersCorrectlyAndExcludesCanceled()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+
+        var cinema = new Cinema { CinemaId = "CIN_FLT_01", CinemaName = "Cinema Filter 1", Address = "Addr", City = "HCM", CinemaStatus = "ACTIVE" };
+        var room1 = new Room { RoomId = "room-01", CinemaId = cinema.CinemaId, RoomName = "Room 01", Capacity = 50, RoomStatus = "ACTIVE" };
+        var room2 = new Room { RoomId = "room-02", CinemaId = cinema.CinemaId, RoomName = "Room 02", Capacity = 50, RoomStatus = "ACTIVE" };
+        var movie1 = new Movie { MovieId = "mov-501", Title = "Movie 501", DurationMinutes = 120, MovieStatus = "ACTIVE" };
+        db.Cinemas.Add(cinema);
+        db.Rooms.AddRange(room1, room2);
+        db.Movies.Add(movie1);
+
+        var st1002 = new Showtime
+        {
+            ShowtimeId = "st-1002",
+            MovieId = movie1.MovieId,
+            RoomId = room1.RoomId,
+            StartTime = DateTime.UtcNow.AddDays(1),
+            EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
+            BasePrice = 90000,
+            Status = "ACTIVE",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Showtimes.Add(st1002);
+
+        // User A: Active, Flagged (SpamViolationCount > 0), Booked st-1002 (PAID)
+        var userA = new User { UserId = "USR_FLT_A", Email = "usera@test.com", FullName = "User A", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = AuthConstants.UserStatus.Active, SpamViolationCount = 2, IsBlocked = false };
+        var profileA = new CustomerProfile { CustomerProfileId = "CP_A", UserId = userA.UserId, MemberLevel = "STANDARD" };
+        var bookingA = new Booking { BookingId = "BK_A", CustomerProfileId = profileA.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Paid, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
+
+        // User B: Active, Not Flagged, Booked st-1002 but booking is CANCELLED
+        var userB = new User { UserId = "USR_FLT_B", Email = "userb@test.com", FullName = "User B", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = AuthConstants.UserStatus.Active, SpamViolationCount = 0, IsBlocked = false };
+        var profileB = new CustomerProfile { CustomerProfileId = "CP_B", UserId = userB.UserId, MemberLevel = "STANDARD" };
+        var bookingB = new Booking { BookingId = "BK_B", CustomerProfileId = profileB.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Cancelled, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
+
+        // User C: Account Status CANCELLED, Booked st-1002 (PAID) -> Account canceled, should not show up
+        var userC = new User { UserId = "USR_FLT_C", Email = "userc@test.com", FullName = "User C", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = DomainConstants.BookingStatus.Cancelled, SpamViolationCount = 0, IsBlocked = false };
+        var profileC = new CustomerProfile { CustomerProfileId = "CP_C", UserId = userC.UserId, MemberLevel = "STANDARD" };
+        var bookingC = new Booking { BookingId = "BK_C", CustomerProfileId = profileC.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Paid, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
+
+        db.Users.AddRange(userA, userB, userC);
+        db.CustomerProfiles.AddRange(profileA, profileB, profileC);
+        db.Bookings.AddRange(bookingA, bookingB, bookingC);
+        await db.SaveChangesAsync();
+
+        using var client = factory.CreateClient();
+        var adminId = "USR_ADMIN_FILTER_TEST";
+        db.Users.Add(new User { UserId = adminId, Email = "admin_filter@test.com", FullName = "Admin Filter", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Admin, Status = AuthConstants.UserStatus.Active });
+        await db.SaveChangesAsync();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin(adminId));
+
+        // 1. Filter by roomId=room-01 (Only userA has non-cancelled booking in room-01; userB has cancelled booking, userC has cancelled account status)
+        var responseRoom = await client.GetAsync("/api/notifications/filter-users?roomId=room-01");
+        Assert.Equal(HttpStatusCode.OK, responseRoom.StatusCode);
+        var bodyRoom = await responseRoom.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyRoom!.Success);
+        Assert.Single(bodyRoom.Data!);
+        Assert.Equal(userA.UserId, bodyRoom.Data![0].UserId);
+
+        // 2. Filter by showtimeId=st-1002
+        var responseShowtime = await client.GetAsync("/api/notifications/filter-users?showtimeId=st-1002");
+        Assert.Equal(HttpStatusCode.OK, responseShowtime.StatusCode);
+        var bodyShowtime = await responseShowtime.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyShowtime!.Success);
+        Assert.Single(bodyShowtime.Data!);
+        Assert.Equal(userA.UserId, bodyShowtime.Data![0].UserId);
+
+        // 3. Filter by movieId=mov-501
+        var responseMovie = await client.GetAsync("/api/notifications/filter-users?movieId=mov-501");
+        Assert.Equal(HttpStatusCode.OK, responseMovie.StatusCode);
+        var bodyMovie = await responseMovie.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyMovie!.Success);
+        Assert.Single(bodyMovie.Data!);
+        Assert.Equal(userA.UserId, bodyMovie.Data![0].UserId);
+
+        // 4. Filter by isFlagged=true
+        var responseFlagged = await client.GetAsync("/api/notifications/filter-users?isFlagged=true");
+        Assert.Equal(HttpStatusCode.OK, responseFlagged.StatusCode);
+        var bodyFlagged = await responseFlagged.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyFlagged!.Success);
+        Assert.Contains(bodyFlagged.Data!, u => u.UserId == userA.UserId);
+        Assert.DoesNotContain(bodyFlagged.Data!, u => u.UserId == userC.UserId);
+
+        // 5. Filter by hasBooked=true
+        var responseBooked = await client.GetAsync("/api/notifications/filter-users?hasBooked=true");
+        Assert.Equal(HttpStatusCode.OK, responseBooked.StatusCode);
+        var bodyBooked = await responseBooked.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyBooked!.Success);
+        Assert.Contains(bodyBooked.Data!, u => u.UserId == userA.UserId);
+        Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userB.UserId); // userB booking was CANCELLED
+        Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userC.UserId); // userC account was CANCELLED
+    }
 }
+

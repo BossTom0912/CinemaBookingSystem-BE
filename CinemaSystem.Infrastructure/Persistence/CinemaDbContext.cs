@@ -1739,6 +1739,12 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("targetCustomerIds");
             entity.Property(e => e.SpecificFbItemIds)
                 .HasColumnName("specificFbItemIds");
+            entity.Property(e => e.ShowtimeId)
+                .HasMaxLength(50)
+                .HasColumnName("showtimeId");
+            entity.Property(e => e.RoomId)
+                .HasMaxLength(50)
+                .HasColumnName("roomId");
             entity.Property(e => e.IsPrivate)
                 .HasDefaultValue(false)
                 .HasColumnName("isPrivate");
