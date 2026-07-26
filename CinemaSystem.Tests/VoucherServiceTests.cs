@@ -586,4 +586,80 @@ public sealed class VoucherServiceTests
         Assert.Contains("SUMMER2026", notif1.Message);
         Assert.Contains("20%", notif1.Message);
     }
+
+    [Fact]
+    public async Task CreateVoucherAsync_WithShowtimeIdAndRoomId_SavesFieldsAndReturnsUserIds()
+    {
+        var db = CreateDbContext();
+        var clock = new FakeClock(DateTime.UtcNow);
+        var service = new VoucherService(db, clock);
+
+        var user = new User
+        {
+            UserId = "USR_SHOWTIME_1",
+            Email = "showtime_cus@example.com",
+            FullName = "Showtime Customer",
+            PasswordHash = "hash",
+            RoleId = AuthConstants.RoleIds.Customer,
+            Status = DomainConstants.EntityStatus.Active
+        };
+        var customer = new CustomerProfile
+        {
+            CustomerProfileId = "CUS_SHOWTIME_1",
+            UserId = "USR_SHOWTIME_1",
+            User = user,
+            MemberLevel = "Standard"
+        };
+        db.Users.Add(user);
+        db.CustomerProfiles.Add(customer);
+
+        var booking = new Booking
+        {
+            BookingId = "BOK_SHOWTIME_1",
+            CustomerProfileId = "CUS_SHOWTIME_1",
+            CustomerProfile = customer,
+            ShowtimeId = "SHOWTIME_100",
+            Showtime = new Showtime
+            {
+                ShowtimeId = "SHOWTIME_100",
+                RoomId = "ROOM_5",
+                MovieId = "MOV_1",
+                Status = "ACTIVE",
+                StartTime = DateTime.UtcNow,
+                EndTime = DateTime.UtcNow.AddHours(2)
+            },
+            BookingStatus = DomainConstants.EntityStatus.Paid,
+            BookingChannel = "ONLINE"
+        };
+        db.Bookings.Add(booking);
+        await db.SaveChangesAsync();
+
+        // 1. Test GetCustomerIdsByShowtimeOrRoomAsync returns UserId
+        var customerIdsResult = await service.GetCustomerIdsByShowtimeOrRoomAsync("SHOWTIME_100", null, CancellationToken.None);
+        Assert.True(customerIdsResult.Success);
+        Assert.Single(customerIdsResult.Data);
+        Assert.Equal("USR_SHOWTIME_1", customerIdsResult.Data[0]);
+
+        // 2. Test CreateVoucherRequest with ShowtimeId & RoomId
+        var request = new CreateVoucherRequest
+        {
+            VoucherCode = "SHOWTIME_VOUCHER",
+            Title = "Voucher Suat Chieu",
+            Description = "Uu dai cho suat chieu",
+            DiscountType = DomainConstants.DiscountType.Amount,
+            DiscountValue = 30000m,
+            UsageLimit = 50,
+            ShowtimeId = "SHOWTIME_100",
+            RoomId = "ROOM_5",
+            StartDate = DateTime.UtcNow.AddDays(-1),
+            EndDate = DateTime.UtcNow.AddDays(5)
+        };
+
+        var result = await service.CreateVoucherAsync(request, CancellationToken.None);
+        Assert.True(result.Success);
+        Assert.NotNull(result.Data);
+        Assert.Equal("SHOWTIME_100", result.Data.ShowtimeId);
+        Assert.Equal("ROOM_5", result.Data.RoomId);
+        Assert.Contains("USR_SHOWTIME_1", result.Data.TargetCustomerIds);
+    }
 }

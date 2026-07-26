@@ -54,6 +54,10 @@ public sealed class CreateVoucherRequest
 
     public string? SpecificFbItemIds { get; init; }
 
+    public string? ShowtimeId { get; init; }
+
+    public string? RoomId { get; init; }
+
     public bool IsPrivate { get; init; } = false;
 
     [Range(1, int.MaxValue, ErrorMessage = "RequiredTicketCount must be greater than zero.")]

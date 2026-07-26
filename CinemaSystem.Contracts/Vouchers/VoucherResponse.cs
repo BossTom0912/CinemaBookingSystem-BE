@@ -44,6 +44,10 @@ public sealed class VoucherResponse
 
     public string? SpecificFbItemIds { get; init; }
 
+    public string? ShowtimeId { get; init; }
+
+    public string? RoomId { get; init; }
+
     public bool IsPrivate { get; init; }
 
     public int? RequiredTicketCount { get; init; }

@@ -71,9 +71,21 @@ public sealed class VoucherService : IVoucherService
             TargetType = string.IsNullOrWhiteSpace(request.TargetType) ? DomainConstants.VoucherTargetType.AllCustomers : request.TargetType.Trim().ToUpperInvariant(),
             TargetCustomerIds = request.TargetCustomerIds,
             SpecificFbItemIds = request.SpecificFbItemIds,
+            ShowtimeId = request.ShowtimeId,
+            RoomId = request.RoomId,
             IsPrivate = request.IsPrivate,
             RequiredTicketCount = request.RequiredTicketCount
         };
+
+        if (string.IsNullOrWhiteSpace(voucher.TargetCustomerIds)
+            && (!string.IsNullOrWhiteSpace(voucher.ShowtimeId) || !string.IsNullOrWhiteSpace(voucher.RoomId)))
+        {
+            var userIdsResult = await GetCustomerIdsByShowtimeOrRoomAsync(voucher.ShowtimeId, voucher.RoomId, cancellationToken);
+            if (userIdsResult.Success && userIdsResult.Data != null && userIdsResult.Data.Count > 0)
+            {
+                voucher.TargetCustomerIds = string.Join(",", userIdsResult.Data);
+            }
+        }
 
         _dbContext.Vouchers.Add(voucher);
 
@@ -170,8 +182,20 @@ public sealed class VoucherService : IVoucherService
         if (!string.IsNullOrWhiteSpace(request.TargetType)) voucher.TargetType = request.TargetType.Trim().ToUpperInvariant();
         if (request.TargetCustomerIds != null) voucher.TargetCustomerIds = request.TargetCustomerIds;
         if (request.SpecificFbItemIds != null) voucher.SpecificFbItemIds = request.SpecificFbItemIds;
+        if (request.ShowtimeId != null) voucher.ShowtimeId = request.ShowtimeId;
+        if (request.RoomId != null) voucher.RoomId = request.RoomId;
         voucher.IsPrivate = request.IsPrivate;
         voucher.RequiredTicketCount = request.RequiredTicketCount;
+
+        if (string.IsNullOrWhiteSpace(voucher.TargetCustomerIds)
+            && (!string.IsNullOrWhiteSpace(voucher.ShowtimeId) || !string.IsNullOrWhiteSpace(voucher.RoomId)))
+        {
+            var userIdsResult = await GetCustomerIdsByShowtimeOrRoomAsync(voucher.ShowtimeId, voucher.RoomId, cancellationToken);
+            if (userIdsResult.Success && userIdsResult.Data != null && userIdsResult.Data.Count > 0)
+            {
+                voucher.TargetCustomerIds = string.Join(",", userIdsResult.Data);
+            }
+        }
 
         if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase)
             || !string.IsNullOrWhiteSpace(voucher.TargetCustomerIds))
@@ -848,7 +872,8 @@ public sealed class VoucherService : IVoucherService
         }
 
         var customerIds = await query
-            .Select(b => b.CustomerProfileId)
+            .Where(b => b.CustomerProfile != null || !string.IsNullOrEmpty(b.CustomerProfileId))
+            .Select(b => b.CustomerProfile != null ? b.CustomerProfile.UserId : b.CustomerProfileId)
             .Where(id => !string.IsNullOrEmpty(id))
             .Distinct()
             .ToListAsync(cancellationToken);
@@ -882,6 +907,8 @@ public sealed class VoucherService : IVoucherService
             TargetType = voucher.TargetType ?? "ALL_CUSTOMERS",
             TargetCustomerIds = voucher.TargetCustomerIds,
             SpecificFbItemIds = voucher.SpecificFbItemIds,
+            ShowtimeId = voucher.ShowtimeId,
+            RoomId = voucher.RoomId,
             IsPrivate = voucher.IsPrivate,
             RequiredTicketCount = voucher.RequiredTicketCount
         };
