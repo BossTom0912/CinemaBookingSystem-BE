@@ -21,7 +21,7 @@ management system.
 | `CinemaSystem.Application` | Use-case interfaces, application constants, and service contracts |
 | `CinemaSystem.Contracts` | Request and response DTOs |
 | `CinemaSystem.Domain` | Domain entities and business concepts |
-| `CinemaSystem.Infrastructure` | EF Core, SQL Server, JWT, SMTP, Redis, and payment implementations |
+| `CinemaSystem.Infrastructure` | EF Core, PostgreSQL, JWT, SMTP, Redis, and payment implementations |
 | `CinemaSystem.Tests` | Automated tests |
 
 Project documents are indexed in [`docs/README.md`](docs/README.md).
@@ -29,7 +29,7 @@ Project documents are indexed in [`docs/README.md`](docs/README.md).
 ## Requirements
 
 - .NET 8 SDK
-- SQL Server
+- PostgreSQL 16 or a compatible managed PostgreSQL service
 - Redis is optional; the application can use the in-memory seat-lock store
 - Gmail SMTP credentials are optional when mock email mode is enabled
 
@@ -43,8 +43,8 @@ Project documents are indexed in [`docs/README.md`](docs/README.md).
    ```
 
 3. Add local credentials to `CinemaSystem/appsettings.Development.json`.
-4. Create the database using
-   [`docs/database/cinema-booking-schema.sql`](docs/database/cinema-booking-schema.sql).
+4. Configure a PostgreSQL database. For a safe production-like verification,
+   follow [`docs/database/postgresql-staging-test-guide.md`](docs/database/postgresql-staging-test-guide.md).
 5. Restore, build, and test:
 
    ```powershell
@@ -120,7 +120,7 @@ management system.
 | `CinemaSystem.Application` | Use-case interfaces, application constants, and service contracts |
 | `CinemaSystem.Contracts` | Request and response DTOs |
 | `CinemaSystem.Domain` | Domain entities and business concepts |
-| `CinemaSystem.Infrastructure` | EF Core, SQL Server, JWT, SMTP, Redis, and payment implementations |
+| `CinemaSystem.Infrastructure` | EF Core, PostgreSQL, JWT, SMTP, Redis, and payment implementations |
 | `CinemaSystem.Tests` | Automated tests |
 
 Project documents are indexed in [`docs/README.md`](docs/README.md).
@@ -128,7 +128,7 @@ Project documents are indexed in [`docs/README.md`](docs/README.md).
 ## Requirements
 
 - .NET 8 SDK
-- SQL Server
+- PostgreSQL 16 or a compatible managed PostgreSQL service
 - Redis is optional; the application can use the in-memory seat-lock store
 - Gmail SMTP credentials are optional when mock email mode is enabled
 
@@ -142,8 +142,8 @@ Project documents are indexed in [`docs/README.md`](docs/README.md).
    ```
 
 3. Add local credentials to `CinemaSystem/appsettings.Development.json`.
-4. Create the database using
-   [`docs/database/cinema-booking-schema.sql`](docs/database/cinema-booking-schema.sql).
+4. Configure a PostgreSQL database. For a safe production-like verification,
+   follow [`docs/database/postgresql-staging-test-guide.md`](docs/database/postgresql-staging-test-guide.md).
 5. Restore, build, and test:
 
    ```powershell

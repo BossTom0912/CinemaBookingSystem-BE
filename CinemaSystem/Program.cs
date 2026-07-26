@@ -266,7 +266,18 @@ catch (Exception ex)
     var migLogger = app.Services
         .GetRequiredService<ILoggerFactory>()
         .CreateLogger("Program");
-    migLogger.LogWarning(ex, "Database migration skipped because the database is unavailable.");
+
+    if (app.Environment.IsEnvironment("Testing"))
+    {
+        // The integration-test host replaces PostgreSQL with EF Core InMemory,
+        // which intentionally does not support relational migrations.
+        migLogger.LogInformation(ex, "Database migration is skipped by the in-memory test host.");
+    }
+    else
+    {
+        migLogger.LogCritical(ex, "Database migration failed. The API will not start with an unverified schema.");
+        throw;
+    }
 }
 
 if (app.Environment.IsDevelopment())

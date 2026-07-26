@@ -130,7 +130,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("isActive");
             entity.Property(e => e.SupportsAccountInquiry).HasColumnName("supportsAccountInquiry");
             entity.Property(e => e.SupportsPayout).HasColumnName("supportsPayout");
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(sysutcdatetime())").HasColumnName("createdAt");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("createdAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
         });
 
@@ -145,7 +145,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.BannerType).HasMaxLength(50).HasColumnName("bannerType");
             entity.Property(e => e.DisplayOrder).HasDefaultValue(0).HasColumnName("displayOrder");
             entity.Property(e => e.IsActive).HasDefaultValue(true).HasColumnName("isActive");
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())").HasColumnName("createdAt");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("createdAt");
         });
 
         modelBuilder.Entity<AuditLog>(entity =>
@@ -166,7 +166,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(100)
                 .HasColumnName("correlationId");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.EntityId)
                 .HasMaxLength(50)
@@ -207,7 +207,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => new { e.CustomerProfileId, e.ClientRequestId }, "UX_BOOKING_CUSTOMER_CLIENT_REQUEST")
                 .IsUnique()
-                .HasFilter("[clientRequestId] IS NOT NULL");
+                .HasFilter("\"clientRequestId\" IS NOT NULL");
 
             entity.HasIndex(e => e.ShowtimeId, "IX_BOOKING_SHOWTIME_ID");
 
@@ -227,7 +227,7 @@ public partial class CinemaDbContext : DbContext
                 .HasDefaultValue("CREATED")
                 .HasColumnName("bookingStatus");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.CreatedByStaffProfileId)
                 .HasMaxLength(50)
@@ -361,7 +361,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.ToTable("CHECKIN_LOG");
 
-            entity.HasIndex(e => e.RawQrCode, "IX_CHECKIN_LOG_RAW_QR_CODE").HasFilter("([rawQrCode] IS NOT NULL)");
+            entity.HasIndex(e => e.RawQrCode, "IX_CHECKIN_LOG_RAW_QR_CODE").HasFilter("(\"rawQrCode\" IS NOT NULL)");
 
             entity.HasIndex(
                 e => new { e.ScannedByUserId, e.ScanTime },
@@ -385,7 +385,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("scannedByUserId");
             entity.Property(e => e.ScanTime)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("scanTime");
             entity.Property(e => e.StaffProfileId)
                 .HasMaxLength(50)
@@ -475,7 +475,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.IdentityCard, "UX_CUSTOMER_PROFILE_IDENTITY_CARD")
                 .IsUnique()
-                .HasFilter("([identityCard] IS NOT NULL)");
+                .HasFilter("(\"identityCard\" IS NOT NULL)");
 
             entity.Property(e => e.CustomerProfileId)
                 .HasMaxLength(50)
@@ -521,7 +521,7 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("tokenId");
             entity.Property(e => e.AttemptCount).HasColumnName("attemptCount");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.ExpiredAt).HasColumnName("expiredAt");
             entity.Property(e => e.IsUsed).HasColumnName("isUsed");
@@ -638,7 +638,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("userId");
             entity.Property(e => e.ViewedAt)
-                .HasDefaultValueSql("SYSUTCDATETIME()")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("viewedAt");
             entity.Property(e => e.IpAddress)
                 .HasMaxLength(100)
@@ -709,7 +709,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.UserId).HasMaxLength(50).HasColumnName("userId");
             entity.Property(e => e.UserMessage).HasColumnName("userMessage");
             entity.Property(e => e.AiReplyMessage).HasColumnName("aiReplyMessage");
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()").HasColumnName("createdAt");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("createdAt");
 
             entity.HasOne(d => d.User).WithMany()
                 .HasForeignKey(d => d.UserId)
@@ -728,7 +728,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.NewRating).HasColumnName("newRating");
             entity.Property(e => e.OldComment).HasMaxLength(1000).HasColumnName("oldComment");
             entity.Property(e => e.NewComment).HasMaxLength(1000).HasColumnName("newComment");
-            entity.Property(e => e.EditedAt).HasDefaultValueSql("SYSUTCDATETIME()").HasColumnName("editedAt");
+            entity.Property(e => e.EditedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("editedAt");
 
             entity.HasOne(d => d.Review).WithMany(p => p.EditHistories)
                 .HasForeignKey(d => d.ReviewId)
@@ -748,7 +748,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.NewStatus).HasMaxLength(30).HasColumnName("newStatus");
             entity.Property(e => e.ModeratorId).HasMaxLength(50).HasColumnName("moderatorId");
             entity.Property(e => e.RejectedReason).HasMaxLength(1000).HasColumnName("rejectedReason");
-            entity.Property(e => e.ModeratedAt).HasDefaultValueSql("SYSUTCDATETIME()").HasColumnName("moderatedAt");
+            entity.Property(e => e.ModeratedAt).HasDefaultValueSql("CURRENT_TIMESTAMP").HasColumnName("moderatedAt");
 
             entity.HasOne(d => d.Review).WithMany(p => p.ModerationHistories)
                 .HasForeignKey(d => d.ReviewId)
@@ -771,7 +771,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("bookingId");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.IsRead).HasColumnName("isRead");
             entity.Property(e => e.Message)
@@ -804,15 +804,15 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.BookingId, "UX_PAYMENT_ONE_SUCCESS_PER_BOOKING")
                 .IsUnique()
-                .HasFilter("([paymentStatus]='SUCCESS')");
+                .HasFilter("(\"paymentStatus\" = 'SUCCESS')");
 
             entity.HasIndex(e => e.ProviderTransactionCode, "UX_PAYMENT_PROVIDER_TRANSACTION_CODE")
                 .IsUnique()
-                .HasFilter("([providerTransactionCode] IS NOT NULL)");
+                .HasFilter("(\"providerTransactionCode\" IS NOT NULL)");
 
             entity.HasIndex(e => e.TransactionCode, "UX_PAYMENT_TRANSACTION_CODE")
                 .IsUnique()
-                .HasFilter("([transactionCode] IS NOT NULL)");
+                .HasFilter("(\"transactionCode\" IS NOT NULL)");
 
             entity.Property(e => e.PaymentId)
                 .HasMaxLength(50)
@@ -824,7 +824,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("bookingId");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.FailureReason)
                 .HasMaxLength(1000)
@@ -897,7 +897,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.ExpiresAt).HasColumnName("expiresAt");
             entity.Property(e => e.IsRevoked).HasColumnName("isRevoked");
             entity.Property(e => e.IssuedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("issuedAt");
             entity.Property(e => e.RevokedAt).HasColumnName("revokedAt");
             entity.Property(e => e.TokenHash).HasColumnName("tokenHash");
@@ -921,7 +921,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.ProviderRefundCode, "UX_REFUND_PROVIDER_REFUND_CODE")
                 .IsUnique()
-                .HasFilter("([providerRefundCode] IS NOT NULL)");
+                .HasFilter("(\"providerRefundCode\" IS NOT NULL)");
 
             entity.Property(e => e.RefundId)
                 .HasMaxLength(50)
@@ -953,7 +953,7 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("refundStatus");
             entity.Property(e => e.RefundedAt).HasColumnName("refundedAt");
             entity.Property(e => e.RequestedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("requestedAt");
             entity.Property(e => e.ShowtimeCancellationId)
                 .HasMaxLength(50)
@@ -1005,7 +1005,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.CompletedAt).HasColumnName("completedAt");
             entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("updatedAt");
-            entity.Property(e => e.RowVersion).IsRowVersion().IsConcurrencyToken().HasColumnName("rowVersion");
+            entity.Property(e => e.RowVersion).IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnName("rowVersion");
             entity.HasOne(e => e.Refund).WithOne(e => e.RefundClaim)
                 .HasForeignKey<RefundClaim>(e => e.RefundId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -1075,7 +1075,7 @@ public partial class CinemaDbContext : DbContext
             entity.HasIndex(e => e.RefundClaimId, "UQ_MANUAL_REFUND_PROCESS_CLAIM").IsUnique();
             entity.HasIndex(e => new { e.ProcessStatus, e.CreatedAt }, "IX_MANUAL_REFUND_PROCESS_STATUS_CREATED");
             entity.HasIndex(e => e.BankTransactionCode, "UX_MANUAL_REFUND_BANK_TRANSACTION_CODE")
-                .IsUnique().HasFilter("([bankTransactionCode] IS NOT NULL)");
+                .IsUnique().HasFilter("(\"bankTransactionCode\" IS NOT NULL)");
             entity.Property(e => e.ManualRefundProcessId).HasMaxLength(50).HasColumnName("manualRefundProcessId");
             entity.Property(e => e.RefundId).HasMaxLength(50).HasColumnName("refundId");
             entity.Property(e => e.RefundClaimId).HasMaxLength(50).HasColumnName("refundClaimId");
@@ -1088,7 +1088,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.AssignedAt).HasColumnName("assignedAt");
             entity.Property(e => e.ConfirmedAt).HasColumnName("confirmedAt");
             entity.Property(e => e.CreatedAt).HasColumnName("createdAt");
-            entity.Property(e => e.RowVersion).IsRowVersion().IsConcurrencyToken().HasColumnName("rowVersion");
+            entity.Property(e => e.RowVersion).IsConcurrencyToken().ValueGeneratedOnAddOrUpdate().HasColumnName("rowVersion");
             entity.HasOne(e => e.Refund).WithOne(e => e.ManualRefundProcess)
                 .HasForeignKey<ManualRefundProcess>(e => e.RefundId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
@@ -1131,7 +1131,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.BookingId, "UX_REVIEW_BOOKING")
                 .IsUnique()
-                .HasFilter("([bookingId] IS NOT NULL)");
+                .HasFilter("(\"bookingId\" IS NOT NULL)");
 
             entity.Property(e => e.ReviewId)
                 .HasMaxLength(50)
@@ -1143,7 +1143,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(1000)
                 .HasColumnName("comment");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
@@ -1194,7 +1194,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("bookingId");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.CustomerProfileId)
                 .HasMaxLength(50)
@@ -1416,7 +1416,7 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("basePrice");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.EndTime).HasColumnName("endTime");
             entity.Property(e => e.MovieId)
@@ -1457,7 +1457,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(1000)
                 .HasColumnName("cancelReason");
             entity.Property(e => e.CancelledAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("cancelledAt");
             entity.Property(e => e.CancelledByStaffId)
                 .HasMaxLength(50)
@@ -1508,8 +1508,7 @@ public partial class CinemaDbContext : DbContext
                 .HasColumnName("lockedByUserId");
             entity.Property(e => e.LockedUntil).HasColumnName("lockedUntil");
             entity.Property(e => e.RowVersion)
-                .IsRowVersion()
-                .IsConcurrencyToken()
+                .IsConcurrencyToken().ValueGeneratedOnAddOrUpdate()
                 .HasColumnName("rowVersion");
             entity.Property(e => e.SeatId)
                 .HasMaxLength(50)
@@ -1549,7 +1548,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.IdentityCard, "UX_STAFF_PROFILE_IDENTITY_CARD")
                 .IsUnique()
-                .HasFilter("([identityCard] IS NOT NULL)");
+                .HasFilter("(\"identityCard\" IS NOT NULL)");
 
             entity.Property(e => e.StaffProfileId)
                 .HasMaxLength(50)
@@ -1610,7 +1609,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("bookingSeatId");
             entity.Property(e => e.GeneratedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("generatedAt");
             entity.Property(e => e.QrCode)
                 .HasMaxLength(450)
@@ -1640,7 +1639,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("userId");
             entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("createdAt");
             entity.Property(e => e.Email)
                 .HasMaxLength(255)
@@ -1757,7 +1756,7 @@ public partial class CinemaDbContext : DbContext
 
             entity.HasIndex(e => e.CustomerVoucherId, "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER")
                 .IsUnique()
-                .HasFilter("[customerVoucherId] IS NOT NULL AND [usageStatus] <> 'CANCELLED'");
+                .HasFilter("\"customerVoucherId\" IS NOT NULL AND \"usageStatus\" <> 'CANCELLED'");
 
             entity.Property(e => e.VoucherUsageId)
                 .HasMaxLength(50)
@@ -1873,7 +1872,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("policyVersion");
             entity.Property(e => e.IssuedAt)
-                .HasDefaultValueSql("(sysutcdatetime())")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnName("issuedAt");
             entity.Property(e => e.ExpiresAt)
                 .HasColumnName("expiresAt");
@@ -1906,7 +1905,7 @@ public partial class CinemaDbContext : DbContext
             entity.HasIndex(e => e.ReservedBookingId, "IX_COMPENSATION_TICKET_RESERVED_BOOKING");
             entity.HasIndex(e => e.ReservedBookingSeatId, "UQ_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT")
                 .IsUnique()
-                .HasFilter("[reservedBookingSeatId] IS NOT NULL");
+                .HasFilter("\"reservedBookingSeatId\" IS NOT NULL");
 
             entity.Property(e => e.CompensationTicketId)
                 .HasMaxLength(50)
@@ -1932,8 +1931,7 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.RedeemedAt)
                 .HasColumnName("redeemedAt");
             entity.Property(e => e.RowVersion)
-                .IsRowVersion()
-                .IsConcurrencyToken()
+                .IsConcurrencyToken().ValueGeneratedOnAddOrUpdate()
                 .HasColumnName("rowVersion");
 
             entity.HasOne(e => e.CancellationCompensation)
@@ -1988,8 +1986,7 @@ public partial class CinemaDbContext : DbContext
                 .HasMaxLength(50)
                 .HasColumnName("redeemedByStaffProfileId");
             entity.Property(e => e.RowVersion)
-                .IsRowVersion()
-                .IsConcurrencyToken()
+                .IsConcurrencyToken().ValueGeneratedOnAddOrUpdate()
                 .HasColumnName("rowVersion");
 
             entity.HasOne(e => e.CancellationCompensation)

@@ -2,7 +2,7 @@
 
 ## Mục tiêu
 
-Docker chỉ đóng gói **Backend** ở cổng `5070`. SQL Server hiện có trên máy được giữ nguyên để không mất dữ liệu test. Docker không tự tạo URL Internet; cần ngrok riêng cho BE khi VNPAY hoặc SePay gửi callback.
+Docker chỉ đóng gói **Backend** ở cổng `5070`. PostgreSQL chạy trên máy hoặc dịch vụ quản lý được giữ riêng để không mất dữ liệu test. Docker không tự tạo URL Internet; cần ngrok riêng cho BE khi VNPAY hoặc SePay gửi callback.
 
 ## Lần đầu cấu hình
 
@@ -21,11 +21,11 @@ Docker chỉ đóng gói **Backend** ở cổng `5070`. SQL Server hiện có tr
 
 3. Mở `.env` và thay ít nhất ba giá trị:
 
-   - `ConnectionStrings__DefaultConnection`: connection string của SQL Server trên Windows. Giữ `host.docker.internal` vì từ container, `localhost` là chính container chứ không phải máy Windows.
+   - `ConnectionStrings__DefaultConnection`: connection string PostgreSQL. Giữ `host.docker.internal` khi PostgreSQL chạy trên Windows vì từ container, `localhost` là chính container chứ không phải máy Windows.
    - `JwtSettings__Secret` và `SecuritySettings__ConfirmationTokenSecret`: hai chuỗi ngẫu nhiên khác nhau, mỗi chuỗi ít nhất 32 ký tự.
    - `CorsSettings__AllowedOrigins__2`: URL FE ngrok hiện tại, không có dấu `/` ở cuối.
 
-   Nếu SQL Server không nghe tại TCP port `1433`, thay `1433` bằng port thực tế. Cần bật TCP/IP cho SQL Server để container truy cập được.
+   Nếu PostgreSQL không nghe tại TCP port `5432`, thay `5432` bằng port thực tế. Cần cho phép kết nối TCP từ Docker để container truy cập được.
 
 4. Dừng BE đang chạy trong Visual Studio hoặc terminal để giải phóng cổng `5070`.
 
@@ -55,7 +55,7 @@ docker compose down
 docker compose down -v
 ```
 
-`docker compose down -v` xóa volume upload (`cinema_uploads`), nên chỉ dùng khi thật sự muốn xóa các file ảnh đã upload qua container. Nó không xóa SQL Server trên máy Windows.
+`docker compose down -v` xóa volume upload (`cinema_uploads`), nên chỉ dùng khi thật sự muốn xóa các file ảnh đã upload qua container. Nó không xóa PostgreSQL trên máy Windows.
 
 ## Ngrok và callback thanh toán
 

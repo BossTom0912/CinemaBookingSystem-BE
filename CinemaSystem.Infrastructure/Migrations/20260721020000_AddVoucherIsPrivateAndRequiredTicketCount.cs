@@ -14,15 +14,10 @@ public partial class AddVoucherIsPrivateAndRequiredTicketCount : Migration
     {
         migrationBuilder.Sql(
             """
-            IF COL_LENGTH('dbo.VOUCHER', 'isPrivate') IS NULL
-            BEGIN
-                ALTER TABLE dbo.[VOUCHER] ADD [isPrivate] BIT NOT NULL CONSTRAINT [DF_VOUCHER_isPrivate] DEFAULT 0;
-            END;
-
-            IF COL_LENGTH('dbo.VOUCHER', 'requiredTicketCount') IS NULL
-            BEGIN
-                ALTER TABLE dbo.[VOUCHER] ADD [requiredTicketCount] INT NULL;
-            END;
+            ALTER TABLE "VOUCHER"
+                ADD COLUMN IF NOT EXISTS "isPrivate" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "VOUCHER"
+                ADD COLUMN IF NOT EXISTS "requiredTicketCount" integer;
             """);
     }
 
@@ -30,16 +25,8 @@ public partial class AddVoucherIsPrivateAndRequiredTicketCount : Migration
     {
         migrationBuilder.Sql(
             """
-            IF COL_LENGTH('dbo.VOUCHER', 'isPrivate') IS NOT NULL
-            BEGIN
-                ALTER TABLE dbo.[VOUCHER] DROP CONSTRAINT [DF_VOUCHER_isPrivate];
-                ALTER TABLE dbo.[VOUCHER] DROP COLUMN [isPrivate];
-            END;
-
-            IF COL_LENGTH('dbo.VOUCHER', 'requiredTicketCount') IS NOT NULL
-            BEGIN
-                ALTER TABLE dbo.[VOUCHER] DROP COLUMN [requiredTicketCount];
-            END;
+            ALTER TABLE "VOUCHER" DROP COLUMN IF EXISTS "isPrivate";
+            ALTER TABLE "VOUCHER" DROP COLUMN IF EXISTS "requiredTicketCount";
             """);
     }
 }

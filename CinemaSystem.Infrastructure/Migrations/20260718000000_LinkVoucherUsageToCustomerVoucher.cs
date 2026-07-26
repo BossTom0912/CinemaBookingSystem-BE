@@ -14,82 +14,75 @@ public partial class LinkVoucherUsageToCustomerVoucher : Migration
     {
         migrationBuilder.Sql(
             """
-            IF OBJECT_ID(N'dbo.VOUCHER_USAGE', N'U') IS NULL
-               OR OBJECT_ID(N'dbo.CUSTOMER_VOUCHER', N'U') IS NULL
-                THROW 52100, 'Voucher usage or customer voucher table is missing. Apply the canonical database upgrade first.', 1;
+            DO $$
+            BEGIN
+                IF to_regclass('"VOUCHER_USAGE"') IS NULL
+                   OR to_regclass('"CUSTOMER_VOUCHER"') IS NULL THEN
+                    RAISE EXCEPTION 'Voucher usage or customer voucher table is missing. Restore the PostgreSQL staging backup before applying migrations.';
+                END IF;
+            END $$;
 
-            IF COL_LENGTH(N'dbo.VOUCHER_USAGE', N'customerVoucherId') IS NULL
-                ALTER TABLE dbo.[VOUCHER_USAGE]
-                    ADD [customerVoucherId] NVARCHAR(50) NULL;
-            """);
+            ALTER TABLE "VOUCHER_USAGE"
+                ADD COLUMN IF NOT EXISTS "customerVoucherId" varchar(50);
 
-        // SQL Server resolves column references when a command batch is
-        // compiled, so statements that use the new column must be a later
-        // migration command. EF still wraps both commands in one transaction.
-        migrationBuilder.Sql(
-            """
-            ;WITH exactClaim AS
+            WITH exact_claim AS
             (
                 SELECT
-                    usage.[voucherUsageId],
-                    MIN(claim.[customerVoucherId]) AS [customerVoucherId]
-                FROM dbo.[VOUCHER_USAGE] AS usage
-                INNER JOIN dbo.[CUSTOMER_VOUCHER] AS claim
-                    ON claim.[voucherId] = usage.[voucherId]    
-                   AND claim.[customerProfileId] = usage.[customerProfileId]
-                   AND claim.[isUsed] = 1
-                WHERE usage.[customerVoucherId] IS NULL
-                  AND usage.[usageStatus] IN (N'APPLIED', N'CONFIRMED')
-                GROUP BY usage.[voucherUsageId]
-                HAVING COUNT_BIG(*) = 1
+                    usage."voucherUsageId",
+                    min(claim."customerVoucherId") AS "customerVoucherId"
+                FROM "VOUCHER_USAGE" AS usage
+                INNER JOIN "CUSTOMER_VOUCHER" AS claim
+                    ON claim."voucherId" = usage."voucherId"
+                   AND claim."customerProfileId" = usage."customerProfileId"
+                   AND claim."isUsed" = true
+                WHERE usage."customerVoucherId" IS NULL
+                  AND usage."usageStatus" IN ('APPLIED', 'CONFIRMED')
+                GROUP BY usage."voucherUsageId"
+                HAVING count(*) = 1
             )
-            UPDATE usage
-            SET [customerVoucherId] = exactClaim.[customerVoucherId]
-            FROM dbo.[VOUCHER_USAGE] AS usage
-            INNER JOIN exactClaim
-                ON exactClaim.[voucherUsageId] = usage.[voucherUsageId];
+            UPDATE "VOUCHER_USAGE" AS usage
+            SET "customerVoucherId" = exact_claim."customerVoucherId"
+            FROM exact_claim
+            WHERE exact_claim."voucherUsageId" = usage."voucherUsageId";
 
-            UPDATE claim
-            SET [isUsed] = 0,
-                [usedAt] = NULL
-            FROM dbo.[CUSTOMER_VOUCHER] AS claim
-            INNER JOIN dbo.[VOUCHER_USAGE] AS usage
-                ON usage.[customerVoucherId] = claim.[customerVoucherId]
-            WHERE usage.[usageStatus] = N'APPLIED'
-              AND claim.[isUsed] = 1;
+            UPDATE "CUSTOMER_VOUCHER" AS claim
+            SET "isUsed" = false,
+                "usedAt" = NULL
+            FROM "VOUCHER_USAGE" AS usage
+            WHERE usage."customerVoucherId" = claim."customerVoucherId"
+              AND usage."usageStatus" = 'APPLIED'
+              AND claim."isUsed" = true;
 
-            IF EXISTS
-            (
-                SELECT usage.[customerVoucherId]
-                FROM dbo.[VOUCHER_USAGE] AS usage
-                WHERE usage.[customerVoucherId] IS NOT NULL
-                  AND usage.[usageStatus] <> N'CANCELLED'
-                GROUP BY usage.[customerVoucherId]
-                HAVING COUNT_BIG(*) > 1
-            )
-                THROW 52101, 'A customer voucher is linked to multiple non-cancelled usages. Reconcile those rows, then re-run.', 1;
+            DO $$
+            BEGIN
+                IF EXISTS
+                (
+                    SELECT 1
+                    FROM "VOUCHER_USAGE"
+                    WHERE "customerVoucherId" IS NOT NULL
+                      AND "usageStatus" <> 'CANCELLED'
+                    GROUP BY "customerVoucherId"
+                    HAVING count(*) > 1
+                ) THEN
+                    RAISE EXCEPTION 'A customer voucher is linked to multiple non-cancelled usages. Reconcile the staging data before continuing.';
+                END IF;
 
-            IF NOT EXISTS
-            (
-                SELECT 1 FROM sys.foreign_keys
-                WHERE parent_object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
-                  AND name = N'FK_VOUCHER_USAGE_CUSTOMER_VOUCHER'
-            )
-                ALTER TABLE dbo.[VOUCHER_USAGE] WITH CHECK
-                    ADD CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_VOUCHER]
-                    FOREIGN KEY ([customerVoucherId])
-                    REFERENCES dbo.[CUSTOMER_VOUCHER]([customerVoucherId]);
+                IF NOT EXISTS
+                (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_VOUCHER_USAGE_CUSTOMER_VOUCHER'
+                ) THEN
+                    ALTER TABLE "VOUCHER_USAGE"
+                        ADD CONSTRAINT "FK_VOUCHER_USAGE_CUSTOMER_VOUCHER"
+                        FOREIGN KEY ("customerVoucherId")
+                        REFERENCES "CUSTOMER_VOUCHER" ("customerVoucherId");
+                END IF;
+            END $$;
 
-            IF NOT EXISTS
-            (
-                SELECT 1 FROM sys.indexes
-                WHERE object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
-                  AND name = N'UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER'
-            )
-                CREATE UNIQUE INDEX [UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER]
-                    ON dbo.[VOUCHER_USAGE]([customerVoucherId])
-                    WHERE [customerVoucherId] IS NOT NULL
-                      AND [usageStatus] <> N'CANCELLED';
+            CREATE UNIQUE INDEX IF NOT EXISTS "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER"
+                ON "VOUCHER_USAGE" ("customerVoucherId")
+                WHERE "customerVoucherId" IS NOT NULL
+                  AND "usageStatus" <> 'CANCELLED';
             """);
     }
 
@@ -97,27 +90,11 @@ public partial class LinkVoucherUsageToCustomerVoucher : Migration
     {
         migrationBuilder.Sql(
             """
-            IF EXISTS
-            (
-                SELECT 1 FROM sys.indexes
-                WHERE object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
-                  AND name = N'UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER'
-            )
-                DROP INDEX [UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER]
-                    ON dbo.[VOUCHER_USAGE];
-
-            IF EXISTS
-            (
-                SELECT 1 FROM sys.foreign_keys
-                WHERE parent_object_id = OBJECT_ID(N'dbo.VOUCHER_USAGE')
-                  AND name = N'FK_VOUCHER_USAGE_CUSTOMER_VOUCHER'
-            )
-                ALTER TABLE dbo.[VOUCHER_USAGE]
-                    DROP CONSTRAINT [FK_VOUCHER_USAGE_CUSTOMER_VOUCHER];
-
-            IF COL_LENGTH(N'dbo.VOUCHER_USAGE', N'customerVoucherId') IS NOT NULL
-                ALTER TABLE dbo.[VOUCHER_USAGE]
-                    DROP COLUMN [customerVoucherId];
+            DROP INDEX IF EXISTS "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER";
+            ALTER TABLE "VOUCHER_USAGE"
+                DROP CONSTRAINT IF EXISTS "FK_VOUCHER_USAGE_CUSTOMER_VOUCHER";
+            ALTER TABLE "VOUCHER_USAGE"
+                DROP COLUMN IF EXISTS "customerVoucherId";
             """);
     }
 }

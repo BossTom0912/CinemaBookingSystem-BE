@@ -62,6 +62,7 @@ Khi nội dung refund giữa các báo cáo cũ khác với chính sách hiện 
 
 | Phạm vi | Báo cáo |
 |---|---|
+| PostgreSQL `Tom/postgresql-mainlocal` | [`postgresql-mainlocal-test-report-2026-07-26.md`](postgresql-mainlocal-test-report-2026-07-26.md) |
 | `main_local` + voucher/refund + VNPAY | [`main-local-voucher-refund-fix-logic-merge-test-2026-07-24.md`](main-local-voucher-refund-fix-logic-merge-test-2026-07-24.md) |
 | `main` + Manager/Admin | [`main-manager-admin-integration-test-2026-06-28.md`](main-manager-admin-integration-test-2026-06-28.md) |
 | Manager/Admin merge và DB | [`MangerAndAdmin_1-admin-merge-report.md`](MangerAndAdmin_1-admin-merge-report.md) |

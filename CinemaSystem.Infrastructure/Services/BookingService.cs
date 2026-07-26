@@ -12,7 +12,7 @@ using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Configuration;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -490,15 +490,19 @@ public sealed class BookingService : IBookingService
     private static bool IsCheckoutConflict(DbUpdateException exception)
     {
         return exception is DbUpdateConcurrencyException
-            || exception.InnerException is SqlException { Number: 2601 or 2627 };
+            || exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation
+            };
     }
 
     private static bool IsVoucherReservationConflict(DbUpdateException exception)
     {
-        return exception.InnerException is SqlException { Number: 2601 or 2627 } sqlException
-            && sqlException.Message.Contains(
-                "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER",
-                StringComparison.OrdinalIgnoreCase);
+        return exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER"
+        };
     }
 
     private static bool IsCompensationReservationConflict(

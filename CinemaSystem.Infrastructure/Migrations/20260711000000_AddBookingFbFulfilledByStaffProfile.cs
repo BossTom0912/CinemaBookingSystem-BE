@@ -12,50 +12,39 @@ public partial class AddBookingFbFulfilledByStaffProfile : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        // The canonical SQL schema and its upgrade script may have created this
-        // column before EF migration history was introduced. Guard every object
-        // so MigrateAsync can reconcile either database shape safely.
         migrationBuilder.Sql(
             """
-            IF COL_LENGTH(N'dbo.BOOKING', N'fbFulfilledByStaffProfileId') IS NULL
-                ALTER TABLE dbo.[BOOKING] ADD [fbFulfilledByStaffProfileId] NVARCHAR(50) NULL;
+            ALTER TABLE "BOOKING"
+                ADD COLUMN IF NOT EXISTS "fbFulfilledByStaffProfileId" varchar(50);
 
-            IF NOT EXISTS
-            (
-                SELECT 1
-                FROM sys.indexes
-                WHERE object_id = OBJECT_ID(N'dbo.BOOKING')
-                  AND name = N'IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID'
-            )
-                CREATE INDEX [IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID]
-                    ON dbo.[BOOKING]([fbFulfilledByStaffProfileId]);
+            CREATE INDEX IF NOT EXISTS "IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID"
+                ON "BOOKING" ("fbFulfilledByStaffProfileId");
 
-            IF NOT EXISTS
-            (
-                SELECT 1
-                FROM sys.foreign_keys
-                WHERE parent_object_id = OBJECT_ID(N'dbo.BOOKING')
-                  AND name = N'FK_BOOKING_FB_FULFILLED_BY_STAFF'
-            )
-                ALTER TABLE dbo.[BOOKING]
-                    ADD CONSTRAINT [FK_BOOKING_FB_FULFILLED_BY_STAFF]
-                    FOREIGN KEY ([fbFulfilledByStaffProfileId])
-                    REFERENCES dbo.[STAFF_PROFILE]([staffProfileId]);
+            DO $$
+            BEGIN
+                IF NOT EXISTS
+                (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'FK_BOOKING_FB_FULFILLED_BY_STAFF'
+                ) THEN
+                    ALTER TABLE "BOOKING"
+                        ADD CONSTRAINT "FK_BOOKING_FB_FULFILLED_BY_STAFF"
+                        FOREIGN KEY ("fbFulfilledByStaffProfileId")
+                        REFERENCES "STAFF_PROFILE" ("staffProfileId");
+                END IF;
+            END $$;
             """);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropForeignKey(
-            name: "FK_BOOKING_FB_FULFILLED_BY_STAFF",
-            table: "BOOKING");
-
-        migrationBuilder.DropIndex(
-            name: "IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID",
-            table: "BOOKING");
-
-        migrationBuilder.DropColumn(
-            name: "fbFulfilledByStaffProfileId",
-            table: "BOOKING");
+        migrationBuilder.Sql(
+            """
+            ALTER TABLE "BOOKING"
+                DROP CONSTRAINT IF EXISTS "FK_BOOKING_FB_FULFILLED_BY_STAFF";
+            DROP INDEX IF EXISTS "IX_BOOKING_FB_FULFILLED_BY_STAFF_PROFILE_ID";
+            ALTER TABLE "BOOKING"
+                DROP COLUMN IF EXISTS "fbFulfilledByStaffProfileId";
+            """);
     }
 }

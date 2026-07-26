@@ -14,54 +14,29 @@ public partial class EnsureVoucherPromotionColumns : Migration
     {
         migrationBuilder.Sql(
             """
-            IF OBJECT_ID(N'dbo.VOUCHER', N'U') IS NULL
-                THROW 52102, 'Voucher table is missing. Apply the canonical database schema first.', 1;
+            DO $$
+            BEGIN
+                IF to_regclass('"VOUCHER"') IS NULL THEN
+                    RAISE EXCEPTION 'Voucher table is missing. Restore the PostgreSQL staging backup before applying migrations.';
+                END IF;
+            END $$;
 
-            IF COL_LENGTH(N'dbo.VOUCHER', N'category') IS NULL
-                ALTER TABLE dbo.[VOUCHER] ADD [category] NVARCHAR(50) NULL;
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "category" varchar(50);
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "applicableScope" varchar(50);
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "targetType" varchar(50);
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "targetCustomerIds" text;
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "specificFbItemIds" text;
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "isPrivate" boolean NOT NULL DEFAULT false;
+            ALTER TABLE "VOUCHER" ADD COLUMN IF NOT EXISTS "requiredTicketCount" integer;
 
-            IF COL_LENGTH(N'dbo.VOUCHER', N'applicableScope') IS NULL
-                ALTER TABLE dbo.[VOUCHER] ADD [applicableScope] NVARCHAR(50) NULL;
-
-            IF COL_LENGTH(N'dbo.VOUCHER', N'targetType') IS NULL
-                ALTER TABLE dbo.[VOUCHER] ADD [targetType] NVARCHAR(50) NULL;
-
-            IF COL_LENGTH(N'dbo.VOUCHER', N'targetCustomerIds') IS NULL
-                ALTER TABLE dbo.[VOUCHER] ADD [targetCustomerIds] NVARCHAR(MAX) NULL;
-
-            IF COL_LENGTH(N'dbo.VOUCHER', N'specificFbItemIds') IS NULL
-                ALTER TABLE dbo.[VOUCHER] ADD [specificFbItemIds] NVARCHAR(MAX) NULL;
-
-            IF COL_LENGTH(N'dbo.VOUCHER', N'isPrivate') IS NULL
-                ALTER TABLE dbo.[VOUCHER]
-                    ADD [isPrivate] BIT NOT NULL
-                    CONSTRAINT [DF_VOUCHER_isPrivate] DEFAULT 0;
-
-            IF COL_LENGTH(N'dbo.VOUCHER', N'requiredTicketCount') IS NULL
-                ALTER TABLE dbo.[VOUCHER] ADD [requiredTicketCount] INT NULL;
-            """);
-
-        // SQL Server compiles a command batch before executing its ALTER TABLE
-        // statements, so the backfill must be issued after the new columns.
-        migrationBuilder.Sql(
-            """
-            UPDATE dbo.[VOUCHER]
-            SET [category] = N'EVENT'
-            WHERE [category] IS NULL;
-
-            UPDATE dbo.[VOUCHER]
-            SET [applicableScope] = N'TOTAL_ORDER'
-            WHERE [applicableScope] IS NULL;
-
-            UPDATE dbo.[VOUCHER]
-            SET [targetType] = N'ALL_CUSTOMERS'
-            WHERE [targetType] IS NULL;
+            UPDATE "VOUCHER" SET "category" = 'EVENT' WHERE "category" IS NULL;
+            UPDATE "VOUCHER" SET "applicableScope" = 'TOTAL_ORDER' WHERE "applicableScope" IS NULL;
+            UPDATE "VOUCHER" SET "targetType" = 'ALL_CUSTOMERS' WHERE "targetType" IS NULL;
             """);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        // This is a forward-only repair migration. Dropping populated promotion
-        // columns during rollback would destroy existing voucher configuration.
+        // This forward-only repair migration preserves existing voucher configuration.
     }
 }

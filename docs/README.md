@@ -40,12 +40,14 @@ agents discover them there automatically.
 
 ## Database
 
+- [`database/postgresql-staging-test-guide.md`](database/postgresql-staging-test-guide.md):
+  required clone, migration, and smoke-test procedure before deploying this
+  PostgreSQL branch. It explicitly protects the production database.
 - [`database/cinema-booking-schema.sql`](database/cinema-booking-schema.sql):
-  **single canonical schema script**. It drops and recreates the database,
-  then creates the complete schema and standard seed data. Use only for a
-  new/local database whose existing data may be deleted.
-- Do not apply standalone feature schema patches. Their supported contents are
-  consolidated into the single canonical schema script above.
+  legacy SQL Server reset script. Do not run it against PostgreSQL, staging,
+  or production.
+- For PostgreSQL deployments, apply the reviewed EF migrations to a staging
+  clone first; do not use the legacy reset script as a deployment mechanism.
 - Development fixtures are kept as rerunnable `.txt` scripts rather than schema
   files: `dev-seed-admin-manager-staff.txt`,
   `dev-seed-paid-ticket-ready-to-scan.txt`, and

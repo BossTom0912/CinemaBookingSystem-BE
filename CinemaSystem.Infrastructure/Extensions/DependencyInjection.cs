@@ -226,15 +226,15 @@ public static class DependencyInjection
 
         services.AddDbContext<CinemaDbContext>(options =>
         {
-            options.UseSqlServer(
+            options.UseNpgsql(
                 defaultConnection,
-                sqlOptions =>
+                postgresOptions =>
                 {
-                    sqlOptions.EnableRetryOnFailure(
+                    postgresOptions.EnableRetryOnFailure(
                         maxRetryCount: 1,
                         maxRetryDelay: TimeSpan.FromSeconds(2),
-                        errorNumbersToAdd: null);
-                    sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                        errorCodesToAdd: null);
+                    postgresOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 });
         });
 
