@@ -6,9 +6,9 @@ Nhánh: `Tom/postgresql-mainlocal`
 Production branch: `main`  
 Phạm vi: chỉ production clone và tài nguyên staging; không ghi hoặc migrate production.
 
-## Kết luận tạm thời
+## Kết luận
 
-**T1-T8 PASS. Chưa merge vào `main` cho đến khi T9 Render web staging PASS.**
+**T1-T9 PASS. Nhánh đã sẵn sàng để review; chưa merge vào `main` theo yêu cầu.**
 
 - Production PostgreSQL đã được backup ở chế độ chỉ đọc và restore thành công vào
   database Render staging riêng.
@@ -18,6 +18,8 @@ Phạm vi: chỉ production clone và tài nguyên staging; không ghi hoặc mi
 - Không gọi SePay/VNPAY thật. Payment dùng cho refund là giao dịch fixture chỉ tồn
   tại trong staging.
 - Production không bị migrate, seed hoặc thay đổi dữ liệu.
+- GitHub PostgreSQL integration đã PASS trên commit `abeb9a6`.
+- Render web staging đã `Live`; public health/API/auth/concurrency đều PASS.
 
 ## Tài nguyên và ranh giới an toàn
 
@@ -27,6 +29,11 @@ Phạm vi: chỉ production clone và tài nguyên staging; không ghi hoặc mi
 | Render PostgreSQL | `cinemabooking-staging-db` |
 | Database | `cinema_booking_staging` |
 | PostgreSQL | 18.4 |
+| Render web staging | `cinemabookingsystem-be-staging` |
+| Service ID | `srv-d9j6ir7avr4c73bv8npg` |
+| Public URL | `https://cinemabookingsystem-be-staging.onrender.com` |
+| Source commit | `abeb9a6` |
+| Instance | Free |
 | Production web service | Không thay đổi; vẫn theo dõi `main` |
 | Email staging | Mock |
 | VNPAY staging | Disabled |
@@ -46,8 +53,8 @@ production và không được dùng làm nơi lưu dữ liệu lâu dài.
 | `pg_restore --no-owner --no-acl` | PASS |
 | Staging sau restore | 52 bảng, khoảng 10 MB |
 
-Backup cục bộ chứa dữ liệu production chỉ được giữ tạm trong quá trình kiểm tra và
-phải xóa sau khi hoàn tất T9.
+Backup cục bộ chứa dữ liệu production đã được xóa khỏi Windows Temp sau khi T9
+hoàn tất. Sáu file log API local tạm cũng đã được xóa.
 
 ## Migration/preflight trên schema production clone
 
@@ -100,13 +107,12 @@ Không có bảng nghiệp vụ production nào bị giảm row.
 | EF pending model changes | Không có |
 | Local regression | 345 passed, 0 failed |
 | PostgreSQL integration local | 4 skipped do local admin connection chưa cấu hình |
-| PostgreSQL integration GitHub | PENDING cho commit mới |
+| PostgreSQL integration GitHub | PASS trên PostgreSQL 18, run `30218181131` |
 | `git diff --check` | PASS |
 
 Test mới `ExistingProductionLegacySchema_IsAdoptedAndUpgraded` tái hiện đúng shape
 legacy thực tế: thiếu hai cột voucher và thiếu default trên năm cột `rowVersion`.
-GitHub workflow dùng PostgreSQL 18 thật và phải PASS trước khi T9 được coi là hoàn
-tất.
+GitHub workflow đã chạy toàn bộ suite với PostgreSQL 18 thật và PASS.
 
 ## Smoke test và phân quyền trên PostgreSQL staging
 
@@ -171,17 +177,54 @@ không gọi payment gateway production.
 
 ## Connection pool
 
-Sau chuỗi smoke/business/concurrency test:
+Render được cấu hình `Maximum Pool Size=10`. Sau khi smoke test public hoàn tất và
+API local đã dừng:
 
-| Trạng thái `pg_stat_activity` | Connection |
+| `application_name` | Trạng thái | Connection |
+|---|---|---:|
+| `CinemaSystem-Staging` | idle | 1 |
+| `psql` (phiên kiểm tra) | active | 1 |
+| Tổng |  | 2 |
+| `max_connections` |  | 100 |
+
+Không thấy connection tăng bất thường; application pool được giới hạn ở 10.
+
+## Render web staging
+
+Service được tạo trong environment `Staging` với:
+
+- branch `Tom/postgresql-mainlocal`;
+- Dockerfile `CinemaSystem/Dockerfile`, build context repository root;
+- Free instance tại Singapore;
+- health check `/api/health`;
+- Auto-Deploy `On Commit`;
+- database internal connection riêng, email mock, VNPAY disabled và secret staging.
+
+Log first deploy:
+
+| Kiểm tra | Kết quả |
 |---|---:|
-| active | 1 (phiên kiểm tra hiện tại) |
-| idle | 1 (API pool) |
-| `max_connections` | 100 |
+| Source | `abeb9a6` |
+| Deploy status | `Live` |
+| Migration | Database already up to date |
+| Application startup | PASS |
+| Runtime database exception | Không có |
+| Health check log | HTTP 200 |
 
-Không thấy connection tăng bất thường trong lần kiểm tra. Render web staging vẫn
-phải cấu hình application pool nhỏ hơn giới hạn database và được quan sát lại sau
-deploy.
+Public verification:
+
+| Test | Kết quả |
+|---|---|
+| `/api/health` | 200 |
+| `/api/movies` | 200 |
+| `/api/showtimes` | 200 |
+| `/api/cinemas` | 200 |
+| Login Admin/Manager/Staff/2 Customer | 200 |
+| Admin policy: Admin / Customer | 200 / 403 |
+| Customer policy: Customer / Anonymous | 200 / 401 |
+| Manager cinema scope | 200 |
+| Hai client lock cùng ghế | một 200, một 409 `SEAT_LOCKED` |
+| Winner unlock | 200 |
 
 ## Ma trận T1-T10
 
@@ -195,15 +238,14 @@ deploy.
 | T6 API/authorization | PASS | Public API + 4 role |
 | T7 Business flow | PASS | Booking/voucher/cancel/refund |
 | T8 Concurrency/pool | PASS | One-winner seat lock; pool 2/100 |
-| T9 Render web staging | PENDING | Chưa tạo/deploy web service |
+| T9 Render web staging | PASS | Live, public health/API/auth/concurrency PASS |
 | T10 Merge `main` | NOT EXECUTED | User yêu cầu chỉ push nhánh, không merge |
 
-## Điều kiện còn lại
+## Bàn giao
 
-1. Push commit lên `Tom/postgresql-mainlocal`.
-2. GitHub PostgreSQL integration trên commit đó phải PASS.
-3. Tạo Render web service staging từ đúng nhánh, dùng database staging và secret
-   staging riêng.
-4. Log phải cho thấy migration/startup thành công, không có schema/database error.
-5. Lặp lại health, public API, auth và seat-lock check qua URL staging.
-6. Chỉ cập nhật kết luận sau khi T9 PASS; không merge `main` trong đợt này.
+1. Commit bằng chứng cuối cần được push tiếp lên `Tom/postgresql-mainlocal`.
+2. Push báo cáo sẽ kích hoạt Auto-Deploy staging và GitHub CI thêm một lần; cả hai
+   phải được quan sát lại.
+3. Không merge `main` trong đợt này.
+4. Database/web Free có thể sleep và database có ngày hết hạn theo Render; cần nâng
+   cấp hoặc tạo lại nếu muốn dùng staging lâu dài.
