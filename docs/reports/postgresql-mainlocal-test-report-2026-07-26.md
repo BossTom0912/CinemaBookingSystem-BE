@@ -22,14 +22,35 @@ Commit `main` đang chạy trên Render: `653ba23f1aed23506646d8aa69a033b1d5f508
 
 Không có thao tác ghi, migrate, seed hoặc thay đổi nào được thực hiện trên production.
 
+### Cập nhật kiểm tra Render và review cuối
+
+- Render service `CinemaBookingSystem-BE` thuộc môi trường `Production`, lấy source từ
+  `BossTom0912/CinemaBookingSystem-BE`, theo dõi nhánh `main` và bật Auto-Deploy `On Commit`.
+- Commit đang chạy trên production vẫn là `653ba23f1aed23506646d8aa69a033b1d5f50852`;
+  nhánh PostgreSQL chưa được merge và chưa được deploy.
+- Project Render hiện chỉ có một production service, không có staging service/environment
+  và PR Preview đang tắt.
+- Database production là PostgreSQL Neon bên ngoài Render; không có Render PostgreSQL
+  staging riêng trong project.
+- Workflow `PostgreSQL integration` của GitHub tại commit `cdc2f58` đã PASS 348/348,
+  bao gồm 3 integration test trên PostgreSQL 18 thật.
+- Review log production phát hiện background cleanup cũ lọc `ProcessingUnstable`, không
+  khớp giá trị chuẩn `PROCESSING_UNSTABLE`. Nhánh đã sửa tại commit `f51d2ce` bằng
+  `DomainConstants.EntityStatus.ProcessingUnstable`.
+- Sau bản sửa `f51d2ce`: Release build PASS (0 error, 91 warning), regression local
+  PASS 345 test và skip đúng 3 test PostgreSQL vì local run không bật connection test;
+  GitHub CI PostgreSQL thật phải PASS lại sau khi push commit báo cáo này.
+- Trình duyệt Brave chặn lần mở public API bằng `ERR_BLOCKED_BY_CLIENT`, nên lần kiểm tra
+  đó không được tính là bằng chứng API production hỏng hoặc healthy.
+
 ## Trạng thái Git
 
 | Kiểm tra | Kết quả |
 |---|---|
 | Nhánh hiện tại | `Tom/postgresql-mainlocal` |
-| So với `github/main` | `0 behind / 39 ahead` trước thay đổi hiện tại |
+| So với `github/main` | `0 behind / 43 ahead` trước commit báo cáo cuối |
 | `main` có nằm trong lịch sử nhánh không | Có |
-| Trạng thái nhánh remote | `github/Tom/postgresql-mainlocal` tại `8652cc1` trước cập nhật hiện tại |
+| Trạng thái nhánh remote | `github/Tom/postgresql-mainlocal` tại `cdc2f58` trước push bản sửa `f51d2ce` và báo cáo này |
 | `git diff --check` | PASS |
 
 Báo cáo phản ánh toàn bộ nội dung đã kiểm thử trước khi push nhánh.
