@@ -18,6 +18,19 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
     private const string PostgresBaselineMigrationId = "20260726135020_InitialPostgresBaseline";
     private static readonly string EfProductVersion =
         typeof(DbContext).Assembly.GetName().Version?.ToString(3) ?? "8.0.0";
+    private static readonly HashSet<(string Table, string Column)> LegacyColumnsAddedAfterBaseline =
+    [
+        ("VOUCHER", "roomId"),
+        ("VOUCHER", "showtimeId")
+    ];
+    private static readonly HashSet<(string Table, string Column)> LegacyRowVersionColumns =
+    [
+        ("SHOWTIME_SEAT", "rowVersion"),
+        ("REFUND_CLAIM", "rowVersion"),
+        ("MANUAL_REFUND_PROCESS", "rowVersion"),
+        ("COMPENSATION_TICKET", "rowVersion"),
+        ("COMPENSATION_COMBO", "rowVersion")
+    ];
 
     private sealed record ExistingColumn(string StoreType, bool IsNullable, bool HasDefault);
     private sealed record ExistingIndex(bool IsUnique, string[] Columns, string? Filter);
@@ -364,7 +377,9 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
                 .ToArray();
 
             var missingColumns = expectedColumns
-                .Where(expected => !existingColumns.ContainsKey((expected.Table, expected.Column)))
+                .Where(expected =>
+                    !existingColumns.ContainsKey((expected.Table, expected.Column)) &&
+                    !LegacyColumnsAddedAfterBaseline.Contains((expected.Table, expected.Column)))
                 .OrderBy(expected => expected.Table, StringComparer.Ordinal)
                 .ThenBy(expected => expected.Column, StringComparer.Ordinal)
                 .ToArray();
@@ -373,9 +388,7 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
                 .Where(expected => existingColumns.TryGetValue(
                     (expected.Table, expected.Column),
                     out var actual) &&
-                    (NormalizeStoreType(actual.StoreType) != NormalizeStoreType(expected.StoreType) ||
-                     actual.IsNullable != expected.IsNullable ||
-                     actual.HasDefault != expected.HasDefault))
+                    IsUnexpectedLegacyColumnMismatch(expected, actual))
                 .OrderBy(expected => expected.Table, StringComparer.Ordinal)
                 .ThenBy(expected => expected.Column, StringComparer.Ordinal)
                 .ToArray();
@@ -600,6 +613,30 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
                 .ToArray())
             .Replace("varchar", "charactervarying", StringComparison.OrdinalIgnoreCase)
             .ToLowerInvariant();
+    }
+
+    private static bool IsUnexpectedLegacyColumnMismatch(
+        ExpectedColumn expected,
+        ExistingColumn actual)
+    {
+        var hasTypeMismatch =
+            NormalizeStoreType(actual.StoreType) != NormalizeStoreType(expected.StoreType);
+        var hasNullabilityMismatch = actual.IsNullable != expected.IsNullable;
+        var hasDefaultMismatch = actual.HasDefault != expected.HasDefault;
+
+        if (!hasTypeMismatch && !hasNullabilityMismatch && !hasDefaultMismatch)
+        {
+            return false;
+        }
+
+        // The first PostgreSQL deployment predates the trigger/default migration.
+        // Accept only the exact legacy rowVersion shape so the next migration can
+        // backfill values and install the sequence-backed default and trigger.
+        return !LegacyRowVersionColumns.Contains((expected.Table, expected.Column)) ||
+               hasTypeMismatch ||
+               hasNullabilityMismatch ||
+               actual.HasDefault ||
+               !expected.HasDefault;
     }
 
     private static string NormalizeSqlFragment(string? value)

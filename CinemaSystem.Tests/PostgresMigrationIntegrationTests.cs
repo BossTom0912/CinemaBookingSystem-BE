@@ -81,6 +81,59 @@ public sealed class PostgresMigrationIntegrationTests
     }
 
     [PostgresFact]
+    public async Task ExistingProductionLegacySchema_IsAdoptedAndUpgraded()
+    {
+        await using var database = await PostgresTestSchema.CreateAsync();
+        await database.MigrateAsync();
+        await database.ExecuteAsync(
+            """
+            DROP TABLE "__EFMigrationsHistory";
+            ALTER TABLE "VOUCHER" DROP COLUMN "roomId";
+            ALTER TABLE "VOUCHER" DROP COLUMN "showtimeId";
+
+            ALTER TABLE "SHOWTIME_SEAT" ALTER COLUMN "rowVersion" DROP DEFAULT;
+            ALTER TABLE "REFUND_CLAIM" ALTER COLUMN "rowVersion" DROP DEFAULT;
+            ALTER TABLE "MANUAL_REFUND_PROCESS" ALTER COLUMN "rowVersion" DROP DEFAULT;
+            ALTER TABLE "COMPENSATION_TICKET" ALTER COLUMN "rowVersion" DROP DEFAULT;
+            ALTER TABLE "COMPENSATION_COMBO" ALTER COLUMN "rowVersion" DROP DEFAULT;
+            """);
+
+        await database.MigrateAsync();
+
+        Assert.Equal(5, await database.ScalarAsync<int>(
+            "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
+        Assert.Equal(2, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'VOUCHER'
+              AND column_name IN ('roomId', 'showtimeId');
+            """));
+        Assert.Equal(5, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name IN (
+                  'SHOWTIME_SEAT',
+                  'REFUND_CLAIM',
+                  'MANUAL_REFUND_PROCESS',
+                  'COMPENSATION_TICKET',
+                  'COMPENSATION_COMBO')
+              AND column_name = 'rowVersion'
+              AND column_default IS NOT NULL;
+            """));
+        Assert.Equal(10, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM information_schema.triggers
+            WHERE trigger_schema = current_schema()
+              AND trigger_name LIKE 'TR_%_ROW_VERSION';
+            """));
+    }
+
+    [PostgresFact]
     public async Task ExistingSchema_WithSameNamedWrongIndex_IsRejectedBeforeAdoption()
     {
         await using var database = await PostgresTestSchema.CreateAsync();

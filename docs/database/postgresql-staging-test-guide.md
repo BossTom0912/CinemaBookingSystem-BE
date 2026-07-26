@@ -89,6 +89,10 @@ The migration history must include all five:
 - `20260726142719_ConfigurePostgresCheckConstraints`
 - `20260726144437_AddVoucherShowtimeIdAndRoomIdPostgres`
 
+An upgraded production clone may also retain older provider-migration history
+rows. Do not require exactly five total rows; require that all five PostgreSQL
+migrations above are present in order.
+
 The final query must show `bytea` for each existing `rowVersion` column. There
 must also be five `TR_*_ROW_VERSION` triggers covering INSERT and UPDATE on
 `SHOWTIME_SEAT`, `REFUND_CLAIM`, `MANUAL_REFUND_PROCESS`,
