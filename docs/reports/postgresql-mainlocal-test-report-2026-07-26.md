@@ -3,18 +3,22 @@
 Ngày kiểm tra: 2026-07-26
 Repository: `CinemaSystem_BE`
 Nhánh đang kiểm tra: `Tom/postgresql-mainlocal`
-Commit nhánh trước các thay đổi chưa commit: `b29fd463e88a81add875dc2b28909dd0e2d04a6c`
+Commit nhánh trước các thay đổi chưa commit: `8652cc1647f99b9ea0b9d7563f967978001d95fd`
 Commit `main` đang chạy trên Render: `653ba23f1aed23506646d8aa69a033b1d5f50852`
 
 ## Kết luận
 
-**NO-GO cho merge/deploy production tại thời điểm lập báo cáo.**
+**NO-GO cho merge/deploy production tại thời điểm cập nhật báo cáo.**
 
-- Restore, Release build và toàn bộ 343 test tự động đều PASS.
-- PostgreSQL 18.4 local đang chạy và chấp nhận kết nối TCP tại `127.0.0.1:5432`.
-- Chưa chạy được câu lệnh SQL có xác thực vì phiên kiểm tra không nhận mật khẩu PostgreSQL.
-- Chưa restore production clone vào staging, nên migration/raw SQL chưa được thực thi trên PostgreSQL thật.
-- Nhánh hiện tại không có initial migration và model snapshot chỉ có 20 dòng rỗng; database PostgreSQL trống chưa thể bootstrap an toàn bằng bộ migration hiện tại.
+- Restore, Release build và toàn bộ 346 test tự động đều PASS.
+- PostgreSQL 18.4 tạm, cô lập tại `127.0.0.1:55432` đã chạy SQL xác thực thành công.
+- 3 integration test PostgreSQL thật đã PASS: fresh migration, legacy adoption/idempotency và fail-fast khi index trùng tên nhưng sai định nghĩa.
+- Database trống đã áp dụng thành công baseline đầy đủ và migration concurrency, tạo 51 bảng ứng dụng.
+- Clone legacy tổng hợp không có migration history đã vượt qua preflight, được nhận baseline, chạy migration còn lại, khởi động API Production và trả HTTP 200.
+- Clone cố ý thiếu cột hoặc index đã bị từ chối trước khi ghi baseline; fail-fast hoạt động đúng.
+- `rowVersion` dùng sequence và trigger PostgreSQL; INSERT rồi UPDATE hai lần trong cùng transaction vẫn sinh hai giá trị khác nhau.
+- Data reconciliation tạo đúng 4 role, 4 provisioning policy, 3 assignment rule; fixture voucher legacy được link claim và release trạng thái `APPLIED` đúng.
+- Chưa restore **production clone thật** và chưa deploy **Render staging**, nên chưa có bằng chứng schema/dữ liệu production vượt qua preflight.
 
 Không có thao tác ghi, migrate, seed hoặc thay đổi nào được thực hiện trên production.
 
@@ -23,10 +27,9 @@ Không có thao tác ghi, migrate, seed hoặc thay đổi nào được thực 
 | Kiểm tra | Kết quả |
 |---|---|
 | Nhánh hiện tại | `Tom/postgresql-mainlocal` |
-| So với `github/main` | `0 behind / 38 ahead` |
+| So với `github/main` | `0 behind / 39 ahead` trước thay đổi hiện tại |
 | `main` có nằm trong lịch sử nhánh không | Có |
-| File tracked đang thay đổi trước báo cáo | 20 |
-| File mới chưa track trước báo cáo | 2 |
+| Trạng thái nhánh remote | `github/Tom/postgresql-mainlocal` tại `8652cc1` trước cập nhật hiện tại |
 | `git diff --check` | PASS |
 
 Báo cáo phản ánh toàn bộ working tree hiện tại, bao gồm các thay đổi chưa commit.
@@ -36,13 +39,15 @@ Báo cáo phản ánh toàn bộ working tree hiện tại, bao gồm các thay 
 | Kiểm tra | Kết quả | Trạng thái |
 |---|---|---|
 | Windows service `postgresql-x64-18` | `Running`, startup `Automatic` | PASS |
-| PostgreSQL client | `psql (PostgreSQL) 18.4` | PASS |
-| TCP `127.0.0.1:5432` | `accepting connections` | PASS |
-| `SELECT version()` | Chưa chạy: `no password supplied` | PENDING |
-| `SELECT current_database(), current_user` | Chưa chạy: cần xác thực | PENDING |
-| `SELECT current_setting('port')` | Chưa chạy: cần xác thực | PENDING |
+| PostgreSQL client/server tạm | PostgreSQL 18.4 | PASS |
+| TCP test | `127.0.0.1:55432` accepting connections | PASS |
+| `SELECT version()` | PostgreSQL 18.4, 64-bit | PASS |
+| `SELECT current_database(), current_user` | `cinema_fresh`, `postgres` | PASS |
+| Migration history | 4 migration đúng thứ tự | PASS |
 
-`psql` được cài tại `D:\FPT\DB\bin` nhưng chưa có trong biến `PATH`.
+`psql` được cài tại `D:\FPT\DB\bin` nhưng chưa có trong biến `PATH`. Cluster
+test dùng thư mục riêng dưới `C:\tmp`, không dùng database service cổng 5432 và
+không chạm production.
 
 ## Restore, build và test tự động
 
@@ -57,11 +62,12 @@ dotnet test CinemaSystem.sln --no-build --no-restore --configuration Release -m:
 | Cổng kiểm tra | Kết quả |
 |---|---|
 | Restore | PASS - tất cả project up-to-date |
-| Release build | PASS - 0 error, 90 nullable warning |
-| Full regression | PASS - 343 passed, 0 failed, 0 skipped |
-| Thời gian test | 30 giây |
+| Release build | PASS - 0 error, 91 warning hiện hữu/generator |
+| Full regression | PASS - 346 passed, 0 failed, 0 skipped |
+| PostgreSQL integration | PASS - 3 passed trên PostgreSQL 18.4 thật |
+| Thời gian test | 25 giây ở lần chạy regression cuối |
 
-### Giới hạn của kết quả 343/343
+### Phạm vi của kết quả 346/346
 
 Có 20 file test sử dụng `UseInMemoryDatabase`. EF InMemory không thực thi đầy đủ:
 
@@ -71,7 +77,9 @@ Có 20 file test sử dụng `UseInMemoryDatabase`. EF InMemory không thực th
 - transaction, lock và unique-violation behavior của Npgsql;
 - connection pooling và giới hạn connection trên Render.
 
-Vì vậy 343/343 là bằng chứng regression application logic, không phải bằng chứng PostgreSQL integration hoàn chỉnh.
+343 test cũ tiếp tục chứng minh regression application logic. Ba test mới dùng
+PostgreSQL thật để kiểm tra migration/schema; production clone và Render staging
+vẫn là các cổng riêng chưa thể thay thế bằng fixture tổng hợp.
 
 ## Audit tĩnh PostgreSQL
 
@@ -85,34 +93,41 @@ Vì vậy 343/343 là bằng chứng regression application logic, không phải
 - Migration PostgreSQL có `DO $$`, `bytea` và trigger concurrency cho `rowVersion`.
 - Startup ngoài môi trường `Testing` sẽ dừng nếu migration thất bại.
 
-### Blocker nghiêm trọng
+### Blocker đã xử lý trong working tree
 
-1. `20260724065659_InitialCreate.cs` của production `main` không còn trong nhánh hiện tại.
-2. `CinemaDbContextModelSnapshot.cs` chỉ có 20 dòng và không chứa model schema.
-3. Các upgrade migration hiện tại có ID từ `20260711` đến `20260723`, sớm hơn initial migration production `20260724`.
-4. Trên database trống, EF sẽ thử chạy các upgrade migration trước khi có bảng nền và có thể thất bại.
-5. Không được copy nguyên initial migration production vì file đó còn chứa `sysutcdatetime()` và `getdate()` không hợp lệ trên PostgreSQL.
+1. Đã thay chuỗi upgrade rời rạc bằng `20260726135020_InitialPostgresBaseline`, sinh trực tiếp từ model Npgsql hiện tại.
+2. `CinemaDbContextModelSnapshot.cs` đã chứa model đầy đủ thay vì snapshot rỗng.
+3. Baseline không còn `sysutcdatetime()`, `getdate()` hoặc filtered-index SQL Server.
+4. `20260726135102_ConfigurePostgresRowVersionConcurrency` tạo và rollback đủ 5 trigger, function và sequence.
+5. `20260726140854_ReconcilePostgresData` giữ lại seed policy và voucher backfill từ chuỗi migration cũ.
+6. Database legacy chỉ được nhận baseline sau khi đối chiếu type/nullability/default presence của cột, định nghĩa index, key và định nghĩa foreign key.
+7. `20260726142719_ConfigurePostgresCheckConstraints` đưa 70 business CHECK constraint của 51 bảng đang mapped vào EF model; startup chỉ hoàn tất khi tất cả đã được validate.
+8. `.github/workflows/postgresql-ci.yml` chạy toàn bộ test với PostgreSQL 18 thật cho push nhánh này và pull request vào `main`.
 
-Do đó bộ migration hiện tại chỉ nên thử trên **staging clone của production**, không chạy trên database PostgreSQL trống.
+### Blocker còn lại
+
+1. Chưa có backup/restore production clone để chứng minh schema thật khớp preflight.
+2. Chưa chạy smoke/business/concurrency test trên dữ liệu clone production.
+3. Chưa có Render staging service dùng nhánh này và staging database riêng.
 
 ## Ma trận T1-T10
 
 | Task | Trạng thái | Bằng chứng / điều kiện còn thiếu |
 |---|---|---|
-| T1 - PostgreSQL local | PARTIAL PASS | Service, client và TCP PASS; SQL auth queries còn PENDING |
-| T2 - Tạo `CinemaBookingStaging` | PENDING | Chưa xác minh bằng SQL có xác thực |
+| T1 - PostgreSQL local | PASS | PostgreSQL 18.4 tạm, SQL auth và TCP PASS |
+| T2 - Tạo database staging | LOCAL PASS | `cinema_fresh` và các clone test riêng đã tạo; Render staging vẫn PENDING |
 | T3 - Clone production vào staging | PENDING | Chưa có backup/restore |
-| T4 - Chạy migration PostgreSQL | BLOCKED | Phụ thuộc T3; không chạy trên DB trống |
-| T5 - Schema và dữ liệu | STATIC PASS / LIVE PENDING | Audit source PASS; cần query schema/data trên clone |
-| T6 - API cơ bản | AUTOMATED PASS / LIVE PENDING | Cần chạy API với Npgsql thật |
+| T4 - Chạy migration PostgreSQL | LOCAL PASS / PROD-CLONE PENDING | Fresh DB, idempotent rerun, Down/Up, data backfill và legacy adoption PASS |
+| T5 - Schema và dữ liệu | LOCAL PASS / PROD-CLONE PENDING | 51 bảng, 4 history row, 70 CHECK, bytea, trigger PASS; cần clone thật |
+| T6 - API cơ bản | LOCAL POSTGRES PASS / PROD-CLONE PENDING | Production-mode API trả HTTP 200 từ PostgreSQL thật |
 | T7 - Nghiệp vụ quan trọng | AUTOMATED PASS / LIVE PENDING | Cần booking/voucher/refund trên staging clone |
-| T8 - Concurrency/performance | PENDING | Cần PostgreSQL lock, trigger, pool và `pg_stat_activity` |
+| T8 - Concurrency/performance | PARTIAL PASS | Trigger tạo version mới trong cùng transaction PASS; cần two-client seat lock/pool trên staging |
 | T9 - Render staging | PENDING | Chưa tạo service staging |
 | T10 - Merge `main` | BLOCKED | Chỉ thực hiện khi T1-T9 PASS |
 
 ## Các bước tiếp theo
 
-### 1. Hoàn tất T1 và T2 trong pgAdmin
+### 1. Chuẩn bị database staging cho production clone
 
 Chạy trên `CinemaBookingStaging`:
 
@@ -122,7 +137,7 @@ SELECT current_database(), current_user;
 SELECT current_setting('port');
 ```
 
-### 2. Hoàn tất T3
+### 2. Restore production clone (T3)
 
 - Backup PostgreSQL production bằng external connection string.
 - Restore vào `CinemaBookingStaging` hoặc một PostgreSQL staging riêng trên Render.
@@ -150,7 +165,11 @@ AND column_name = 'rowVersion'
 ORDER BY table_name;
 ```
 
-Kết quả phải có `20260726000000_ConfigurePostgresRowVersionConcurrency`; các `rowVersion` tồn tại phải là `bytea`.
+Kết quả phải có `20260726135020_InitialPostgresBaseline`,
+`20260726135102_ConfigurePostgresRowVersionConcurrency`,
+`20260726140854_ReconcilePostgresData` và
+`20260726142719_ConfigurePostgresCheckConstraints`; các `rowVersion` tồn tại phải là
+`bytea` và đủ trigger INSERT/UPDATE.
 
 ### 4. Chạy T6-T8
 
@@ -166,9 +185,8 @@ Kết quả phải có `20260726000000_ConfigurePostgresRowVersionConcurrency`; 
 
 Chỉ chuyển kết luận sang GO khi:
 
-1. SQL auth T1 và database T2 PASS.
-2. Production clone restore thành công.
-3. Toàn bộ migration chạy thành công trên clone.
+1. Production clone restore thành công vào database staging riêng.
+2. Full schema preflight và toàn bộ migration chạy thành công trên clone.
 4. Schema, index, trigger và dữ liệu được đối chiếu.
 5. API/business/concurrency test trên PostgreSQL thật PASS.
 6. Render staging healthy và không có migration/database error trong log.

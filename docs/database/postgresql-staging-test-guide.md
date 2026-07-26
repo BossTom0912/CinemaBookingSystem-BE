@@ -12,9 +12,14 @@ use PostgREST as an application data API.
 - Create a separate PostgreSQL staging database, then clone production into it.
   Do not copy credentials into Git, `.env.example`, screenshots, or chat.
 
-The existing EF migrations are upgrade migrations for the established Cinema
-schema. They are not a clean-room seed for an empty database, so a production
-clone is the correct staging baseline.
+The migration chain now has a complete PostgreSQL baseline for a new empty
+database. For an established database without that baseline history, startup
+first compares mapped column types/nullability/default presence, index
+columns/uniqueness/filter, primary/unique keys, and foreign-key columns/targets/
+delete behavior. It records the baseline only when that preflight matches;
+otherwise startup fails without pretending the database is migrated. A
+production clone remains mandatory because only it can prove that the live
+schema passes this preflight.
 
 ## 1. Create and restore a staging clone
 
@@ -51,8 +56,18 @@ dotnet test CinemaSystem.sln --no-build -m:1
 dotnet run --project CinemaSystem
 ```
 
-The API now fails startup when a migration fails; this is intentional. Do not
-continue to API smoke tests if startup logs show a migration error.
+To run the committed PostgreSQL integration tests locally, point the test-only
+variable at an isolated database. The test user must be allowed to create and
+drop temporary databases:
+
+```powershell
+$env:POSTGRES_TEST_CONNECTION = '<isolated PostgreSQL admin connection string>'
+dotnet test CinemaSystem.Tests --filter FullyQualifiedName~PostgresMigrationIntegrationTests
+```
+
+The API now fails startup when a migration or legacy-schema preflight fails;
+this is intentional. Do not continue to API smoke tests if startup logs show a
+missing table/column/index/constraint or migration error.
 
 ## 3. Verify the database before API testing
 
@@ -62,11 +77,23 @@ With the staging connection, run these read-only checks:
 psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId";'
 psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT COUNT(*) AS bookings FROM "BOOKING";'
 psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_name IN (''SHOWTIME_SEAT'', ''REFUND_CLAIM'', ''MANUAL_REFUND_PROCESS'') AND column_name = ''rowVersion'' ORDER BY table_name;'
+psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT event_object_table, trigger_name, event_manipulation FROM information_schema.triggers WHERE trigger_schema = current_schema() AND trigger_name LIKE ''TR_%_ROW_VERSION'' ORDER BY event_object_table, event_manipulation;'
+psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT COUNT(*) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND c.contype = ''c'' AND c.convalidated;'
 ```
 
-The migration history must include `20260726000000_ConfigurePostgresRowVersionConcurrency`.
-The final query must show `bytea` for each existing `rowVersion` column. If it
-does not, stop and record the schema output; do not deploy.
+The migration history must include all four:
+
+- `20260726135020_InitialPostgresBaseline`
+- `20260726135102_ConfigurePostgresRowVersionConcurrency`
+- `20260726140854_ReconcilePostgresData`
+- `20260726142719_ConfigurePostgresCheckConstraints`
+
+The final query must show `bytea` for each existing `rowVersion` column. There
+must also be five `TR_*_ROW_VERSION` triggers covering INSERT and UPDATE on
+`SHOWTIME_SEAT`, `REFUND_CLAIM`, `MANUAL_REFUND_PROCESS`,
+`COMPENSATION_TICKET`, and `COMPENSATION_COMBO`, plus 70 validated mapped CHECK
+constraints. If any check fails, stop and record the schema output; do not
+deploy.
 
 ## 4. API smoke test on the clone
 
