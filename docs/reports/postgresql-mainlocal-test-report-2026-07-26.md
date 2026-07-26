@@ -3,14 +3,14 @@
 Ngày kiểm tra: 2026-07-26
 Repository: `CinemaSystem_BE`
 Nhánh đang kiểm tra: `Tom/postgresql-mainlocal`
-Commit nhánh trước các thay đổi chưa commit: `8652cc1647f99b9ea0b9d7563f967978001d95fd`
+Mốc nhánh trước đợt hoàn thiện PostgreSQL: `8652cc1647f99b9ea0b9d7563f967978001d95fd`
 Commit `main` đang chạy trên Render: `653ba23f1aed23506646d8aa69a033b1d5f50852`
 
 ## Kết luận
 
 **NO-GO cho merge/deploy production tại thời điểm cập nhật báo cáo.**
 
-- Restore, Release build và toàn bộ 346 test tự động đều PASS.
+- Restore, Release build và toàn bộ 348 test tự động đều PASS.
 - PostgreSQL 18.4 tạm, cô lập tại `127.0.0.1:55432` đã chạy SQL xác thực thành công.
 - 3 integration test PostgreSQL thật đã PASS: fresh migration, legacy adoption/idempotency và fail-fast khi index trùng tên nhưng sai định nghĩa.
 - Database trống đã áp dụng thành công baseline đầy đủ và migration concurrency, tạo 51 bảng ứng dụng.
@@ -32,7 +32,7 @@ Không có thao tác ghi, migrate, seed hoặc thay đổi nào được thực 
 | Trạng thái nhánh remote | `github/Tom/postgresql-mainlocal` tại `8652cc1` trước cập nhật hiện tại |
 | `git diff --check` | PASS |
 
-Báo cáo phản ánh toàn bộ working tree hiện tại, bao gồm các thay đổi chưa commit.
+Báo cáo phản ánh toàn bộ nội dung đã kiểm thử trước khi push nhánh.
 
 ## T1 - PostgreSQL local
 
@@ -43,7 +43,7 @@ Báo cáo phản ánh toàn bộ working tree hiện tại, bao gồm các thay 
 | TCP test | `127.0.0.1:55432` accepting connections | PASS |
 | `SELECT version()` | PostgreSQL 18.4, 64-bit | PASS |
 | `SELECT current_database(), current_user` | `cinema_fresh`, `postgres` | PASS |
-| Migration history | 4 migration đúng thứ tự | PASS |
+| Migration history | 5 migration đúng thứ tự | PASS |
 
 `psql` được cài tại `D:\FPT\DB\bin` nhưng chưa có trong biến `PATH`. Cluster
 test dùng thư mục riêng dưới `C:\tmp`, không dùng database service cổng 5432 và
@@ -63,11 +63,11 @@ dotnet test CinemaSystem.sln --no-build --no-restore --configuration Release -m:
 |---|---|
 | Restore | PASS - tất cả project up-to-date |
 | Release build | PASS - 0 error, 91 warning hiện hữu/generator |
-| Full regression | PASS - 346 passed, 0 failed, 0 skipped |
+| Full regression | PASS - 348 passed, 0 failed, 0 skipped |
 | PostgreSQL integration | PASS - 3 passed trên PostgreSQL 18.4 thật |
 | Thời gian test | 25 giây ở lần chạy regression cuối |
 
-### Phạm vi của kết quả 346/346
+### Phạm vi của kết quả 348/348
 
 Có 20 file test sử dụng `UseInMemoryDatabase`. EF InMemory không thực thi đầy đủ:
 
@@ -77,7 +77,7 @@ Có 20 file test sử dụng `UseInMemoryDatabase`. EF InMemory không thực th
 - transaction, lock và unique-violation behavior của Npgsql;
 - connection pooling và giới hạn connection trên Render.
 
-343 test cũ tiếp tục chứng minh regression application logic. Ba test mới dùng
+345 test application tiếp tục chứng minh regression logic. Ba test mới dùng
 PostgreSQL thật để kiểm tra migration/schema; production clone và Render staging
 vẫn là các cổng riêng chưa thể thay thế bằng fixture tổng hợp.
 
@@ -103,6 +103,7 @@ vẫn là các cổng riêng chưa thể thay thế bằng fixture tổng hợp.
 6. Database legacy chỉ được nhận baseline sau khi đối chiếu type/nullability/default presence của cột, định nghĩa index, key và định nghĩa foreign key.
 7. `20260726142719_ConfigurePostgresCheckConstraints` đưa 70 business CHECK constraint của 51 bảng đang mapped vào EF model; startup chỉ hoàn tất khi tất cả đã được validate.
 8. `.github/workflows/postgresql-ci.yml` chạy toàn bộ test với PostgreSQL 18 thật cho push nhánh này và pull request vào `main`.
+9. Đã cherry-pick `f2885cf` mới nhất từ `main_local`; migration voucher theo suất chiếu/phòng được tái sinh thành `20260726144437_AddVoucherShowtimeIdAndRoomIdPostgres` thuần Npgsql.
 
 ### Blocker còn lại
 
@@ -118,7 +119,7 @@ vẫn là các cổng riêng chưa thể thay thế bằng fixture tổng hợp.
 | T2 - Tạo database staging | LOCAL PASS | `cinema_fresh` và các clone test riêng đã tạo; Render staging vẫn PENDING |
 | T3 - Clone production vào staging | PENDING | Chưa có backup/restore |
 | T4 - Chạy migration PostgreSQL | LOCAL PASS / PROD-CLONE PENDING | Fresh DB, idempotent rerun, Down/Up, data backfill và legacy adoption PASS |
-| T5 - Schema và dữ liệu | LOCAL PASS / PROD-CLONE PENDING | 51 bảng, 4 history row, 70 CHECK, bytea, trigger PASS; cần clone thật |
+| T5 - Schema và dữ liệu | LOCAL PASS / PROD-CLONE PENDING | 51 bảng, 5 history row, 70 CHECK, bytea, trigger PASS; cần clone thật |
 | T6 - API cơ bản | LOCAL POSTGRES PASS / PROD-CLONE PENDING | Production-mode API trả HTTP 200 từ PostgreSQL thật |
 | T7 - Nghiệp vụ quan trọng | AUTOMATED PASS / LIVE PENDING | Cần booking/voucher/refund trên staging clone |
 | T8 - Concurrency/performance | PARTIAL PASS | Trigger tạo version mới trong cùng transaction PASS; cần two-client seat lock/pool trên staging |
@@ -168,7 +169,8 @@ ORDER BY table_name;
 Kết quả phải có `20260726135020_InitialPostgresBaseline`,
 `20260726135102_ConfigurePostgresRowVersionConcurrency`,
 `20260726140854_ReconcilePostgresData` và
-`20260726142719_ConfigurePostgresCheckConstraints`; các `rowVersion` tồn tại phải là
+`20260726142719_ConfigurePostgresCheckConstraints` và
+`20260726144437_AddVoucherShowtimeIdAndRoomIdPostgres`; các `rowVersion` tồn tại phải là
 `bytea` và đủ trigger INSERT/UPDATE.
 
 ### 4. Chạy T6-T8

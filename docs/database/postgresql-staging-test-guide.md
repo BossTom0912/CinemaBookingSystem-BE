@@ -81,12 +81,13 @@ psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT event_object_table, trigger_name, e
 psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT COUNT(*) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND c.contype = ''c'' AND c.convalidated;'
 ```
 
-The migration history must include all four:
+The migration history must include all five:
 
 - `20260726135020_InitialPostgresBaseline`
 - `20260726135102_ConfigurePostgresRowVersionConcurrency`
 - `20260726140854_ReconcilePostgresData`
 - `20260726142719_ConfigurePostgresCheckConstraints`
+- `20260726144437_AddVoucherShowtimeIdAndRoomIdPostgres`
 
 The final query must show `bytea` for each existing `rowVersion` column. There
 must also be five `TR_*_ROW_VERSION` triggers covering INSERT and UPDATE on

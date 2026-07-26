@@ -595,8 +595,7 @@ public sealed class NotificationService : INotificationService
     {
         var query = _dbContext.Users.AsNoTracking();
 
-        // Exclude accounts that have been canceled
-        query = query.Where(u => u.Status != DomainConstants.BookingStatus.Cancelled && u.Status != "CANCELLED");
+        query = query.Where(u => u.Status == AuthConstants.UserStatus.Active);
 
         if (!string.IsNullOrWhiteSpace(targetGroup))
         {

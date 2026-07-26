@@ -631,7 +631,35 @@ public sealed class VoucherServiceTests
             BookingStatus = DomainConstants.EntityStatus.Paid,
             BookingChannel = "ONLINE"
         };
-        db.Bookings.Add(booking);
+        var cancelledUser = new User
+        {
+            UserId = "USR_SHOWTIME_CANCELLED",
+            Email = "showtime_cancelled@example.com",
+            FullName = "Cancelled Booking Customer",
+            PasswordHash = "hash",
+            RoleId = AuthConstants.RoleIds.Customer,
+            Status = DomainConstants.EntityStatus.Active
+        };
+        var cancelledCustomer = new CustomerProfile
+        {
+            CustomerProfileId = "CUS_SHOWTIME_CANCELLED",
+            UserId = cancelledUser.UserId,
+            User = cancelledUser,
+            MemberLevel = "Standard"
+        };
+        var cancelledBooking = new Booking
+        {
+            BookingId = "BOK_SHOWTIME_CANCELLED",
+            CustomerProfileId = cancelledCustomer.CustomerProfileId,
+            CustomerProfile = cancelledCustomer,
+            ShowtimeId = booking.ShowtimeId,
+            Showtime = booking.Showtime,
+            BookingStatus = DomainConstants.BookingStatus.Cancelled,
+            BookingChannel = "ONLINE"
+        };
+        db.Users.Add(cancelledUser);
+        db.CustomerProfiles.Add(cancelledCustomer);
+        db.Bookings.AddRange(booking, cancelledBooking);
         await db.SaveChangesAsync();
 
         // 1. Test GetCustomerIdsByShowtimeOrRoomAsync returns UserId

@@ -23,7 +23,7 @@ public sealed class PostgresMigrationIntegrationTests
               AND table_type = 'BASE TABLE'
               AND table_name <> '__EFMigrationsHistory';
             """));
-        Assert.Equal(4, await database.ScalarAsync<int>(
+        Assert.Equal(5, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(70, await database.ScalarAsync<int>(
             """
@@ -70,7 +70,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(4, await database.ScalarAsync<int>(
+        Assert.Equal(5, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(1, await database.ScalarAsync<int>(
             """

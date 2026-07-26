@@ -495,7 +495,7 @@ public sealed class NotificationApiIntegrationTests
     }
 
     [Fact]
-    public async Task GetFilteredUsers_WithStatusFlaggedBookedRoomShowtimeMovie_FiltersCorrectlyAndExcludesCanceled()
+    public async Task GetFilteredUsers_WithStatusFlaggedBookedRoomShowtimeMovie_FiltersCorrectlyAndExcludesInactive()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await using var scope = factory.Services.CreateAsyncScope();
@@ -532,8 +532,8 @@ public sealed class NotificationApiIntegrationTests
         var profileB = new CustomerProfile { CustomerProfileId = "CP_B", UserId = userB.UserId, MemberLevel = "STANDARD" };
         var bookingB = new Booking { BookingId = "BK_B", CustomerProfileId = profileB.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Cancelled, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
 
-        // User C: Account Status CANCELLED, Booked st-1002 (PAID) -> Account canceled, should not show up
-        var userC = new User { UserId = "USR_FLT_C", Email = "userc@test.com", FullName = "User C", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = DomainConstants.BookingStatus.Cancelled, SpamViolationCount = 0, IsBlocked = false };
+        // User C: inactive account with a paid booking should not be a notification target.
+        var userC = new User { UserId = "USR_FLT_C", Email = "userc@test.com", FullName = "User C", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = AuthConstants.UserStatus.Inactive, SpamViolationCount = 0, IsBlocked = false };
         var profileC = new CustomerProfile { CustomerProfileId = "CP_C", UserId = userC.UserId, MemberLevel = "STANDARD" };
         var bookingC = new Booking { BookingId = "BK_C", CustomerProfileId = profileC.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Paid, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
 
@@ -549,7 +549,7 @@ public sealed class NotificationApiIntegrationTests
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin(adminId));
 
-        // 1. Filter by roomId=room-01 (Only userA has non-cancelled booking in room-01; userB has cancelled booking, userC has cancelled account status)
+        // 1. Filter by roomId=room-01 (userB has a cancelled booking and userC is inactive).
         var responseRoom = await client.GetAsync("/api/notifications/filter-users?roomId=room-01");
         Assert.Equal(HttpStatusCode.OK, responseRoom.StatusCode);
         var bodyRoom = await responseRoom.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
@@ -588,7 +588,7 @@ public sealed class NotificationApiIntegrationTests
         Assert.True(bodyBooked!.Success);
         Assert.Contains(bodyBooked.Data!, u => u.UserId == userA.UserId);
         Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userB.UserId); // userB booking was CANCELLED
-        Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userC.UserId); // userC account was CANCELLED
+        Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userC.UserId); // userC account is inactive
     }
 }
 

@@ -859,7 +859,9 @@ public sealed class VoucherService : IVoucherService
         var query = _dbContext.Bookings.AsNoTracking().AsQueryable();
 
         // Lọc các đơn đặt vé hợp lệ (chưa hủy/hoàn)
-        query = query.Where(b => b.BookingStatus != "Cancelled" && b.BookingStatus != "REFUNDED" && b.BookingStatus != "FAILED");
+        query = query.Where(b =>
+            b.BookingStatus != DomainConstants.BookingStatus.Cancelled &&
+            b.BookingStatus != DomainConstants.BookingStatus.Refunded);
 
         if (!string.IsNullOrWhiteSpace(showtimeId))
         {
@@ -872,8 +874,8 @@ public sealed class VoucherService : IVoucherService
         }
 
         var customerIds = await query
-            .Where(b => b.CustomerProfile != null || !string.IsNullOrEmpty(b.CustomerProfileId))
-            .Select(b => b.CustomerProfile != null ? b.CustomerProfile.UserId : b.CustomerProfileId)
+            .Where(b => b.CustomerProfile != null)
+            .Select(b => b.CustomerProfile!.UserId)
             .Where(id => !string.IsNullOrEmpty(id))
             .Distinct()
             .ToListAsync(cancellationToken);
