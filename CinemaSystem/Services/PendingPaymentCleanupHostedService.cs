@@ -111,7 +111,7 @@ public sealed class PendingPaymentCleanupHostedService : BackgroundService
                 .ThenInclude(cp => cp.User)
             .AsSplitQuery()
             .Where(item =>
-                item.BookingStatus == "ProcessingUnstable" &&
+                item.BookingStatus == DomainConstants.EntityStatus.ProcessingUnstable &&
                 item.Showtime.StartTime <= twoHoursLater)
             .ToListAsync(cancellationToken);
 
