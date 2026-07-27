@@ -8,7 +8,7 @@ namespace CinemaSystem.Hubs;
 
 /// <summary>
 /// SignalR Hub quản lý kết nối thời gian thực cho tính năng Soát Vé Đa Thiết Bị.
-/// 
+///
 /// Chiến lược Mapping UserID ↔ ConnectionId:
 ///   Mỗi khi một client kết nối (Desktop hoặc Mobile của cùng nhân viên),
 ///   Hub tự động thêm ConnectionId vào một SignalR Group có tên là UserId.
