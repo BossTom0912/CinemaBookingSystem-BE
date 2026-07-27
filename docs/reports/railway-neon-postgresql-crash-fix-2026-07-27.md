@@ -123,6 +123,17 @@ Các nullable warning hiện có xuất hiện khi `dotnet test` tự build lạ
 Vì deployment đã vượt ngưỡng crash cũ và cả liveness lẫn truy vấn DB đều thành công, sự
 cố cấu hình connection string được xác nhận đã xử lý.
 
+### Deployment sau khi publish bản sửa BE
+
+- Commit `adb247c6928aa1b1c1c475abb145fb23bf540c5e` đã được push lên
+  `github/Tom/ticketscan2-postgres-integration`.
+- Railway tự động build và triển khai đúng commit với deployment đang hoạt động
+  `042cbfa6-0034-4abc-9e32-658f2fa2a12c`.
+- Log production có migration, `Now listening` và `Application started`; không có lỗi
+  SSL, thiếu database, fatal exception hoặc shutdown.
+- Sau hơn 3 phút, service vẫn `Online/Active`; lần kiểm tra cuối của cả `/api/health` và
+  `/api/db-test/movies-count` đều trả HTTP 200.
+
 ## Ranh giới an toàn dữ liệu
 
 Ứng dụng hiện chạy database maintenance/migration trước khi bắt đầu lắng nghe HTTP. Vì
@@ -133,7 +144,7 @@ branch/database staging riêng trước khi áp dụng lên database chính.
 
 ## Trạng thái bàn giao
 
-- Bản sửa và test đang ở working tree cục bộ, chưa commit/push.
+- Bản sửa BE, test và báo cáo đã được commit/push lên nhánh triển khai.
 - Biến Railway đã được sửa và deployment mới đã được kích hoạt.
 - Deployment mới đang `Active`; health và truy vấn DB production đều trả HTTP 200.
 - Không có credential thật trong source, test hoặc báo cáo.
