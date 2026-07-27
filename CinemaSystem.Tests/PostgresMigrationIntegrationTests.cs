@@ -25,22 +25,8 @@ public sealed class PostgresMigrationIntegrationTests
             """));
         Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
-        Assert.Equal(5, await database.ScalarAsync<int>(
-            """
-            SELECT count(*)::integer
-            FROM "BANK_DIRECTORY"
-            WHERE "isActive"
-              AND "bankCode" IN ('VCB', 'MB', 'TCB', 'BIDV', 'CTG');
-            """));
-        Assert.Equal(1, await database.ScalarAsync<int>(
-            """
-            SELECT count(*)::integer
-            FROM "BANK_DIRECTORY"
-            WHERE "bankCode" = 'MB'
-              AND "bankBin" = '970422'
-              AND "shortName" = 'MB Bank'
-              AND "isActive";
-            """));
+        Assert.Equal(0, await database.ScalarAsync<int>(
+            "SELECT count(*)::integer FROM \"BANK_DIRECTORY\";"));
         Assert.Equal(70, await database.ScalarAsync<int>(
             """
             SELECT count(*)::integer
@@ -150,19 +136,30 @@ public sealed class PostgresMigrationIntegrationTests
     }
 
     [PostgresFact]
-    public async Task SeedBankDirectory_RerunRestoresMissingAndInactiveBanks()
+    public async Task SeedBankDirectory_MigrationDoesNotInjectReferenceData()
     {
         await using var database = await PostgresTestSchema.CreateAsync();
         await database.MigrateAsync();
         await database.ExecuteAsync(
             """
-            DELETE FROM "BANK_DIRECTORY"
-            WHERE "bankCode" = 'MB';
-
-            UPDATE "BANK_DIRECTORY"
-            SET "isActive" = false,
-                "shortName" = 'Stale name'
-            WHERE "bankCode" = 'VCB';
+            INSERT INTO "BANK_DIRECTORY" (
+                "bankCode",
+                "bankBin",
+                "shortName",
+                "fullName",
+                "isActive",
+                "supportsAccountInquiry",
+                "supportsPayout",
+                "createdAt")
+            VALUES (
+                'CONFIGURED_BANK',
+                'CONFIGURED_BIN',
+                'Configured bank',
+                'Configured bank from database',
+                true,
+                false,
+                false,
+                CURRENT_TIMESTAMP);
 
             DELETE FROM "__EFMigrationsHistory"
             WHERE "MigrationId" = '20260727165408_SeedBankDirectory';
@@ -170,19 +167,12 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(5, await database.ScalarAsync<int>(
-            """
-            SELECT count(*)::integer
-            FROM "BANK_DIRECTORY"
-            WHERE "isActive"
-              AND "bankCode" IN ('VCB', 'MB', 'TCB', 'BIDV', 'CTG');
-            """));
         Assert.Equal(1, await database.ScalarAsync<int>(
             """
             SELECT count(*)::integer
             FROM "BANK_DIRECTORY"
-            WHERE "bankCode" = 'VCB'
-              AND "shortName" = 'Vietcombank'
+            WHERE "bankCode" = 'CONFIGURED_BANK'
+              AND "shortName" = 'Configured bank'
               AND "isActive";
             """));
     }

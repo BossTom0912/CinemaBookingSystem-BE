@@ -287,6 +287,7 @@ public static class DependencyInjection
         services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
         services.AddScoped<IRefundService, RefundService>();
         services.AddScoped<IRefundClaimService, RefundClaimService>();
+        services.AddScoped<IBankDirectoryAdminService, BankDirectoryAdminService>();
         services.AddScoped<IManualRefundService, ManualRefundService>();
         services.AddScoped<IRefundCustomerConfirmationService, RefundCustomerConfirmationService>();
         services.AddScoped<IRefundProcessor, RefundProcessor>();

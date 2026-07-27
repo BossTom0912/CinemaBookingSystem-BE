@@ -88,16 +88,18 @@ The migration history must include all six:
 - `20260726140854_ReconcilePostgresData`
 - `20260726142719_ConfigurePostgresCheckConstraints`
 - `20260726144437_AddVoucherShowtimeIdAndRoomIdPostgres`
-- `20260727165408_SeedBankDirectory`
+- `20260727165408_SeedBankDirectory` (legacy migration ID retained; it no longer seeds bank data)
 
 An upgraded production clone may also retain older provider-migration history
 rows. Do not require exactly six total rows; require that all six PostgreSQL
 migrations above are present in order.
 
-The active bank directory must include the five supported refund bank codes:
+Bank-directory records are operational data managed through
+`PUT /api/admin/banks/{bankCode}`. A migration must not insert or overwrite a
+fixed bank list. Inspect the currently configured records with:
 
 ```powershell
-psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT "bankCode", "bankBin", "shortName", "isActive" FROM "BANK_DIRECTORY" WHERE "bankCode" IN (''VCB'', ''MB'', ''TCB'', ''BIDV'', ''CTG'') ORDER BY "bankCode";'
+psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT "bankCode", "bankBin", "shortName", "isActive" FROM "BANK_DIRECTORY" ORDER BY "bankCode";'
 ```
 
 The final query must show `bytea` for each existing `rowVersion` column. There
