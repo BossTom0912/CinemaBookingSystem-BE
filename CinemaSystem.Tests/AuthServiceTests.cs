@@ -163,6 +163,25 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task RegisterEmailFailure_ClientCancellationStillCleansUpPendingData()
+    {
+        var fixture = TestFixture.Create();
+        using var cancellation = new CancellationTokenSource();
+        fixture.EmailSender.BeforeFailure = cancellation.Cancel;
+        fixture.EmailSender.ShouldFail = true;
+
+        var result = await fixture.Service.RegisterCustomerAsync(
+            RegisterRequest(),
+            cancellation.Token);
+
+        Assert.False(result.Success);
+        Assert.Equal("EMAIL_SEND_FAILED", result.ErrorCode);
+        Assert.Empty(await fixture.DbContext.Users.ToListAsync());
+        Assert.Empty(await fixture.DbContext.CustomerProfiles.ToListAsync());
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens.ToListAsync());
+    }
+
+    [Fact]
     public async Task ResendVerificationEmailFailure_DoesNotLeaveUsableOtp()
     {
         var fixture = TestFixture.Create();
@@ -184,6 +203,27 @@ public sealed class AuthServiceTests
         var user = Assert.Single(await fixture.DbContext.Users.ToListAsync());
         Assert.False(user.EmailVerified);
         Assert.Equal(AuthConstants.UserStatus.PendingVerification, user.Status);
+    }
+
+    [Fact]
+    public async Task ResendVerificationEmailFailure_ClientCancellationStillInvalidatesOtp()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddSeconds(61);
+        using var cancellation = new CancellationTokenSource();
+        fixture.EmailSender.BeforeFailure = cancellation.Cancel;
+        fixture.EmailSender.ShouldFail = true;
+
+        var result = await fixture.Service.ResendVerificationOtpAsync(
+            new ResendVerificationOtpRequest { Email = "alice@example.com" },
+            cancellation.Token);
+
+        Assert.False(result.Success);
+        Assert.Equal("EMAIL_SEND_FAILED", result.ErrorCode);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens
+            .Where(token => !token.IsUsed)
+            .ToListAsync());
     }
 
     [Fact]
@@ -889,10 +929,13 @@ public sealed class AuthServiceTests
 
         public bool ShouldFail { get; set; }
 
+        public Action? BeforeFailure { get; set; }
+
         public Task SendEmailAsync(string toEmail, string subject, string body, CancellationToken cancellationToken)
         {
             if (ShouldFail)
             {
+                BeforeFailure?.Invoke();
                 throw new InvalidOperationException("SMTP is not configured.");
             }
 

@@ -78,6 +78,9 @@ public static class DependencyInjection
                 options.SmtpPort = ReadInt(
                     configuration[$"{EmailSettings.SectionName}:SmtpPort"],
                     options.SmtpPort);
+                options.SendTimeoutSeconds = ReadInt(
+                    configuration[$"{EmailSettings.SectionName}:SendTimeoutSeconds"],
+                    options.SendTimeoutSeconds);
                 options.SenderEmail = configuration[$"{EmailSettings.SectionName}:SenderEmail"] ?? string.Empty;
                 options.SenderName = ReadString(
                     configuration[$"{EmailSettings.SectionName}:SenderName"],
@@ -91,6 +94,9 @@ public static class DependencyInjection
                     options.AutoConfirmEmail);
             })
             .Validate(options => options.SmtpPort is > 0 and <= 65535, "SMTP port is invalid.")
+            .Validate(
+                options => options.SendTimeoutSeconds is > 0 and <= 300,
+                "Email send timeout must be between 1 and 300 seconds.")
             .Validate(
                 options => options.UseMock || !string.IsNullOrWhiteSpace(options.SenderEmail),
                 "EmailSettings:SenderEmail must be configured when mock email is disabled.")

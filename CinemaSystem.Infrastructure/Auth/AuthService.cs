@@ -220,7 +220,7 @@ public sealed class AuthService : IAuthService
         if (!emailResult.Success)
         {
             // Xóa bỏ các dữ liệu đăng ký lỗi để giữ tính nhất quán cho DB
-            await CleanupFailedRegistrationAsync(user.UserId, cancellationToken);
+            await CleanupFailedRegistrationAsync(user.UserId, CancellationToken.None);
             // Trả về lỗi gửi email
             return emailResult;
         }
@@ -670,7 +670,7 @@ public sealed class AuthService : IAuthService
         {
             // Hủy bỏ mã OTP vừa tạo (đánh dấu đã sử dụng) để ngăn chặn phát sinh lỗi
             verificationToken.IsUsed = true;
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
             // Trả về lỗi của quá trình gửi email
             return emailResult;
         }
@@ -782,7 +782,7 @@ public sealed class AuthService : IAuthService
         {
             // Hủy mã OTP vừa tạo
             resetToken.IsUsed = true;
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
             // Trả về lỗi
             return emailResult;
         }
@@ -1007,7 +1007,7 @@ public sealed class AuthService : IAuthService
             // Đánh dấu mã OTP vừa tạo thành Đã sử dụng (Hủy mã OTP đó đi)
             verificationToken.IsUsed = true;
             // Lưu lại hành động hủy
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
             // Trả về Exception
             return emailResult;
         }

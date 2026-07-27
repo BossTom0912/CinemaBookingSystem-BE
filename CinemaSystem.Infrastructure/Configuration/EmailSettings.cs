@@ -8,6 +8,8 @@ public sealed class EmailSettings
 
     public int SmtpPort { get; set; } = 587;
 
+    public int SendTimeoutSeconds { get; set; } = 15;
+
     public string SenderEmail { get; set; } = string.Empty;
 
     public string SenderName { get; set; } = "Cinema Booking System";
