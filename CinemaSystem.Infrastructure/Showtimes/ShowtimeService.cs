@@ -1049,13 +1049,16 @@ public sealed class ShowtimeService : IShowtimeService
                 var startTimeStr = showtime.StartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
                 var customerName = booking.CustomerProfile?.User?.FullName;
                 
-                // Đẩy tiến trình gửi Email vào Hangfire sử dụng AI viết thư xin lỗi
+                // Đẩy tiến trình gửi Email vào Hangfire thông báo hủy suất chiếu và hoàn tiền 100%
                 _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                    ai.SendAiApologyEmailAsync(
+                    ai.SendShowtimeCancellationEmailAsync(
                         customerEmail, 
                         subject, 
-                        "Hủy suất chiếu", 
-                        $"Suất chiếu của phim {movieTitle} vào lúc {startTimeStr} bị hủy bỏ do sự cố kỹ thuật đột xuất của rạp. Hệ thống đang tiến hành thủ tục hoàn tiền tự động.", 
+                        movieTitle,
+                        startTimeStr,
+                        booking.BookingId,
+                        booking.TotalAmount,
+                        cancelReason,
                         CancellationToken.None,
                         customerName));
             }

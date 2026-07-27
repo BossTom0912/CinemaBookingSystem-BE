@@ -13,4 +13,13 @@ public interface IAccountProvisioningService
         string actorUserId,
         ProvisionManagedAccountRequest request,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<IReadOnlyList<ManagedUserResponse>>> GetManagedUsersAsync(
+        CancellationToken cancellationToken);
+
+    Task<ServiceResult<ManagedUserResponse>> UpdateUserRoleCinemaAsync(
+        string actorUserId,
+        string targetUserId,
+        UpdateUserRoleCinemaRequest request,
+        CancellationToken cancellationToken);
 }

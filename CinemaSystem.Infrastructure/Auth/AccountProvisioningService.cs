@@ -27,6 +27,7 @@ public sealed class AccountProvisioningService : IAccountProvisioningService
     private readonly IClock _clock;
     private readonly AuthSettings _authSettings;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly IUserHeartbeatTracker? _heartbeatTracker;
 
     public AccountProvisioningService(
         CinemaDbContext dbContext,
@@ -34,7 +35,8 @@ public sealed class AccountProvisioningService : IAccountProvisioningService
         IOtpGenerator otpGenerator,
         IClock clock,
         IOptions<AuthSettings> authOptions,
-        IBackgroundJobClient backgroundJobClient)
+        IBackgroundJobClient backgroundJobClient,
+        IUserHeartbeatTracker? heartbeatTracker = null)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
@@ -42,6 +44,7 @@ public sealed class AccountProvisioningService : IAccountProvisioningService
         _clock = clock;
         _authSettings = authOptions.Value;
         _backgroundJobClient = backgroundJobClient;
+        _heartbeatTracker = heartbeatTracker;
     }
 
     public async Task<ServiceResult<IReadOnlyList<AssignableAccountRoleResponse>>> GetAssignableRolesAsync(
@@ -202,6 +205,204 @@ public sealed class AccountProvisioningService : IAccountProvisioningService
             },
             "Account created. Invitation email queued.",
             201);
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<ManagedUserResponse>>> GetManagedUsersAsync(
+        CancellationToken cancellationToken)
+    {
+        var usersData = await (
+            from user in _dbContext.Users.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on user.RoleId equals role.RoleId
+            join staff in _dbContext.StaffProfiles.AsNoTracking() on user.UserId equals staff.UserId into staffGroup
+            from staff in staffGroup.DefaultIfEmpty()
+            join cinema in _dbContext.Cinemas.AsNoTracking() on staff.CinemaId equals cinema.CinemaId into cinemaGroup
+            from cinema in cinemaGroup.DefaultIfEmpty()
+            orderby user.CreatedAt descending
+            select new
+            {
+                user.UserId,
+                user.Email,
+                user.FullName,
+                user.PhoneNumber,
+                user.RoleId,
+                RoleName = role.RoleName,
+                CinemaId = staff != null ? staff.CinemaId : null,
+                CinemaName = cinema != null ? cinema.CinemaName : null,
+                user.Status,
+                user.CreatedAt
+            }
+        ).ToListAsync(cancellationToken);
+
+        var list = usersData.Select(u => new ManagedUserResponse
+        {
+            UserId = u.UserId,
+            Email = u.Email,
+            FullName = u.FullName,
+            PhoneNumber = u.PhoneNumber,
+            RoleId = u.RoleId,
+            RoleName = u.RoleName,
+            CinemaId = u.CinemaId,
+            CinemaName = u.CinemaName,
+            Status = u.Status,
+            CreatedAt = u.CreatedAt,
+            IsOnline = _heartbeatTracker?.IsUserOnline(u.UserId, u.Email) ?? false
+        }).ToList();
+
+        return ServiceResult<IReadOnlyList<ManagedUserResponse>>.Ok(list);
+    }
+
+    public async Task<ServiceResult<ManagedUserResponse>> UpdateUserRoleCinemaAsync(
+        string actorUserId,
+        string targetUserId,
+        UpdateUserRoleCinemaRequest request,
+        CancellationToken cancellationToken)
+    {
+        var actorRoleId = await GetActorRoleIdAsync(actorUserId, cancellationToken);
+        if (actorRoleId is null)
+        {
+            return ServiceResult<ManagedUserResponse>.Fail(
+                403,
+                "The authenticated account is not available for user management.",
+                "ACCOUNT_PROVISIONING_ACTOR_NOT_FOUND");
+        }
+
+        var targetUser = await _dbContext.Users
+            .Include(u => u.StaffProfile)
+            .Include(u => u.CustomerProfile)
+            .FirstOrDefaultAsync(u => u.UserId == targetUserId, cancellationToken);
+
+        if (targetUser is null)
+        {
+            return ServiceResult<ManagedUserResponse>.Fail(
+                404,
+                "Target user was not found.",
+                "USER_NOT_FOUND");
+        }
+
+        var roleId = request.RoleId.Trim();
+        var definition = await GetProvisioningDefinitionAsync(
+            actorRoleId,
+            roleId,
+            cancellationToken);
+
+        if (definition is null)
+        {
+            return ServiceResult<ManagedUserResponse>.Fail(
+                403,
+                "You are not allowed to assign the selected role.",
+                "ROLE_ASSIGNMENT_NOT_ALLOWED");
+        }
+
+        var profileValidation = await ValidateProfileInputsAsync(
+            definition,
+            request.CinemaId,
+            cancellationToken);
+
+        if (profileValidation is not null)
+        {
+            return ServiceResult<ManagedUserResponse>.Fail(
+                profileValidation.StatusCode,
+                profileValidation.Message,
+                profileValidation.ErrorCode);
+        }
+
+        var now = _clock.UtcNow;
+        var cinemaId = NormalizeOptional(request.CinemaId);
+
+        targetUser.RoleId = definition.RoleId;
+        targetUser.UpdatedAt = now;
+
+        if (definition.ProfileKind == DomainConstants.AccountProfileKind.Staff)
+        {
+            var defaultPos = definition.DefaultStaffPosition
+                ?? (definition.RoleName.Contains("Manager", StringComparison.OrdinalIgnoreCase) ? "Manager" : "Staff");
+
+            if (targetUser.StaffProfile is not null)
+            {
+                targetUser.StaffProfile.CinemaId = cinemaId!;
+                targetUser.StaffProfile.Position = defaultPos;
+                targetUser.StaffProfile.EmploymentStatus = DomainConstants.StaffEmploymentStatus.Active;
+            }
+            else
+            {
+                targetUser.StaffProfile = new StaffProfile
+                {
+                    StaffProfileId = NewId(DomainConstants.EntityIdPrefix.StaffProfile),
+                    UserId = targetUser.UserId,
+                    CinemaId = cinemaId!,
+                    Position = defaultPos,
+                    HireDate = DateOnly.FromDateTime(now),
+                    EmploymentStatus = DomainConstants.StaffEmploymentStatus.Active
+                };
+                _dbContext.StaffProfiles.Add(targetUser.StaffProfile);
+            }
+        }
+        else if (definition.ProfileKind == DomainConstants.AccountProfileKind.Customer)
+        {
+            if (targetUser.CustomerProfile is null)
+            {
+                targetUser.CustomerProfile = new CustomerProfile
+                {
+                    CustomerProfileId = NewId(DomainConstants.EntityIdPrefix.CustomerProfile),
+                    UserId = targetUser.UserId,
+                    MemberLevel = DomainConstants.MemberLevel.Standard,
+                    RewardPoints = 0
+                };
+                _dbContext.CustomerProfiles.Add(targetUser.CustomerProfile);
+            }
+        }
+
+        _dbContext.AuditLogs.Add(new AuditLog
+        {
+            AuditLogId = NewId(DomainConstants.EntityIdPrefix.AuditLog),
+            UserId = actorUserId,
+            Action = "USER_ROLE_CINEMA_UPDATED",
+            EntityName = "USER",
+            EntityId = targetUser.UserId,
+            NewValue = JsonSerializer.Serialize(new
+            {
+                targetUser.Email,
+                targetUser.RoleId,
+                cinemaId,
+                definition.ProfileKind
+            }),
+            CreatedAt = now
+        });
+
+        var executionStrategy = _dbContext.Database.CreateExecutionStrategy();
+        await executionStrategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+
+        string? cinemaName = null;
+        if (cinemaId is not null)
+        {
+            cinemaName = await _dbContext.Cinemas
+                .AsNoTracking()
+                .Where(c => c.CinemaId == cinemaId)
+                .Select(c => c.CinemaName)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        return ServiceResult<ManagedUserResponse>.Ok(
+            new ManagedUserResponse
+            {
+                UserId = targetUser.UserId,
+                Email = targetUser.Email,
+                FullName = targetUser.FullName,
+                PhoneNumber = targetUser.PhoneNumber,
+                RoleId = targetUser.RoleId,
+                RoleName = definition.RoleName,
+                CinemaId = cinemaId,
+                CinemaName = cinemaName,
+                Status = targetUser.Status,
+                CreatedAt = targetUser.CreatedAt,
+                IsOnline = _heartbeatTracker?.IsUserOnline(targetUser.UserId, targetUser.Email) ?? false
+            },
+            "User role and cinema assignment updated successfully.");
     }
 
     private void AddProfile(

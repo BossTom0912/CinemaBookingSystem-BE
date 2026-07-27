@@ -26,8 +26,10 @@ public sealed class SmtpEmailSender : IEmailSender
         {
             From = new MailAddress(_settings.SenderEmail, _settings.SenderName),
             Subject = subject,
+            SubjectEncoding = System.Text.Encoding.UTF8,
             Body = body,
-            IsBodyHtml = body.Contains("<html", StringComparison.OrdinalIgnoreCase) || body.Contains("<body", StringComparison.OrdinalIgnoreCase)
+            BodyEncoding = System.Text.Encoding.UTF8,
+            IsBodyHtml = IsHtml(body)
         };
         message.To.Add(toEmail);
 
@@ -41,5 +43,18 @@ public sealed class SmtpEmailSender : IEmailSender
         timeoutCancellation.CancelAfter(TimeSpan.FromSeconds(_settings.SendTimeoutSeconds));
 
         await client.SendMailAsync(message, timeoutCancellation.Token);
+    }
+
+    private static bool IsHtml(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return false;
+        var trimmed = body.TrimStart();
+        return trimmed.StartsWith("<", StringComparison.Ordinal) ||
+               body.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<body", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<div", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<p", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<table", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase);
     }
 }

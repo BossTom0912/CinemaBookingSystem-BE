@@ -208,6 +208,51 @@ public sealed class AdminApiIntegrationTests
         Assert.Equal("DUPLICATE_EMAIL", body!.ErrorCode);
     }
 
+    [Fact]
+    public async Task GetManagedUsers_AdminToken_ReturnsUserList()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedProvisioningPrerequisitesAsync(factory);
+
+        using var client = CreateAdminClient(factory);
+        var response = await client.GetAsync("/api/admin/users");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<List<ManagedUserResponse>>>(response);
+        Assert.True(body!.Success);
+        Assert.NotNull(body.Data);
+        Assert.NotEmpty(body.Data);
+    }
+
+    [Fact]
+    public async Task UpdateUserRoleCinema_AdminToken_UpdatesRoleAndCinema()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedProvisioningPrerequisitesAsync(factory);
+        await SeedExistingUserAsync(factory, "user-to-update@test.com");
+
+        using var client = CreateAdminClient(factory);
+        var response = await client.PutAsJsonAsync("/api/admin/users/USR_EXISTING/role-cinema", new UpdateUserRoleCinemaRequest
+        {
+            RoleId = AuthConstants.RoleIds.Staff,
+            CinemaId = "CIN_ADMIN"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await DeserializeAsync<ApiResponse<ManagedUserResponse>>(response);
+        Assert.True(body!.Success);
+        Assert.Equal(AuthConstants.RoleIds.Staff, body.Data!.RoleId);
+        Assert.Equal("CIN_ADMIN", body.Data.CinemaId);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var user = await db.Users.Include(u => u.StaffProfile).SingleAsync(u => u.UserId == "USR_EXISTING");
+
+        Assert.Equal(AuthConstants.RoleIds.Staff, user.RoleId);
+        Assert.NotNull(user.StaffProfile);
+        Assert.Equal("CIN_ADMIN", user.StaffProfile.CinemaId);
+    }
+
     private static HttpClient CreateAdminClient(CinemaWebApplicationFactory factory)
     {
         var client = factory.CreateClient();

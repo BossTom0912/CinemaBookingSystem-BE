@@ -226,15 +226,25 @@ public class AdminRefundService : IAdminRefundService
                         existingRefund.RefundReason = reason;
                     }
 
-                    // Send cancellation email using AI service
                     var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
                     var customerName = booking.CustomerProfile?.User?.FullName ?? booking.GuestName;
                     if (!string.IsNullOrEmpty(customerEmail))
                     {
                         string subject = _emailTemplates.ShowtimeCancellationSubject;
-                        string details = $"Suất chiếu phim {showtime.Movie?.Title ?? "bạn đã đặt"} vào lúc {showtime.StartTime:dd/MM/yyyy HH:mm} bị hủy bỏ do sự cố/lỗi kỹ thuật của rạp chiếu phim.";
+                        var movieTitle = showtime.Movie?.Title ?? "bạn đã đặt";
+                        var startTimeStr = showtime.StartTime.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
                         _backgroundJobClient.Enqueue<IAiEmailService>(ai => 
-                            ai.SendAiApologyEmailAsync(customerEmail, subject, reason, details, CancellationToken.None, customerName));
+                            ai.SendShowtimeCancellationEmailAsync(
+                                customerEmail,
+                                subject,
+                                movieTitle,
+                                startTimeStr,
+                                booking.BookingId,
+                                booking.TotalAmount,
+                                reason,
+                                CancellationToken.None,
+                                customerName));
                     }
                 }
             }
