@@ -37,19 +37,6 @@ public sealed class FbItemService : IFbItemService
         };
 
         _dbContext.FbItems.Add(fbItem);
-
-        var cinemaIds = await _dbContext.Cinemas.AsNoTracking().Select(c => c.CinemaId).ToListAsync(cancellationToken);
-        foreach (var cId in cinemaIds)
-        {
-            _dbContext.CinemaFbInventories.Add(new CinemaFbInventory
-            {
-                CinemaInventoryId = $"CFI_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
-                CinemaId = cId,
-                FbItemId = itemId,
-                Quantity = 0
-            });
-        }
-
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         var response = MapToResponse(fbItem);
