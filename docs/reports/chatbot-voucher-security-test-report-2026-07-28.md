@@ -20,6 +20,26 @@ HEAD nền: `056d31cb1bb2a75a21f6ff7e1aabbcfd0b20a08b`
 Kết quả trên được chạy với toàn bộ thay đổi hiện có trong working tree. Các thay
 đổi bảo mật chưa được commit, push hoặc deploy tại thời điểm lập báo cáo.
 
+## Kiểm tra lại trên baseline GitLab `main`
+
+Bản vá được áp dụng lên `gitlab/main` tại `abf4526` trong một worktree sạch và
+được kiểm tra lại bằng Release configuration trước khi merge:
+
+```powershell
+dotnet restore CinemaSystem.sln
+dotnet build CinemaSystem.sln --no-restore --configuration Release --no-incremental -m:1
+dotnet test CinemaSystem.sln --no-build --no-restore --configuration Release -m:1 --verbosity minimal
+```
+
+Kết quả:
+
+- Build: **0 error, 90 warning nullable hiện hữu**.
+- Full regression: **376 passed, 0 failed, 4 skipped, tổng 380 test**.
+- Security regression: **11 passed, 0 failed, 0 skipped**.
+
+Tổng số test khác lần chạy ban đầu vì nhánh nguồn và `gitlab/main` có lịch sử
+test khác nhau. Cả hai lần chạy đều không có test failed.
+
 ## Mục tiêu kiểm thử
 
 1. Chatbot chỉ được gửi voucher public hợp lệ sang Gemini.
