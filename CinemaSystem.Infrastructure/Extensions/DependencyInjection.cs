@@ -210,26 +210,7 @@ public static class DependencyInjection
 
         services.AddDataProtection();
 
-        // Read connection string and fail fast with clear error if missing
-        var defaultConnection = configuration.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrWhiteSpace(defaultConnection))
-        {
-            // fallback: attempt to read raw configuration key
-            defaultConnection = configuration["ConnectionStrings:DefaultConnection"];
-        }
-
-        if (string.IsNullOrWhiteSpace(defaultConnection))
-        {
-            throw new InvalidOperationException(
-                "Missing connection string 'DefaultConnection'. Add 'ConnectionStrings: { \"DefaultConnection\": \"...\" }' to appsettings.json or appsettings.{Environment}.json in the CinemaSystem project.");
-        }
-
-        var connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder(defaultConnection)
-        {
-            SslMode = Npgsql.SslMode.Require,
-            TrustServerCertificate = true
-        };
-        var enforcedConnection = connectionBuilder.ConnectionString;
+        var enforcedConnection = BuildPostgresConnectionString(configuration);
 
         services.AddDbContext<CinemaDbContext>(options =>
         {
@@ -408,6 +389,68 @@ public static class DependencyInjection
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieBannerAutofillJob>();
 
         return services;
+    }
+
+    private static string BuildPostgresConnectionString(IConfiguration configuration)
+    {
+        var defaultConnection = configuration.GetConnectionString("DefaultConnection")
+            ?? configuration["ConnectionStrings:DefaultConnection"];
+
+        if (string.IsNullOrWhiteSpace(defaultConnection))
+        {
+            throw new InvalidOperationException(
+                "Missing PostgreSQL connection string 'DefaultConnection'. " +
+                "Configure ConnectionStrings__DefaultConnection with the complete .NET/Npgsql " +
+                "connection string supplied by the database provider.");
+        }
+
+        Npgsql.NpgsqlConnectionStringBuilder connectionBuilder;
+        try
+        {
+            connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder(defaultConnection);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                "PostgreSQL connection string 'DefaultConnection' is invalid. " +
+                "Use .NET/Npgsql key-value format and do not paste a partial host-only value.",
+                exception);
+        }
+
+        var missingValues = new List<string>();
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Host))
+        {
+            missingValues.Add("Host");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Database))
+        {
+            missingValues.Add("Database");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Username))
+        {
+            missingValues.Add("Username");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Password) &&
+            string.IsNullOrWhiteSpace(connectionBuilder.Passfile))
+        {
+            missingValues.Add("Password or Passfile");
+        }
+
+        if (missingValues.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "PostgreSQL connection string 'DefaultConnection' is incomplete. " +
+                $"Missing required values: {string.Join(", ", missingValues)}. " +
+                "Copy the complete .NET/Npgsql connection string from the database provider; " +
+                "never configure only Host and Port.");
+        }
+
+        // Production providers such as Neon reject plaintext PostgreSQL sessions.
+        connectionBuilder.SslMode = Npgsql.SslMode.Require;
+        return connectionBuilder.ConnectionString;
     }
 
     private static int ReadInt(string? value, int fallback)

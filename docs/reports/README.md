@@ -62,6 +62,7 @@ Khi nội dung refund giữa các báo cáo cũ khác với chính sách hiện 
 
 | Phạm vi | Báo cáo |
 |---|---|
+| Railway + Neon PostgreSQL crash | [`railway-neon-postgresql-crash-fix-2026-07-27.md`](railway-neon-postgresql-crash-fix-2026-07-27.md) |
 | PostgreSQL production clone + Render staging | [`postgresql-production-clone-staging-test-2026-07-27.md`](postgresql-production-clone-staging-test-2026-07-27.md) |
 | PostgreSQL `Tom/postgresql-mainlocal` | [`postgresql-mainlocal-test-report-2026-07-26.md`](postgresql-mainlocal-test-report-2026-07-26.md) |
 | `main_local` + voucher/refund + VNPAY | [`main-local-voucher-refund-fix-logic-merge-test-2026-07-24.md`](main-local-voucher-refund-fix-logic-merge-test-2026-07-24.md) |
