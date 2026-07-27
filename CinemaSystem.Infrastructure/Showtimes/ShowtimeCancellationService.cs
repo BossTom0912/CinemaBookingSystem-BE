@@ -516,7 +516,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         var voucherSectionHtml = issue is not null ? $"""
             <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 18px; border-radius: 10px; margin: 20px 0;'>
-                <h3 style='margin: 0 0 10px 0; color: #b78103; font-size: 15px; font-weight: bold;'>🎁 QUYỀN LỢI & VOUCHER BỒI THƯỜNG DÀNH CHO BẠN</h3>
+                <h3 style='margin: 0 0 10px 0; color: #b78103; font-size: 15px; font-weight: bold;'>QUYỀN LỢI & VOUCHER BỒI THƯỜNG DÀNH CHO BẠN</h3>
                 <p style='font-size: 13px; color: #5c4300; margin: 0 0 10px 0;'>
                     CinemaSystem xin gửi tặng Quý khách các mã Voucher bồi thường sự cố (Tự động lưu vào ví tài khoản của Quý khách):
                 </p>
@@ -530,13 +530,13 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         var refundSectionHtml = claimLink != null ? $"""
             <div style='background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 10px; margin: 20px 0;'>
-                <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>💳 KHAI BÁO THÔNG TIN NHẬN LẠI TIỀN HOÀN</h3>
+                <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>KHAI BÁO THÔNG TIN NHẬN LẠI TIỀN HOÀN</h3>
                 <p style='font-size: 13px; color: #1e3a8a; margin: 0 0 12px 0;'>
                     Vui lòng bấm vào nút bên dưới để nhập thông tin tài khoản ngân hàng nhận lại <strong>{totalAmountFormatted}</strong> trước thời hạn <strong>{claimExpiresFormatted}</strong>:
                 </p>
                 <div style='text-align: center; margin: 15px 0;'>
                     <a href='{claimLink}' style='display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: bold; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; box-shadow: 0 3px 10px rgba(37,99,235,0.3);'>
-                        👉 Nhập Tài Khoản Ngân Hàng Nhận Tiền Hoàn
+                        Nhập Tài Khoản Ngân Hàng Nhận Tiền Hoàn
                     </a>
                 </div>
                 <p style='font-size: 11px; color: #64748b; margin: 0; text-align: center;'>
