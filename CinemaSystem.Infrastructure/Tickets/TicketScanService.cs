@@ -47,6 +47,104 @@ public sealed class TicketScanService : ITicketScanService
         _logger = logger;
     }
 
+    public async Task<ServiceResult<ScanTicketResponse>> PreviewAsync(
+        string userId,
+        string claimActorRole,
+        ScanTicketRequest request,
+        CancellationToken cancellationToken)
+    {
+        var actorResult = await ResolveScanActorAsync(userId, claimActorRole, cancellationToken);
+        if (!actorResult.Success || actorResult.Data is null)
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                actorResult.StatusCode,
+                actorResult.Message,
+                actorResult.ErrorCode ?? BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden,
+                actorResult.Errors);
+        }
+
+        var actor = actorResult.Data;
+        var normalizedQrCode = request.QrCode?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedQrCode))
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.BadRequest,
+                "QR code is required.",
+                BookingConstants.TicketScanErrorCodes.InvalidQrCode);
+        }
+
+        var normalizedRoomId = request.RoomId?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedRoomId))
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.BadRequest,
+                "Room ID is required.",
+                BookingConstants.TicketScanErrorCodes.TicketWrongRoom);
+        }
+
+        var ticket = await LoadTicketAsync(normalizedQrCode, cancellationToken);
+        if (ticket is null)
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.NotFound,
+                "Ticket was not found.",
+                BookingConstants.TicketScanErrorCodes.TicketNotFound);
+        }
+
+        var validationFailure = ValidateTicketForScan(ticket, actor.StaffCinemaId, normalizedRoomId, _clock.UtcNow);
+        if (validationFailure is not null)
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)validationFailure.Value.StatusCode,
+                validationFailure.Value.Message,
+                validationFailure.Value.ErrorCode);
+        }
+
+        return ServiceResult<ScanTicketResponse>.Ok(
+            ToResponse(ticket, null, ticket.TicketStatus, _clock.UtcNow),
+            "Ticket preview retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ScanTicketResponse>> ConfirmAsync(
+        string userId,
+        string claimActorRole,
+        ConfirmTicketScanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var normalizedTicketId = request.TicketId?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedTicketId))
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.BadRequest,
+                "Ticket ID is required.",
+                BookingConstants.TicketScanErrorCodes.InvalidQrCode);
+        }
+
+        var qrCode = await _dbContext.Tickets
+            .AsNoTracking()
+            .Where(ticket => ticket.TicketId == normalizedTicketId)
+            .Select(ticket => ticket.QrCode)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(qrCode))
+        {
+            return ServiceResult<ScanTicketResponse>.Fail(
+                (int)HttpStatusCode.NotFound,
+                "Ticket was not found.",
+                BookingConstants.TicketScanErrorCodes.TicketNotFound);
+        }
+
+        return await ScanAsync(
+            userId,
+            claimActorRole,
+            new ScanTicketRequest
+            {
+                QrCode = qrCode,
+                RoomId = request.RoomId
+            },
+            cancellationToken);
+    }
+
     public async Task<ServiceResult<ScanTicketResponse>> ScanAsync(
         string userId,
         string claimActorRole,
@@ -369,9 +467,188 @@ public sealed class TicketScanService : ITicketScanService
                 room.CinemaId);
 
             return ServiceResult<ScanTicketResponse>.Ok(
-                ToResponse(ticket, checkInLog),
+                ToResponse(ticket, checkInLog, BookingConstants.TicketStatus.CheckedIn, checkInLog.ScanTime),
                 "Ticket checked in successfully.");
         });
+    }
+
+    private async Task<ServiceResult<ScanActorContext>> ResolveScanActorAsync(
+        string userId,
+        string claimActorRole,
+        CancellationToken cancellationToken)
+    {
+        var normalizedClaimRole = AuthConstants.Roles.Normalize(claimActorRole);
+        if (normalizedClaimRole is not AuthConstants.Roles.Admin
+            and not AuthConstants.Roles.Manager
+            and not AuthConstants.Roles.Staff)
+        {
+            return ServiceResult<ScanActorContext>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "The authenticated role is not allowed to scan tickets.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
+        var normalizedUserId = userId?.Trim();
+        var actor = string.IsNullOrWhiteSpace(normalizedUserId)
+            ? null
+            : await _dbContext.Users
+                .AsNoTracking()
+                .Where(user => user.UserId == normalizedUserId)
+                .Select(user => new ScanActor(
+                    user.UserId,
+                    user.Status,
+                    user.Role.RoleName))
+                .FirstOrDefaultAsync(cancellationToken);
+
+        if (actor is null
+            || actor.Status != AuthConstants.UserStatus.Active)
+        {
+            return ServiceResult<ScanActorContext>.Fail(
+                (int)HttpStatusCode.Unauthorized,
+                "The authenticated scan actor was not found.",
+                BookingConstants.TicketScanErrorCodes.ScanActorNotFound);
+        }
+
+        var actorRole = AuthConstants.Roles.Normalize(actor.RoleName);
+        if (!string.Equals(actorRole, normalizedClaimRole, StringComparison.Ordinal))
+        {
+            return ServiceResult<ScanActorContext>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "The authenticated role does not match the current account role.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
+        if (actorRole is not AuthConstants.Roles.Admin
+            and not AuthConstants.Roles.Manager
+            and not AuthConstants.Roles.Staff)
+        {
+            return ServiceResult<ScanActorContext>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "The authenticated account role is not allowed to scan tickets.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
+        var staffProfile = await _dbContext.StaffProfiles
+            .AsNoTracking()
+            .Where(profile =>
+                profile.UserId == actor.UserId
+                && profile.EmploymentStatus == BookingConstants.ResourceStatus.Active)
+            .Select(profile => new ScanStaffProfile(
+                profile.StaffProfileId,
+                profile.CinemaId))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (actorRole is AuthConstants.Roles.Manager or AuthConstants.Roles.Staff
+            && staffProfile is null)
+        {
+            return ServiceResult<ScanActorContext>.Fail(
+                (int)HttpStatusCode.Forbidden,
+                "Active staff profile cinema scope was not found.",
+                BookingConstants.TicketScanErrorCodes.ScanActorRoleForbidden);
+        }
+
+        return ServiceResult<ScanActorContext>.Ok(
+            new ScanActorContext(
+                actor.UserId,
+                actorRole,
+                staffProfile?.StaffProfileId,
+                actorRole == AuthConstants.Roles.Admin ? null : staffProfile!.CinemaId));
+    }
+
+    private (HttpStatusCode StatusCode, string Message, string ErrorCode, string FailureReason)? ValidateTicketForScan(
+        Ticket ticket,
+        string? staffCinemaId,
+        string normalizedRoomId,
+        DateTime now)
+    {
+        var booking = ticket.BookingSeat.Booking;
+        var showtime = booking.Showtime;
+        var room = showtime!.Room;
+
+        if (staffCinemaId is not null
+            && !string.Equals(
+                staffCinemaId,
+                room.CinemaId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return (
+                HttpStatusCode.Forbidden,
+                "Ticket belongs to another cinema.",
+                BookingConstants.TicketScanErrorCodes.TicketWrongCinema,
+                FailureReasons.WrongCinema);
+        }
+
+        if (!string.Equals(
+                normalizedRoomId,
+                room.RoomId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return (
+                HttpStatusCode.Conflict,
+                "Ticket belongs to another screening room.",
+                BookingConstants.TicketScanErrorCodes.TicketWrongRoom,
+                FailureReasons.WrongRoom);
+        }
+
+        var ticketStateFailure = GetTicketStateFailure(ticket.TicketStatus);
+        if (ticketStateFailure is not null)
+        {
+            return (
+                HttpStatusCode.Conflict,
+                ticketStateFailure.Value.Message,
+                ticketStateFailure.Value.ErrorCode,
+                ticketStateFailure.Value.FailureReason);
+        }
+
+        if (booking.BookingStatus is not BookingConstants.BookingStatus.Paid
+            and not BookingConstants.BookingStatus.Completed)
+        {
+            return (
+                HttpStatusCode.Conflict,
+                "Booking is not eligible for check-in.",
+                BookingConstants.TicketScanErrorCodes.BookingNotEligibleForCheckIn,
+                FailureReasons.BookingNotEligible);
+        }
+
+        if (!string.Equals(room.RoomStatus, BookingConstants.ResourceStatus.Active, StringComparison.OrdinalIgnoreCase))
+        {
+            return (
+                HttpStatusCode.Conflict,
+                "The screening room is currently unavailable or under maintenance.",
+                BookingConstants.TicketScanErrorCodes.TicketNotUsable,
+                FailureReasons.TicketNotUsable);
+        }
+
+        if (showtime.Status == BookingConstants.ShowtimeStatus.Cancelled)
+        {
+            return (
+                HttpStatusCode.Conflict,
+                "The showtime was cancelled or suspended.",
+                BookingConstants.TicketScanErrorCodes.ShowtimeCancelled,
+                FailureReasons.ShowtimeCancelled);
+        }
+
+        var checkInOpensAt = EnsureUtc(showtime.StartTime)
+            .AddMinutes(-_settings.OpenBeforeStartMinutes!.Value);
+        if (now < checkInOpensAt)
+        {
+            return (
+                HttpStatusCode.Conflict,
+                "The check-in window has not opened yet.",
+                BookingConstants.TicketScanErrorCodes.CheckInTooEarly,
+                FailureReasons.InvalidTime);
+        }
+
+        if (now >= EnsureUtc(showtime.EndTime))
+        {
+            return (
+                HttpStatusCode.Conflict,
+                "The showtime has ended; ticket check-in is no longer available.",
+                BookingConstants.TicketScanErrorCodes.CheckInWindowClosed,
+                FailureReasons.InvalidTime);
+        }
+
+        return null;
     }
 
     private async Task<Ticket?> LoadTicketAsync(
@@ -379,8 +656,7 @@ public sealed class TicketScanService : ITicketScanService
         CancellationToken cancellationToken)
     {
         return await _dbContext.Tickets
-            .AsNoTracking()
-            .AsSingleQuery()
+            .AsSplitQuery()
             .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.Booking)
                     .ThenInclude(booking => booking.Showtime)
@@ -393,6 +669,19 @@ public sealed class TicketScanService : ITicketScanService
             .Include(ticket => ticket.BookingSeat)
                 .ThenInclude(bookingSeat => bookingSeat.ShowtimeSeat)
                     .ThenInclude(showtimeSeat => showtimeSeat.Seat)
+            .Include(ticket => ticket.BookingSeat)
+                .ThenInclude(bookingSeat => bookingSeat.Booking)
+                    .ThenInclude(booking => booking.CustomerProfile)
+                        .ThenInclude(customerProfile => customerProfile!.User)
+            .Include(ticket => ticket.BookingSeat)
+                .ThenInclude(bookingSeat => bookingSeat.Booking)
+                    .ThenInclude(booking => booking.BookingSeats)
+                        .ThenInclude(bookingSeat => bookingSeat.ShowtimeSeat)
+                            .ThenInclude(showtimeSeat => showtimeSeat.Seat)
+            .Include(ticket => ticket.BookingSeat)
+                .ThenInclude(bookingSeat => bookingSeat.Booking)
+                    .ThenInclude(booking => booking.BookingFbItems)
+                        .ThenInclude(bookingFbItem => bookingFbItem.FbItem)
             .FirstOrDefaultAsync(
                 ticket => ticket.QrCode == qrCode,
                 cancellationToken);
@@ -507,20 +796,43 @@ public sealed class TicketScanService : ITicketScanService
 
     private static ScanTicketResponse ToResponse(
         Ticket ticket,
-        CheckinLog checkInLog)
+        CheckinLog? checkInLog,
+        string ticketStatus,
+        DateTime scanTime)
     {
         var bookingSeat = ticket.BookingSeat;
         var booking = bookingSeat.Booking;
-        var showtime = booking.Showtime;
+        var showtime = booking.Showtime!;
         var room = showtime.Room;
+        var customerUser = booking.CustomerProfile?.User;
+        var seatCodes = booking.BookingSeats
+            .Select(item => item.ShowtimeSeat.Seat)
+            .OrderBy(seat => seat.RowLabel)
+            .ThenBy(seat => seat.SeatNumber)
+            .Select(seat => seat.SeatCode)
+            .ToArray();
+        var foodAndBeverageItems = booking.BookingFbItems
+            .OrderBy(item => item.FbItem.ItemName)
+            .Select(item => new ScanTicketFoodAndBeverageItemResponse
+            {
+                FbItemId = item.FbItemId,
+                ItemName = item.FbItem.ItemName,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice,
+                Subtotal = item.Subtotal
+            })
+            .ToArray();
 
         return new ScanTicketResponse
         {
             TicketId = ticket.TicketId,
-            TicketStatus = BookingConstants.TicketStatus.CheckedIn,
-            CheckInLogId = checkInLog.CheckInLogId,
-            ScanTime = checkInLog.ScanTime,
+            TicketStatus = ticketStatus,
+            CheckInLogId = checkInLog?.CheckInLogId,
+            ScanTime = scanTime,
             BookingId = booking.BookingId,
+            BookingCode = booking.BookingId,
+            CustomerName = customerUser?.FullName ?? booking.GuestName,
+            CustomerPhone = customerUser?.PhoneNumber ?? booking.GuestPhone,
             CinemaId = room.CinemaId,
             CinemaName = room.Cinema.CinemaName,
             RoomId = room.RoomId,
@@ -529,7 +841,11 @@ public sealed class TicketScanService : ITicketScanService
             ShowtimeStartTime = showtime.StartTime,
             ShowtimeEndTime = showtime.EndTime,
             MovieTitle = showtime.Movie.Title,
-            SeatCode = bookingSeat.ShowtimeSeat.Seat.SeatCode
+            SeatCode = bookingSeat.ShowtimeSeat.Seat.SeatCode,
+            SeatCodes = seatCodes.Length == 0
+                ? new[] { bookingSeat.ShowtimeSeat.Seat.SeatCode }
+                : seatCodes,
+            FoodAndBeverageItems = foodAndBeverageItems
         };
     }
 
@@ -553,4 +869,10 @@ public sealed class TicketScanService : ITicketScanService
     private sealed record ScanStaffProfile(
         string StaffProfileId,
         string CinemaId);
+
+    private sealed record ScanActorContext(
+        string UserId,
+        string ActorRole,
+        string? StaffProfileId,
+        string? StaffCinemaId);
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using CinemaSystem.Hubs;
 using CinemaSystem;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
@@ -172,6 +173,12 @@ builder.Services.AddHangfire(configuration => configuration
     .UseInMemoryStorage());
 builder.Services.AddHangfireServer();
 
+// ── SignalR ───────────────────────────────────────────────────────────────────
+// AddSignalR() đã có sẵn trong SDK ASP.NET Core 8 – không cần cài thêm package.
+// Cấu hình JwtBearer để hỗ trợ token qua query string (dùng cho WebSocket transport)
+// vì trình duyệt không thể set Authorization header qua WebSocket.
+builder.Services.AddSignalR();
+
 var jwtSettings = builder.Configuration
     .GetSection(JwtSettings.SectionName)
     .Get<JwtSettings>() ?? new JwtSettings();
@@ -196,6 +203,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = signingKey,
             ClockSkew = TimeSpan.FromSeconds(jwtSettings.ClockSkewSeconds)
+        };
+
+        // Hỗ trợ JWT qua query string cho SignalR WebSocket transport.
+        // Trình duyệt không thể set Authorization header qua WebSocket nên
+        // @microsoft/signalr truyền token qua ?access_token=...
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    path.StartsWithSegments("/hubs/ticket"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -318,6 +345,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// ── SignalR Hub endpoint ──────────────────────────────────────────────────────
+// URL /hubs/ticket phải khớp với accessTokenFactory và withUrl() trên FE.
+app.MapHub<TicketHub>("/hubs/ticket");
+
 app.Run();
 
 public partial class Program
