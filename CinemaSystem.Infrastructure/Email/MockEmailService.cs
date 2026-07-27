@@ -1,3 +1,4 @@
+using CinemaSystem.Application.Email;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Application.Settings;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,17 @@ public sealed class MockEmailService : IEmailSender, IEmailService
             toEmail,
             subject);
         return Task.CompletedTask;
+    }
+
+    public Task SendEmailAsync(
+        EmailMessage message,
+        CancellationToken cancellationToken)
+    {
+        return SendEmailAsync(
+            message.ToEmail,
+            message.Subject,
+            message.HtmlBody ?? message.TextBody ?? string.Empty,
+            cancellationToken);
     }
 
     public Task SendAccountInvitationAsync(

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text;
 using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Email;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
@@ -305,6 +306,19 @@ public sealed class FakeEmailCapture : IEmailSender, IEmailService
         return Task.CompletedTask;
     }
 
+    public Task SendEmailAsync(
+        EmailMessage message,
+        CancellationToken cancellationToken = default)
+    {
+        _sent.Add(
+            new CapturedEmail(
+                message.ToEmail,
+                message.Subject,
+                message.HtmlBody ?? message.TextBody ?? string.Empty,
+                message));
+        return Task.CompletedTask;
+    }
+
     public Task SendAccountInvitationAsync(
         string toEmail, string invitationToken,
         CancellationToken cancellationToken = default)
@@ -314,7 +328,11 @@ public sealed class FakeEmailCapture : IEmailSender, IEmailService
     }
 }
 
-public sealed record CapturedEmail(string ToEmail, string Subject, string Body);
+public sealed record CapturedEmail(
+    string ToEmail,
+    string Subject,
+    string Body,
+    EmailMessage? Message = null);
 
 internal sealed class InlineEmailBackgroundJobClient : Hangfire.IBackgroundJobClient
 {

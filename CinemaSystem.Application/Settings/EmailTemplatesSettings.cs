@@ -377,7 +377,20 @@ public sealed class EmailTemplatesSettings
     public string ManualRefundCompletedSubject { get; set; } =
         "Cinema Booking - Refund Transfer Completed";
     public string ManualRefundCompletedBody { get; set; } =
-        "Your refund of {0:N0} for {1} has been transferred successfully.";
+        "Your refund of {0:N0} for {1} has been transferred successfully. Bank transaction code: {2}. Transfer proof: {3}";
+    public string ManualRefundCompletedHtmlBody { get; set; } =
+        """
+        <html>
+        <body style="font-family:Arial,sans-serif;color:#172033;line-height:1.6">
+          <h2 style="color:#0f766e">Refund transfer completed</h2>
+          <p>Your refund of <strong>{0:N0}</strong> for <strong>{1}</strong> has been transferred successfully.</p>
+          <p>Bank transaction code: <strong>{2}</strong></p>
+          <p>Transfer proof:</p>
+          <p><img src="{4}" alt="Refund transfer proof" style="display:block;max-width:100%;height:auto;border:1px solid #d7dde8;border-radius:8px"></p>
+          <p>If the image is not displayed by your email application, <a href="{3}">open the transfer proof here</a>.</p>
+        </body>
+        </html>
+        """;
 
     public string RefundCustomerConfirmationSubject { get; set; } =
         "Cinema Booking - Confirm Manual Refund Details";

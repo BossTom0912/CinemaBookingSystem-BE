@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using CinemaSystem.Application.Email;
 using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Email;
 using Microsoft.Extensions.Options;
@@ -70,6 +71,54 @@ public sealed class ResendEmailSenderTests
             "<html><body>Verify</body></html>",
             document.RootElement.GetProperty("html").GetString());
         Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public async Task SendEmailAsync_PostsInlineRemoteAttachmentWithContentId()
+    {
+        string? capturedContent = null;
+        var handler = new StubHttpMessageHandler(async request =>
+        {
+            capturedContent = await request.Content!.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var sender = CreateSender(handler);
+        var proofUri = new Uri(
+            "https://cdn.example.com/refunds/proof.png?key=one&signature=two");
+
+        await sender.SendEmailAsync(
+            new EmailMessage
+            {
+                ToEmail = "customer@example.com",
+                Subject = "Refund completed",
+                TextBody = $"Transfer proof: {proofUri}",
+                HtmlBody =
+                    "<html><body><img src=\"cid:refund-proof\"></body></html>",
+                Attachments =
+                [
+                    new EmailAttachment
+                    {
+                        FileName = "proof.png",
+                        Source = proofUri,
+                        ContentId = "refund-proof"
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        using var document = JsonDocument.Parse(capturedContent!);
+        var root = document.RootElement;
+        Assert.Equal(
+            "<html><body><img src=\"cid:refund-proof\"></body></html>",
+            root.GetProperty("html").GetString());
+        Assert.Equal(
+            $"Transfer proof: {proofUri}",
+            root.GetProperty("text").GetString());
+
+        var attachment = Assert.Single(root.GetProperty("attachments").EnumerateArray());
+        Assert.Equal(proofUri.AbsoluteUri, attachment.GetProperty("path").GetString());
+        Assert.Equal("proof.png", attachment.GetProperty("filename").GetString());
+        Assert.Equal("refund-proof", attachment.GetProperty("content_id").GetString());
     }
 
     [Fact]

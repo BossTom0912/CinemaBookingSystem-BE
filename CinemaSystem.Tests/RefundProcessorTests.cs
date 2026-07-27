@@ -1,6 +1,8 @@
 using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Email;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Application.Settings;
+using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Refunds;
@@ -111,6 +113,92 @@ public sealed class RefundProcessorTests
         Assert.Equal(
             BookingConstants.RefundStatus.Success,
             (await fixture.DbContext.Refunds.SingleAsync()).RefundStatus);
+    }
+
+    [Fact]
+    public async Task ManualRefundConfirm_SendsStoredProofAsInlineEmailImage()
+    {
+        var fixture = await Fixture.CreateAsync(
+            PaymentRefundGatewayResult.Unsupported(
+                "Automatic refunds are not configured."));
+        await fixture.Processor.ProcessAsync("REF_PROCESS", CancellationToken.None);
+
+        var now = new DateTime(2026, 6, 25, 11, 0, 0, DateTimeKind.Utc);
+        fixture.DbContext.RefundClaims.Add(new RefundClaim
+        {
+            RefundClaimId = "RFC_MANUAL",
+            RefundId = "REF_PROCESS",
+            CustomerProfileId = "CUS_REFUND",
+            ClaimStatus = BookingConstants.RefundClaimStatus.Submitted,
+            AccountValidationStatus = BookingConstants.AccountValidationStatus.Unavailable,
+            ExpiresAt = now.AddDays(1),
+            SubmittedAt = now,
+            CreatedAt = now
+        });
+        fixture.DbContext.ManualRefundProcesses.Add(new ManualRefundProcess
+        {
+            ManualRefundProcessId = "MRP_MANUAL",
+            RefundId = "REF_PROCESS",
+            RefundClaimId = "RFC_MANUAL",
+            AssignedToUserId = "USR_REFUND_MANAGER",
+            ProcessStatus = BookingConstants.ManualRefundProcessStatus.InProgress,
+            AssignedAt = now,
+            CreatedAt = now,
+            CustomerConfirmation = new RefundCustomerConfirmation
+            {
+                RefundCustomerConfirmationId = "RFCF_MANUAL",
+                ManualRefundProcessId = "MRP_MANUAL",
+                TokenHash = "TOKEN_HASH",
+                Status = BookingConstants.RefundCustomerConfirmationStatus.ConfirmedByCustomer,
+                ExpiresAt = now.AddHours(1),
+                ConfirmedAt = now,
+                CreatedAt = now
+            }
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var service = new ManualRefundService(
+            fixture.DbContext,
+            new StubSensitiveDataProtector(),
+            fixture.EmailCapture!,
+            new FixedClock(now),
+            Options.Create(new EmailTemplatesSettings()),
+            NullLogger<ManualRefundService>.Instance);
+        const string proofUrl =
+            "https://cdn.example.com/refunds/proof.png?key=one&signature=two";
+
+        var result = await service.ConfirmAsync(
+            "REF_PROCESS",
+            "USR_REFUND_MANAGER",
+            new ManualRefundConfirmationRequest
+            {
+                BankTransactionCode = "BANK_TXN_123",
+                TransferredAmount = 100000m,
+                ProofUrl = proofUrl
+            },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        var sent = Assert.Single(
+            fixture.EmailCapture!.Emails,
+            email => email.Subject.Contains(
+                "Refund Transfer Completed",
+                StringComparison.Ordinal));
+        var message = Assert.IsType<EmailMessage>(sent.Message);
+        Assert.Contains("cid:refund-proof", message.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains(
+            "key=one&amp;signature=two",
+            message.HtmlBody,
+            StringComparison.Ordinal);
+        Assert.Contains(proofUrl, message.TextBody, StringComparison.Ordinal);
+
+        var attachment = Assert.Single(message.Attachments);
+        Assert.Equal("proof.png", attachment.FileName);
+        Assert.Equal(proofUrl, attachment.Source.AbsoluteUri);
+        Assert.Equal("refund-proof", attachment.ContentId);
+        Assert.Equal(
+            proofUrl,
+            (await fixture.DbContext.ManualRefundProcesses.SingleAsync()).ProofUrl);
     }
 
     private sealed class Fixture
@@ -378,6 +466,26 @@ public sealed class RefundProcessorTests
             CancellationToken cancellationToken)
         {
             throw new InvalidOperationException("Simulated SMTP failure.");
+        }
+
+        public Task SendEmailAsync(
+            EmailMessage message,
+            CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("Simulated SMTP failure.");
+        }
+    }
+
+    private sealed class StubSensitiveDataProtector : ISensitiveDataProtector
+    {
+        public byte[] Protect(string plaintext)
+        {
+            return System.Text.Encoding.UTF8.GetBytes(plaintext);
+        }
+
+        public string Unprotect(byte[] protectedData)
+        {
+            return System.Text.Encoding.UTF8.GetString(protectedData);
         }
     }
 }

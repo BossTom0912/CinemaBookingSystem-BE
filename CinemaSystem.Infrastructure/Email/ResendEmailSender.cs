@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using CinemaSystem.Application.Email;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
@@ -25,6 +26,21 @@ public sealed class ResendEmailSender : IEmailSender
         string body,
         CancellationToken cancellationToken)
     {
+        await SendEmailAsync(
+            new EmailMessage
+            {
+                ToEmail = toEmail,
+                Subject = subject,
+                TextBody = IsHtml(body) ? null : body,
+                HtmlBody = IsHtml(body) ? body : null
+            },
+            cancellationToken);
+    }
+
+    public async Task SendEmailAsync(
+        EmailMessage message,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(_settings.SenderEmail) ||
             string.IsNullOrWhiteSpace(_settings.ResendApiKey))
         {
@@ -39,17 +55,36 @@ public sealed class ResendEmailSender : IEmailSender
         var payload = new Dictionary<string, object?>
         {
             ["from"] = FormatSender(),
-            ["to"] = new[] { toEmail },
-            ["subject"] = subject
+            ["to"] = new[] { message.ToEmail },
+            ["subject"] = message.Subject
         };
 
-        if (IsHtml(body))
+        if (!string.IsNullOrWhiteSpace(message.TextBody))
         {
-            payload["html"] = body;
+            payload["text"] = message.TextBody;
         }
-        else
+
+        if (!string.IsNullOrWhiteSpace(message.HtmlBody))
         {
-            payload["text"] = body;
+            payload["html"] = message.HtmlBody;
+        }
+
+        if (message.Attachments.Count > 0)
+        {
+            payload["attachments"] = message.Attachments.Select(attachment =>
+            {
+                var value = new Dictionary<string, object?>
+                {
+                    ["path"] = attachment.Source.AbsoluteUri,
+                    ["filename"] = attachment.FileName
+                };
+                if (!string.IsNullOrWhiteSpace(attachment.ContentId))
+                {
+                    value["content_id"] = attachment.ContentId;
+                }
+
+                return value;
+            }).ToArray();
         }
 
         request.Content = JsonContent.Create(payload);

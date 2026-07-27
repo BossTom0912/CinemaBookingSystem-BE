@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Email;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Auth;
@@ -941,6 +942,17 @@ public sealed class AuthServiceTests
 
             SentEmails.Add(new SentEmail(toEmail, subject, body));
             return Task.CompletedTask;
+        }
+
+        public Task SendEmailAsync(
+            EmailMessage message,
+            CancellationToken cancellationToken)
+        {
+            return SendEmailAsync(
+                message.ToEmail,
+                message.Subject,
+                message.HtmlBody ?? message.TextBody ?? string.Empty,
+                cancellationToken);
         }
     }
 

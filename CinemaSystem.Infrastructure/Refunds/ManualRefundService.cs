@@ -1,7 +1,9 @@
 using System.Data;
 using System.Globalization;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
+using CinemaSystem.Application.Email;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Application.Settings;
 using CinemaSystem.Contracts.Refunds;
@@ -17,6 +19,9 @@ namespace CinemaSystem.Infrastructure.Refunds;
 
 public sealed class ManualRefundService : IManualRefundService
 {
+    private const string RefundProofContentId = "refund-proof";
+    private const string RefundProofDefaultFileName = "refund-proof";
+
     private readonly CinemaDbContext _db;
     private readonly ISensitiveDataProtector _protector;
     private readonly IEmailSender _emailSender;
@@ -315,6 +320,7 @@ public sealed class ManualRefundService : IManualRefundService
                         process.Refund.Booking.Showtime.Movie.Title,
                         process.Refund.RefundAmount,
                         transactionCode,
+                        proofUri,
                         cancellationToken);
                 }
                 return ServiceResult<RefundProcessingResponse>.Ok(
@@ -415,25 +421,56 @@ public sealed class ManualRefundService : IManualRefundService
         string movieTitle,
         decimal amount,
         string transactionCode,
+        Uri proofUri,
         CancellationToken cancellationToken)
     {
         try
         {
+            var proofUrl = proofUri.AbsoluteUri;
             await _emailSender.SendEmailAsync(
-                email,
-                _emailTemplates.ManualRefundCompletedSubject,
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    _emailTemplates.ManualRefundCompletedBody,
-                    amount,
-                    movieTitle,
-                    transactionCode),
+                new EmailMessage
+                {
+                    ToEmail = email,
+                    Subject = _emailTemplates.ManualRefundCompletedSubject,
+                    TextBody = string.Format(
+                        CultureInfo.InvariantCulture,
+                        _emailTemplates.ManualRefundCompletedBody,
+                        amount,
+                        movieTitle,
+                        transactionCode,
+                        proofUrl),
+                    HtmlBody = string.Format(
+                        CultureInfo.InvariantCulture,
+                        _emailTemplates.ManualRefundCompletedHtmlBody,
+                        amount,
+                        HtmlEncoder.Default.Encode(movieTitle),
+                        HtmlEncoder.Default.Encode(transactionCode),
+                        HtmlEncoder.Default.Encode(proofUrl),
+                        $"cid:{RefundProofContentId}"),
+                    Attachments =
+                    [
+                        new EmailAttachment
+                        {
+                            FileName = GetProofFileName(proofUri),
+                            Source = proofUri,
+                            ContentId = RefundProofContentId
+                        }
+                    ]
+                },
                 cancellationToken);
         }
         catch (Exception exception)
         {
             _logger.LogError(exception, "Refund completion email could not be sent.");
         }
+    }
+
+    private static string GetProofFileName(Uri proofUri)
+    {
+        var fileName = Path.GetFileName(proofUri.LocalPath);
+        return string.IsNullOrWhiteSpace(fileName)
+            ? RefundProofDefaultFileName
+            : fileName;
     }
 
     private static RefundProcessingResponse ToProcessingResponse(
