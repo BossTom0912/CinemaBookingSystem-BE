@@ -81,7 +81,14 @@ public sealed class ResendEmailSender : IEmailSender
 
     private static bool IsHtml(string body)
     {
-        return body.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
-               body.Contains("<body", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(body)) return false;
+        var trimmed = body.TrimStart();
+        return trimmed.StartsWith("<", StringComparison.Ordinal) ||
+               body.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<body", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<div", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<p", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<table", StringComparison.OrdinalIgnoreCase) ||
+               body.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase);
     }
 }

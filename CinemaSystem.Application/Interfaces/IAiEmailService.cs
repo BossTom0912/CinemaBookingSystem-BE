@@ -50,4 +50,16 @@ public interface IAiEmailService
         string? description,
         string? category,
         CancellationToken cancellationToken);
+
+    Task SendShowtimeCancellationEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string showtimeTime,
+        string bookingId,
+        decimal refundAmount,
+        string cancelReason,
+        CancellationToken cancellationToken,
+        string? customerName = null);
 }
+

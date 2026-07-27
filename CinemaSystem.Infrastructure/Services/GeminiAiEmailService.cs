@@ -698,4 +698,182 @@ public class GeminiAiEmailService : IAiEmailService
 
         await _emailService.SendEmailAsync(toEmail, formattedSubject, bodyHtml, cancellationToken);
     }
+
+    public async Task SendShowtimeCancellationEmailAsync(
+        string toEmail,
+        string subject,
+        string movieTitle,
+        string showtimeTime,
+        string bookingId,
+        decimal refundAmount,
+        string cancelReason,
+        CancellationToken cancellationToken,
+        string? customerName = null)
+    {
+        var formattedSubject = subject.StartsWith("[CinemaSystem]") ? subject : $"[CinemaSystem] Thông báo hủy suất chiếu - Phim {movieTitle}";
+        var displayName = string.IsNullOrWhiteSpace(customerName) ? "Quý khách" : customerName.Trim();
+        var refundAmountFormatted = refundAmount.ToString("N0", new System.Globalization.CultureInfo("vi-VN")) + " VNĐ";
+
+        var bodyHtml = $"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset='utf-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+            </head>
+            <body style='font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px;'>
+                <div style='max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;'>
+                    <!-- HEADER -->
+                    <div style='background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 25px 30px; text-align: center; border-bottom: 3px solid #ef4444;'>
+                        <h1 style='color: #ffffff; margin: 0; font-size: 22px; font-weight: bold; letter-spacing: 1px;'>CINEMASYSTEM</h1>
+                        <p style='color: #fca5a5; margin: 4px 0 0 0; font-size: 13px;'>THÔNG BÁO HỦY SUẤT CHIẾU & HOÀN TIỀN TỰ ĐỘNG</p>
+                        <p style='color: #94a3b8; margin: 2px 0 0 0; font-size: 11px; text-transform: uppercase;'>Showtime Cancellation & Auto-Refund Notice</p>
+                    </div>
+
+                    <!-- CONTENT -->
+                    <div style='padding: 30px;'>
+                        <!-- TIẾNG VIỆT -->
+                        <div style='margin-bottom: 25px;'>
+                            <p style='font-size: 15px; font-weight: bold; color: #0f172a; margin-top: 0;'>Kính gửi {displayName},</p>
+                            <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                                Lời đầu tiên, CinemaSystem xin gửi lời cảm ơn chân thành vì Quý khách đã luôn tin tưởng và lựa chọn dịch vụ của chúng tôi.
+                            </p>
+                            <p style='font-size: 14px; color: #334155; margin-bottom: 15px;'>
+                                Ban quản trị CinemaSystem rất tiếc phải thông báo rằng suất chiếu cho bộ phim <strong>{movieTitle}</strong> trong đơn hàng của Quý khách đã bị hủy bỏ do sự cố ngoài ý muốn.
+                            </p>
+
+                            <!-- BẢNG CHI TIẾT ĐƠN HÀNG (VI) -->
+                            <div style='margin: 20px 0;'>
+                                <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
+                                    <thead>
+                                        <tr style='background-color: #f1f5f9; color: #0f172a;'>
+                                            <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1; width: 35%;'>Thông tin</th>
+                                            <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Chi tiết</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Mã đơn hàng</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;'>#{bookingId}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Bộ phim</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0;'>{movieTitle}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Thời gian chiếu ban đầu</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #dc2626; text-decoration: line-through;'>{showtimeTime}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Lý do hủy</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #b91c1c;'>{cancelReason}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Số tiền hoàn trả (100%)</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold; font-size: 15px;'>{refundAmountFormatted}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- HOÀN TIỀN INFO BOX (VI) -->
+                            <div style='background-color: #fef2f2; border: 1px solid #fca5a5; border-left: 4px solid #ef4444; padding: 14px 16px; border-radius: 6px; margin: 20px 0;'>
+                                <p style='margin: 0 0 6px 0; font-size: 13px; color: #991b1b; font-weight: bold;'>
+                                    Chính sách hoàn tiền tự động 100%:
+                                </p>
+                                <p style='margin: 0; font-size: 13px; color: #7f1d1d;'>
+                                    Hệ thống CinemaSystem đã tự động tạo yêu cầu hoàn trả <strong>100% số tiền vé ({refundAmountFormatted})</strong> về phương thức thanh toán ban đầu của Quý khách. Thời gian tiền về tài khoản từ 1 - 3 ngày làm việc.
+                                </p>
+                            </div>
+
+                            <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                                Một lần nữa, chúng tôi thành thật xin lỗi vì sự bất tiện này và hy vọng tiếp tục được phục vụ Quý khách trong các suất chiếu tiếp theo.
+                            </p>
+
+                            <p style='font-size: 13px; color: #334155; margin-top: 15px;'>
+                                Trân trọng,<br>
+                                <strong>Ban Quản trị CinemaSystem</strong>
+                            </p>
+                        </div>
+
+                        <!-- DIVIDER -->
+                        <hr style='border: none; border-top: 1px dashed #cbd5e1; margin: 25px 0;' />
+
+                        <!-- TIẾNG ANH -->
+                        <div>
+                            <p style='font-size: 14px; font-weight: bold; color: #64748b; margin-top: 0;'>Dear {displayName},</p>
+                            <p style='font-size: 13px; color: #64748b; margin-bottom: 12px;'>
+                                We regret to inform you that your upcoming showtime for <strong>{movieTitle}</strong> has been cancelled due to unforeseen circumstances.
+                            </p>
+
+                            <!-- BẢNG CHI TIẾT ĐƠN HÀNG (EN) -->
+                            <div style='margin: 15px 0;'>
+                                <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 12px; text-align: left;'>
+                                    <thead>
+                                        <tr style='background-color: #f8fafc; color: #475569;'>
+                                            <th style='padding: 8px 12px; border-bottom: 1px solid #cbd5e1; width: 35%;'>Item</th>
+                                            <th style='padding: 8px 12px; border-bottom: 1px solid #cbd5e1;'>Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Booking ID</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-family: monospace;'>#{bookingId}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Movie Title</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0;'>{movieTitle}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Original Showtime</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #dc2626; text-decoration: line-through;'>{showtimeTime}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Cancellation Reason</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #b91c1c;'>{cancelReason}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Full Refund Amount</td>
+                                            <td style='padding: 8px 12px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{refundAmountFormatted}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- HOÀN TIỀN INFO BOX (EN) -->
+                            <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #ef4444; padding: 12px; border-radius: 6px; margin: 15px 0;'>
+                                <p style='margin: 0; font-size: 12px; color: #991b1b; font-weight: bold;'>
+                                    100% Automatic Refund Processed:
+                                </p>
+                                <p style='margin: 4px 0 0 0; font-size: 12px; color: #7f1d1d;'>
+                                    A full refund of <strong>{refundAmountFormatted}</strong> has been automatically initiated. Funds will be credited back to your payment method within 1-3 business days.
+                                </p>
+                            </div>
+
+                            <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                                We sincerely apologize for this inconvenience and thank you for your understanding.
+                            </p>
+
+                            <p style='font-size: 12px; color: #64748b; margin-top: 15px;'>
+                                Sincerely,<br>
+                                <strong>CinemaSystem Management Team</strong>
+                            </p>
+                        </div>
+
+                    </div>
+
+                    <!-- FOOTER -->
+                    <div style='background-color: #f1f5f9; padding: 20px 30px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;'>
+                        <p style='margin: 0 0 4px 0; font-weight: bold; color: #0f172a;'>Trung tâm Chăm sóc Khách hàng CinemaSystem</p>
+                        <p style='margin: 0 0 4px 0;'>Hotline: <strong>1900 6868</strong> | Email: <strong>cskh@cinemasystem.vn</strong></p>
+                        <p style='margin: 0;'>Website: <a href='https://cinemasystem.vn' style='color: #2563eb; text-decoration: none;'>cinemasystem.vn</a></p>
+                    </div>
+
+                </div>
+            </body>
+            </html>
+            """;
+
+        await _emailService.SendEmailAsync(toEmail, formattedSubject, bodyHtml, cancellationToken);
+    }
 }

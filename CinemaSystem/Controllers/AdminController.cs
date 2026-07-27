@@ -65,6 +65,40 @@ public sealed class AdminController : ControllerBase
         return ToActionResult(result);
     }
 
+    [HttpGet("users")]
+    public async Task<IActionResult> GetManagedUsers(CancellationToken cancellationToken)
+    {
+        var result = await _accountProvisioningService.GetManagedUsersAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPut("users/{userId}/role-cinema")]
+    public async Task<IActionResult> UpdateUserRoleCinema(
+        [FromRoute] string userId,
+        [FromBody] UpdateUserRoleCinemaRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ApiResponse<object>.Fail("Validation failed.", "VALIDATION_ERROR"));
+        }
+
+        var actorUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return Unauthorized(ApiResponse<object>.Fail(
+                "Authentication user ID was not found.",
+                "USER_ID_NOT_FOUND"));
+        }
+
+        var result = await _accountProvisioningService.UpdateUserRoleCinemaAsync(
+            actorUserId,
+            userId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success
