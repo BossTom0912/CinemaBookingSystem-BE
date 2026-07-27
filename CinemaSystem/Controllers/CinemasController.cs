@@ -52,7 +52,7 @@ public sealed class CinemasController : ControllerBase
     /// Tạo rạp chiếu mới (Dành cho Admin).
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = "admin")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + ",admin,ROLE_ADMIN")]
     public async Task<IActionResult> CreateCinema([FromBody] CreateCinemaRequest request, CancellationToken cancellationToken)
     {
         var result = await _cinemaService.CreateCinemaAsync(request, cancellationToken);
@@ -63,7 +63,7 @@ public sealed class CinemasController : ControllerBase
     /// Cập nhật thông tin rạp chiếu (Dành cho Admin).
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "admin")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + ",admin,ROLE_ADMIN")]
     public async Task<IActionResult> UpdateCinema(string id, [FromBody] UpdateCinemaRequest request, CancellationToken cancellationToken)
     {
         var result = await _cinemaService.UpdateCinemaAsync(id, request, cancellationToken);
@@ -74,7 +74,7 @@ public sealed class CinemasController : ControllerBase
     /// Xóa hoặc Tạm dừng rạp chiếu (Dành cho Admin).
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "admin")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + ",admin,ROLE_ADMIN")]
     public async Task<IActionResult> DeleteCinema(string id, CancellationToken cancellationToken)
     {
         var result = await _cinemaService.DeleteCinemaAsync(id, cancellationToken);
