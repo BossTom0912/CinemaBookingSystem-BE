@@ -201,12 +201,22 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                             booking,
                             now,
                             cancellationToken);
-                        var issue = await _compensationService
-                            .IssueForCancelledBookingAsync(
-                                booking,
-                                cancellationId,
-                                now,
-                                cancellationToken);
+
+                        var customVoucherCode = request.CompensationVoucher?.Trim()
+                            ?? request.CompensationVoucherCode?.Trim();
+                        var shouldIssueCompensation = !string.IsNullOrWhiteSpace(customVoucherCode);
+
+                        CompensationIssueResult? issue = null;
+                        if (shouldIssueCompensation)
+                        {
+                            issue = await _compensationService
+                                .IssueForCancelledBookingAsync(
+                                    booking,
+                                    cancellationId,
+                                    now,
+                                    cancellationToken);
+                        }
+
                         var claimIssue = CreateRefundClaimForCancelledBooking(
                             booking,
                             cancellationId,
@@ -218,13 +228,17 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                         }
 
                         paidBookingsMoved++;
-                        paidBookingsCompensated++;
-                        ticketVouchersIssued += issue.AlreadyIssued
-                            ? 0
-                            : issue.TicketVouchersIssued;
-                        comboVouchersIssued += issue.AlreadyIssued
-                            ? 0
-                            : issue.ComboVouchersIssued;
+                        if (issue is not null)
+                        {
+                            paidBookingsCompensated++;
+                            ticketVouchersIssued += issue.AlreadyIssued
+                                ? 0
+                                : issue.TicketVouchersIssued;
+                            comboVouchersIssued += issue.AlreadyIssued
+                                ? 0
+                                : issue.ComboVouchersIssued;
+                        }
+
                         AddPaidCancellationEmail(
                             cancellationEmails,
                             booking,
@@ -545,6 +559,37 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             </div>
             """ : "";
 
+        var voucherSectionHtmlEn = issue is not null ? $"""
+            <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 18px; border-radius: 10px; margin: 20px 0;'>
+                <h3 style='margin: 0 0 10px 0; color: #b78103; font-size: 15px; font-weight: bold;'>COMPENSATION VOUCHERS FOR YOU</h3>
+                <p style='font-size: 13px; color: #5c4300; margin: 0 0 10px 0;'>
+                    CinemaSystem has issued the following compensation vouchers directly to your account wallet:
+                </p>
+                <ul style='margin: 0; padding-left: 20px; font-size: 13px; color: #433300;'>
+                    {(ticketCodesStr != null ? $"<li style='margin-bottom: 6px;'><strong>Movie Ticket Voucher (100%):</strong> <span style='font-family: monospace; font-size: 14px; font-weight: bold; background-color: #fef08a; padding: 2px 8px; border-radius: 4px; border: 1px solid #fde047;'>{ticketCodesStr}</span> ({issue.TicketVouchersIssued} ticket(s))</li>" : "")}
+                    {(comboCodeStr != null ? $"<li style='margin-bottom: 6px;'><strong>Food & Beverage Voucher:</strong> <span style='font-family: monospace; font-size: 14px; font-weight: bold; background-color: #fef08a; padding: 2px 8px; border-radius: 4px; border: 1px solid #fde047;'>{comboCodeStr}</span></li>" : "")}
+                    {(voucherExpiresFormatted != null ? $"<li><strong>Voucher Expiry Date:</strong> until <strong>{voucherExpiresFormatted}</strong></li>" : "")}
+                </ul>
+            </div>
+            """ : "";
+
+        var refundSectionHtmlEn = claimLink != null ? $"""
+            <div style='background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 10px; margin: 20px 0;'>
+                <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>SUBMIT BANK INFORMATION FOR REFUND</h3>
+                <p style='font-size: 13px; color: #1e3a8a; margin: 0 0 12px 0;'>
+                    Please click the button below to submit your bank account details to receive your <strong>{totalAmountFormatted}</strong> refund before <strong>{claimExpiresFormatted}</strong>:
+                </p>
+                <div style='text-align: center; margin: 15px 0;'>
+                    <a href='{claimLink}' style='display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: bold; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; box-shadow: 0 3px 10px rgba(37,99,235,0.3);'>
+                        Submit Bank Account Information
+                    </a>
+                </div>
+                <p style='font-size: 11px; color: #64748b; margin: 0; text-align: center;'>
+                    Or visit link: <a href='{claimLink}' style='color: #2563eb;'>{claimLink}</a>
+                </p>
+            </div>
+            """ : "";
+
         return $"""
             <!DOCTYPE html>
             <html>
@@ -571,7 +616,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                                 Ban quản trị CinemaSystem rất tiếc phải thông báo rằng suất chiếu cho bộ phim <strong>{movieTitle}</strong> trong đơn hàng của Quý khách đã bị hủy bỏ do sự cố ngoài ý muốn.
                             </p>
 
-                            <!-- BẢNG CHI TIẾT ĐƠN HÀNG -->
+                            <!-- BẢNG CHI TIẾT ĐƠN HÀNG (VI) -->
                             <div style='margin: 20px 0;'>
                                 <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
                                     <thead>
@@ -620,8 +665,44 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                             <p style='font-size: 13px; color: #64748b; margin-bottom: 15px;'>
                                 CinemaSystem sincerely regrets to inform you that your showtime for <strong>{movieTitle}</strong> at <strong>{showtimeFormatted}</strong> has been cancelled due to unforeseen circumstances.
                             </p>
-                            <p style='font-size: 12px; color: #64748b;'>
-                                Please check the compensation vouchers issued to your account and submit your refund claim if applicable. We apologize for any inconvenience caused.
+
+                            <!-- BẢNG CHI TIẾT ĐƠN HÀNG (EN) -->
+                            <div style='margin: 20px 0;'>
+                                <table style='width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0; font-size: 13px; text-align: left;'>
+                                    <thead>
+                                        <tr style='background-color: #f1f5f9; color: #0f172a;'>
+                                            <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1; width: 35%;'>Information</th>
+                                            <th style='padding: 10px 14px; border-bottom: 2px solid #cbd5e1;'>Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Booking ID</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;'>#{booking.BookingId}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Movie Title</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #dc2626; font-weight: bold;'>{movieTitle}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Showtime</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>{showtimeFormatted}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Refund Amount</td>
+                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{totalAmountFormatted}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {voucherSectionHtmlEn}
+                            {refundSectionHtmlEn}
+
+                            <p style='font-size: 12px; color: #64748b; margin-top: 20px;'>
+                                CinemaSystem sincerely apologizes for any inconvenience caused and hopes to serve you again in future showtimes.<br><br>
+                                Sincerely,<br>
+                                <strong>CinemaSystem Management Team</strong>
                             </p>
                         </div>
                     </div>
