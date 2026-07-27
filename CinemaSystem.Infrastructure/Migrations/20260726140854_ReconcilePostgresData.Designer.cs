@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CinemaSystem.Infrastructure.Migrations
 {
     [DbContext(typeof(CinemaDbContext))]
-    [Migration("20260724065659_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260726140854_ReconcilePostgresData")]
+    partial class ReconcilePostgresData
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -47,7 +47,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("EntityId")
                         .HasMaxLength(50)
@@ -108,7 +108,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("FullName")
                         .IsRequired()
@@ -165,7 +165,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(getdate())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DisplayOrder")
                         .ValueGeneratedOnAdd()
@@ -238,7 +238,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CreatedByStaffProfileId")
                         .HasMaxLength(50)
@@ -320,7 +320,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "CustomerProfileId", "ClientRequestId" }, "UX_BOOKING_CUSTOMER_CLIENT_REQUEST")
                         .IsUnique()
-                        .HasFilter("[clientRequestId] IS NOT NULL");
+                        .HasFilter("\"clientRequestId\" IS NOT NULL");
 
                     b.ToTable("BOOKING", (string)null);
                 });
@@ -420,7 +420,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("issuedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("PolicyVersion")
                         .IsRequired()
@@ -476,7 +476,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("UserId")
                         .HasMaxLength(50)
@@ -522,7 +522,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("scanTime")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("ScannedByUserId")
                         .IsRequired()
@@ -546,7 +546,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex("StaffProfileId");
 
                     b.HasIndex(new[] { "RawQrCode" }, "IX_CHECKIN_LOG_RAW_QR_CODE")
-                        .HasFilter("([rawQrCode] IS NOT NULL)");
+                        .HasFilter("(\"rawQrCode\" IS NOT NULL)");
 
                     b.HasIndex(new[] { "ScannedByUserId", "ScanTime" }, "IX_CHECKIN_LOG_SCANNED_BY_USER_TIME");
 
@@ -763,7 +763,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "ReservedBookingSeatId" }, "UQ_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT")
                         .IsUnique()
-                        .HasFilter("[reservedBookingSeatId] IS NOT NULL");
+                        .HasFilter("\"reservedBookingSeatId\" IS NOT NULL");
 
                     b.ToTable("COMPENSATION_TICKET", (string)null);
                 });
@@ -825,7 +825,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "IdentityCard" }, "UX_CUSTOMER_PROFILE_IDENTITY_CARD")
                         .IsUnique()
-                        .HasFilter("([identityCard] IS NOT NULL)");
+                        .HasFilter("(\"identityCard\" IS NOT NULL)");
 
                     b.ToTable("CUSTOMER_PROFILE", (string)null);
                 });
@@ -947,7 +947,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateTime>("ExpiredAt")
                         .HasColumnType("timestamp with time zone")
@@ -1143,7 +1143,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "BankTransactionCode" }, "UX_MANUAL_REFUND_BANK_TRANSACTION_CODE")
                         .IsUnique()
-                        .HasFilter("([bankTransactionCode] IS NOT NULL)");
+                        .HasFilter("(\"bankTransactionCode\" IS NOT NULL)");
 
                     b.ToTable("MANUAL_REFUND_PROCESS", (string)null);
                 });
@@ -1321,7 +1321,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("viewedAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.HasKey("MovieViewLogId");
 
@@ -1346,7 +1346,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean")
@@ -1401,7 +1401,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("FailureReason")
                         .HasMaxLength(1000)
@@ -1458,15 +1458,15 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "BookingId" }, "UX_PAYMENT_ONE_SUCCESS_PER_BOOKING")
                         .IsUnique()
-                        .HasFilter("([paymentStatus]='SUCCESS')");
+                        .HasFilter("(\"paymentStatus\" = 'SUCCESS')");
 
                     b.HasIndex(new[] { "ProviderTransactionCode" }, "UX_PAYMENT_PROVIDER_TRANSACTION_CODE")
                         .IsUnique()
-                        .HasFilter("([providerTransactionCode] IS NOT NULL)");
+                        .HasFilter("(\"providerTransactionCode\" IS NOT NULL)");
 
                     b.HasIndex(new[] { "TransactionCode" }, "UX_PAYMENT_TRANSACTION_CODE")
                         .IsUnique()
-                        .HasFilter("([transactionCode] IS NOT NULL)");
+                        .HasFilter("(\"transactionCode\" IS NOT NULL)");
 
                     b.ToTable("PAYMENT", (string)null);
                 });
@@ -1525,7 +1525,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("issuedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1613,7 +1613,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("requestedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("ShowtimeCancellationId")
                         .HasMaxLength(50)
@@ -1633,7 +1633,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "ProviderRefundCode" }, "UX_REFUND_PROVIDER_REFUND_CODE")
                         .IsUnique()
-                        .HasFilter("([providerRefundCode] IS NOT NULL)");
+                        .HasFilter("(\"providerRefundCode\" IS NOT NULL)");
 
                     b.ToTable("REFUND", (string)null);
                 });
@@ -1873,7 +1873,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CustomerProfileId")
                         .IsRequired()
@@ -1924,7 +1924,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "BookingId" }, "UX_REVIEW_BOOKING")
                         .IsUnique()
-                        .HasFilter("([bookingId] IS NOT NULL)");
+                        .HasFilter("(\"bookingId\" IS NOT NULL)");
 
                     b.ToTable("REVIEW", (string)null);
                 });
@@ -1940,7 +1940,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("editedAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("NewComment")
                         .HasMaxLength(1000)
@@ -1984,7 +1984,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("moderatedAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("ModeratorId")
                         .HasMaxLength(50)
@@ -2036,7 +2036,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CustomerProfileId")
                         .IsRequired()
@@ -2301,7 +2301,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateTime>("EndTime")
                         .HasColumnType("timestamp with time zone")
@@ -2361,7 +2361,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("cancelledAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CancelledByStaffId")
                         .HasMaxLength(50)
@@ -2526,7 +2526,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "IdentityCard" }, "UX_STAFF_PROFILE_IDENTITY_CARD")
                         .IsUnique()
-                        .HasFilter("([identityCard] IS NOT NULL)");
+                        .HasFilter("(\"identityCard\" IS NOT NULL)");
 
                     b.ToTable("STAFF_PROFILE", (string)null);
                 });
@@ -2548,7 +2548,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("generatedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("QrCode")
                         .IsRequired()
@@ -2591,7 +2591,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -2841,7 +2841,7 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "CustomerVoucherId" }, "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER")
                         .IsUnique()
-                        .HasFilter("[customerVoucherId] IS NOT NULL AND [usageStatus] <> 'CANCELLED'");
+                        .HasFilter("\"customerVoucherId\" IS NOT NULL AND \"usageStatus\" <> 'CANCELLED'");
 
                     b.ToTable("VOUCHER_USAGE", (string)null);
                 });

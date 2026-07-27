@@ -45,6 +45,14 @@ public static class DomainConstants
         public const string Unavailable = "UNAVAILABLE";
     }
 
+    public static class SeatLock
+    {
+        private const string KeyPrefix = "seat-lock";
+
+        public static string BuildKey(string showtimeId, string seatId) =>
+            $"{KeyPrefix}:{showtimeId}:{seatId}";
+    }
+
     public static class CinemaStatus
     {
         public const string Active = "ACTIVE";
@@ -116,6 +124,56 @@ public static class DomainConstants
         public const string Expired = "EXPIRED";
     }
 
+    public static class VoucherCategory
+    {
+        public const string Event = "EVENT";
+        public const string Promotion = "PROMOTION";
+        public const string Compensation = "COMPENSATION";
+    }
+
+    public static class VoucherScope
+    {
+        public const string TotalOrder = "TOTAL_ORDER";
+        public const string Ticket = "TICKET";
+        public const string Food = "FOOD";
+    }
+
+    public static class VoucherTargetType
+    {
+        public const string AllCustomers = "ALL_CUSTOMERS";
+        public const string SpecificCustomers = "SPECIFIC_CUSTOMERS";
+    }
+
+    public static class NotificationTargetGroup
+    {
+        public const string All = "ALL";
+        public const string Customers = "CUSTOMERS";
+        public const string Staff = "STAFF";
+        public const string Managers = "MANAGERS";
+        public const string Admins = "ADMINS";
+    }
+
+    public static class NotificationChannel
+    {
+        public const string App = "App";
+        public const string Email = "Email";
+        public const string SMS = "SMS";
+        public const string Push = "Push";
+        public const string Internal = "Internal";
+    }
+
+    public static class NotificationType
+    {
+        public const string Transactional = "Transactional";
+        public const string Internal = "Internal";
+        public const string Loyalty = "Loyalty";
+        public const string Promotional = "Promotional";
+        public const string Maintenance = "Maintenance";
+        public const string Emergency = "Emergency";
+        public const string CustomerCare = "CustomerCare";
+        public const string SpecialEvent = "SpecialEvent";
+    }
+
     public static class VoucherUsageStatus
     {
         public const string Applied = "APPLIED";
@@ -165,6 +223,8 @@ public static class DomainConstants
     {
         public const string SepayId = "PP_SEPAY";
         public const string SepayName = "SEPAY";
+        public const string VnPayId = "PP_VNPAY";
+        public const string VnPayName = "VNPAY";
     }
 
     public static class PaymentTransactionCode

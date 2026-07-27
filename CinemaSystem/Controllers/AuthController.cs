@@ -104,7 +104,7 @@ public sealed class AuthController : ControllerBase
     public async Task<IActionResult> RefreshToken(RefreshTokenRequest request, CancellationToken cancellationToken)
     {
         var tokenToRefresh = string.IsNullOrWhiteSpace(request?.RefreshToken)
-            ? Request.Cookies["refreshToken"]
+            ? GetRefreshTokenCookie()
             : request.RefreshToken;
 
         var mappedRequest = new Contracts.Auth.RefreshTokenRequest
@@ -133,7 +133,7 @@ public sealed class AuthController : ControllerBase
     public async Task<IActionResult> Logout(LogoutRequest request, CancellationToken cancellationToken)
     {
         var tokenToRevoke = string.IsNullOrWhiteSpace(request?.RefreshToken)
-            ? Request.Cookies["refreshToken"]
+            ? GetRefreshTokenCookie()
             : request.RefreshToken;
 
         var mappedRequest = new Contracts.Auth.LogoutRequest
@@ -148,7 +148,7 @@ public sealed class AuthController : ControllerBase
             mappedRequest,
             cancellationToken);
 
-        Response.Cookies.Delete("refreshToken");
+        HttpContext?.Response.Cookies.Delete("refreshToken");
 
         // Sau khi revoke hoàn tất, ServiceResult quay lại để tạo HTTP response.
         return ToActionResult(result);
@@ -202,16 +202,24 @@ public sealed class AuthController : ControllerBase
 
     private void SetRefreshTokenCookie(string refreshToken)
     {
+        var httpContext = HttpContext;
+        if (httpContext is null)
+        {
+            return;
+        }
+
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = Request.IsHttps,
+            Secure = httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Expires = DateTimeOffset.UtcNow.AddDays(7)
         };
 
-        Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
+        httpContext.Response.Cookies.Append("refreshToken", refreshToken, cookieOptions);
     }
+
+    private string? GetRefreshTokenCookie() => HttpContext?.Request.Cookies["refreshToken"];
 
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {

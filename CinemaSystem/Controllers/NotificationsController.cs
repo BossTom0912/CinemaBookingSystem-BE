@@ -18,10 +18,26 @@ namespace CinemaSystem.Controllers;
 public sealed class NotificationsController : ControllerBase
 {
     private readonly INotificationService _notificationService;
+    private readonly IUserHeartbeatTracker _heartbeatTracker;
 
-    public NotificationsController(INotificationService notificationService)
+    public NotificationsController(
+        INotificationService notificationService,
+        IUserHeartbeatTracker heartbeatTracker)
     {
         _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
+        _heartbeatTracker = heartbeatTracker ?? throw new ArgumentNullException(nameof(heartbeatTracker));
+    }
+
+    [HttpPost("heartbeat")]
+    public IActionResult RecordHeartbeat()
+    {
+        var userId = GetUserId();
+        var email = User.FindFirstValue(ClaimTypes.Email);
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            _heartbeatTracker.RecordHeartbeat(userId, email);
+        }
+        return Ok(ApiResponse<object>.Ok(new { isOnline = true }, "Heartbeat recorded."));
     }
 
     [HttpGet]
@@ -75,7 +91,13 @@ public sealed class NotificationsController : ControllerBase
         [FromBody] SendNotificationRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await _notificationService.SendNotificationAsync(request, cancellationToken);
+        var senderUserId = GetUserId();
+        if (string.IsNullOrWhiteSpace(senderUserId))
+        {
+            return Unauthorized(ApiResponse<object>.Fail("User is not authenticated."));
+        }
+
+        var result = await _notificationService.SendNotificationAsync(senderUserId, request, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -89,19 +111,49 @@ public sealed class NotificationsController : ControllerBase
         return ToActionResult(result);
     }
 
-    [HttpGet("signage")]
-    [AllowAnonymous]
-    public async Task<IActionResult> GetSignageFeed(CancellationToken cancellationToken)
-    {
-        var result = await _notificationService.GetSignageFeedAsync(cancellationToken);
-        return ToActionResult(result);
-    }
-
     [HttpGet("internal-feed")]
     [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager},{AuthConstants.Roles.Staff}")]
     public async Task<IActionResult> GetInternalFeed(CancellationToken cancellationToken)
     {
-        var result = await _notificationService.GetInternalFeedAsync(cancellationToken);
+        var userId = GetUserId();
+        var result = await _notificationService.GetInternalFeedAsync(userId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpGet("filter-users")]
+    [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager},{AuthConstants.Roles.Staff}")]
+    public async Task<IActionResult> GetFilteredUsers(
+        [FromQuery] bool? isFlagged,
+        [FromQuery] bool? hasBooked,
+        [FromQuery] string? roomId,
+        [FromQuery] string? showtimeId,
+        [FromQuery] string? movieId,
+        [FromQuery] string? targetGroup,
+        CancellationToken cancellationToken)
+    {
+        var result = await _notificationService.GetFilteredUsersAsync(
+            isFlagged, hasBooked, roomId, showtimeId, movieId, targetGroup, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("delete")]
+    [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager}")]
+    public async Task<IActionResult> DeleteNotifications(
+        [FromBody] DeleteNotificationsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _notificationService.DeleteNotificationsAsync(request.NotificationIds, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPut("{id}")]
+    [Authorize(Roles = $"{AuthConstants.Roles.Admin},{AuthConstants.Roles.Manager}")]
+    public async Task<IActionResult> UpdateNotification(
+        [FromRoute] string id,
+        [FromBody] UpdateNotificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _notificationService.UpdateNotificationAsync(id, request.Title, request.Message, cancellationToken);
         return ToActionResult(result);
     }
 

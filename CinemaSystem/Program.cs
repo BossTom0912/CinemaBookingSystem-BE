@@ -27,21 +27,9 @@ using Hangfire.InMemory;
 // 3) Request runtime đi tiếp: middleware -> Controller trong
 //    CinemaSystem/Controllers -> Application interface -> Infrastructure service.
 
-Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
-
-var builder = WebApplication.CreateBuilder(new WebApplicationOptions
-{
-    Args = args
-});
+var builder = WebApplication.CreateBuilder(args);
 
 // Xóa nguồn config mặc định và vô hiệu hóa reloadOnChange để tránh lỗi inotify trên Linux của Render
-builder.Configuration.Sources.Clear();
-builder.Configuration
-    .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-    .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false)
-    .AddEnvironmentVariables();
-
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.SetMinimumLevel(LogLevel.Information);
@@ -266,9 +254,7 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
-// ========================================================
-// 1. MANG PHẦN MIGRATE VÀ SEED RA NGOÀI ĐỂ LUÔN LUÔN CHẠY
-// ========================================================
+// Ensure database migrations and column auto-add scripts run on application startup.
 try
 {
     using var scope = app.Services.CreateScope();
@@ -280,30 +266,39 @@ catch (Exception ex)
     var migLogger = app.Services
         .GetRequiredService<ILoggerFactory>()
         .CreateLogger("Program");
-    migLogger.LogWarning(ex, "Database migration skipped because the database is unavailable.");
+
+    if (app.Environment.IsEnvironment("Testing"))
+    {
+        // The integration-test host replaces PostgreSQL with EF Core InMemory,
+        // which intentionally does not support relational migrations.
+        migLogger.LogInformation(ex, "Database migration is skipped by the in-memory test host.");
+    }
+    else
+    {
+        migLogger.LogCritical(ex, "Database migration failed. The API will not start with an unverified schema.");
+        throw;
+    }
 }
 
-try
-{
-    using var scope = app.Services.CreateScope();
-    var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
-    // Truyền tham số true để bắt buộc Seed dữ liệu mẫu trong mọi môi trường
-    await databaseMaintenance.SeedAsync(true);
-}
-catch (Exception ex)
-{
-    var seedLogger = app.Services
-        .GetRequiredService<ILoggerFactory>()
-        .CreateLogger("Program");
-    seedLogger.LogWarning(ex, "Database seeding skipped because the database is unavailable.");
-}
-// ========================================================
-
-// 2. Swagger và Hangfire Dashboard chỉ bật ở Development
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var databaseMaintenance = scope.ServiceProvider.GetRequiredService<IDatabaseMaintenanceService>();
+        await databaseMaintenance.SeedAsync(app.Environment.IsDevelopment());
+    }
+    catch (Exception ex)
+    {
+        var seedLogger = app.Services
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Program");
+        seedLogger.LogWarning(ex, "Database seeding skipped because the database is unavailable.");
+    }
+
     app.UseHangfireDashboard("/hangfire");
 }
 

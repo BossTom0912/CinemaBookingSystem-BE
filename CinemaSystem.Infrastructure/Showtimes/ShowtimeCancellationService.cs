@@ -10,7 +10,7 @@ using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Configuration;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
@@ -621,7 +621,10 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception)
     {
-        return exception.InnerException is SqlException { Number: 2601 or 2627 };
+        return exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation
+        };
     }
 
     private static ServiceResult<CancelShowtimeResponse> Fail(

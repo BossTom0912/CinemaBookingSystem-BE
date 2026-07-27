@@ -12,9 +12,9 @@ using Microsoft.Extensions.Options;
 namespace CinemaSystem.Infrastructure.Data;
 
 /// <summary>
-/// Seeds invariant role definitions and an optional initial administrator.
-/// Demo cinema, user, and F&amp;B records belong in the canonical database script,
-/// not in application startup code.
+/// Seeds invariant role/payment-provider definitions and an optional initial
+/// administrator. Demo cinema, user, and F&amp;B records belong in the canonical
+/// database script, not in application startup code.
 /// </summary>
 public static class DbInitializer
 {
@@ -32,12 +32,37 @@ public static class DbInitializer
             .CreateLogger("DbInitializer");
 
         await SeedRolesAsync(dbContext, logger);
+        await SeedPaymentProvidersAsync(dbContext, logger);
         await SeedAdminAsync(
             dbContext,
             passwordHasher,
             clock,
             initialAdminSettings,
             logger);
+    }
+
+    private static async Task SeedPaymentProvidersAsync(
+        CinemaDbContext dbContext,
+        ILogger logger)
+    {
+        var exists = await dbContext.PaymentProviders.AnyAsync(
+            item => item.PaymentProviderId == DomainConstants.PaymentProvider.VnPayId);
+        if (exists)
+        {
+            return;
+        }
+
+        dbContext.PaymentProviders.Add(new PaymentProvider
+        {
+            PaymentProviderId = DomainConstants.PaymentProvider.VnPayId,
+            ProviderName = DomainConstants.PaymentProvider.VnPayName,
+            ApiEndpoint = null,
+            ProviderStatus = DomainConstants.EntityStatus.Active
+        });
+        await dbContext.SaveChangesAsync();
+        logger.LogInformation(
+            "Seeded payment provider {ProviderName}.",
+            DomainConstants.PaymentProvider.VnPayName);
     }
 
     private static async Task SeedRolesAsync(CinemaDbContext dbContext, ILogger logger)

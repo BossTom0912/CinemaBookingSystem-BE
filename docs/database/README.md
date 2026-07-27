@@ -1,5 +1,14 @@
 # Database scripts
 
+> **PostgreSQL deployment:** use
+> [`postgresql-staging-test-guide.md`](postgresql-staging-test-guide.md).
+> `cinema-booking-schema.sql` and the `.txt` fixtures below are legacy SQL
+> Server artifacts; do not run them against PostgreSQL, Render staging, or
+> production.
+
+Project status, historical database reports, and the canonical SQL handoff are
+indexed in [`../reports/README.md`](../reports/README.md).
+
 Thư mục này có **một script schema chuẩn**:
 [`cinema-booking-schema.sql`](cinema-booking-schema.sql). Không chạy patch
 feature rời hoặc copy từng đoạn SQL từ báo cáo cũ.

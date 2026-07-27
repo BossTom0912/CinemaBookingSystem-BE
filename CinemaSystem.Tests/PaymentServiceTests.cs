@@ -143,7 +143,9 @@ public sealed class PaymentServiceTests
 
         public PaymentService Service { get; }
 
-        public static Fixture Create(decimal? paymentAmountOverride = null)
+        public static Fixture Create(
+            decimal? paymentAmountOverride = null,
+            IEnumerable<IPaymentGateway>? paymentGateways = null)
         {
             var options = new DbContextOptionsBuilder<CinemaDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString("N"))
@@ -174,7 +176,8 @@ public sealed class PaymentServiceTests
                     dbContext,
                     Options.Create(new CancellationCompensationSettings()),
                     new CinemaSystem.Infrastructure.Time.SystemClock()),
-                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()));
+                new VoucherService(dbContext, new CinemaSystem.Infrastructure.Time.SystemClock()),
+                paymentGateways ?? Array.Empty<IPaymentGateway>());
 
             return new Fixture(dbContext, service);
         }

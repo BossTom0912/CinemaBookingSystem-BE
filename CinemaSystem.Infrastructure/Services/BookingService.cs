@@ -12,7 +12,7 @@ using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Infrastructure.Configuration;
-using Microsoft.Data.SqlClient;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -490,15 +490,19 @@ public sealed class BookingService : IBookingService
     private static bool IsCheckoutConflict(DbUpdateException exception)
     {
         return exception is DbUpdateConcurrencyException
-            || exception.InnerException is SqlException { Number: 2601 or 2627 };
+            || exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation
+            };
     }
 
     private static bool IsVoucherReservationConflict(DbUpdateException exception)
     {
-        return exception.InnerException is SqlException { Number: 2601 or 2627 } sqlException
-            && sqlException.Message.Contains(
-                "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER",
-                StringComparison.OrdinalIgnoreCase);
+        return exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER"
+        };
     }
 
     private static bool IsCompensationReservationConflict(
@@ -798,6 +802,7 @@ public sealed class BookingService : IBookingService
                 // 1. Giải phóng ghế & Hủy vé & Xóa BookingSeats để sẵn sàng cho lần đặt vé mới
                 if (booking.BookingSeats != null && booking.BookingSeats.Count > 0)
                 {
+                    var ticketsToRemove = new List<Ticket>();
                     foreach (var bs in booking.BookingSeats)
                     {
                         if (bs.ShowtimeSeat != null)
@@ -805,6 +810,7 @@ public sealed class BookingService : IBookingService
                             bs.ShowtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
                             bs.ShowtimeSeat.LockedUntil = null;
                             bs.ShowtimeSeat.LockedByUserId = null;
+                            bs.ShowtimeSeat.BookingSeat = null;
 
                             // Giải phóng khóa cache (Redis/Memory seat lock store)
                             var lockKey = $"seat-lock:{bs.ShowtimeSeat.ShowtimeId}:{bs.ShowtimeSeat.SeatId}";
@@ -812,8 +818,15 @@ public sealed class BookingService : IBookingService
                         }
                         if (bs.Ticket != null)
                         {
-                            _dbContext.Tickets.Remove(bs.Ticket);
+                            ticketsToRemove.Add(bs.Ticket);
+                            bs.Ticket = null;
                         }
+                        bs.ShowtimeSeat = null!;
+                    }
+
+                    if (ticketsToRemove.Count > 0)
+                    {
+                        _dbContext.Tickets.RemoveRange(ticketsToRemove);
                     }
                     _dbContext.BookingSeats.RemoveRange(booking.BookingSeats);
                 }
@@ -892,7 +905,7 @@ public sealed class BookingService : IBookingService
         {
             var detail = ex.InnerException?.Message ?? ex.Message;
             _logger.LogError(ex, "Lỗi xảy ra khi xử lý xác nhận/từ chối đổi lịch chiếu cho đơn hàng {BookingId}: {Detail}", bookingId, detail);
-            return ServiceResult<bool>.Fail(500, $"Lỗi hệ thống khi xử lý yêu cầu: {detail}", "INTERNAL_ERROR");
+            return ServiceResult<bool>.Fail(500, "Lỗi hệ thống khi xử lý yêu cầu.", "INTERNAL_ERROR");
         }
     }
 
@@ -1168,6 +1181,7 @@ public sealed class BookingService : IBookingService
             return;
         }
 
+        var ticketsToRemove = new List<Ticket>();
         foreach (var bookingSeat in bookingSeats)
         {
             var showtimeSeat = bookingSeat.ShowtimeSeat;
@@ -1176,6 +1190,7 @@ public sealed class BookingService : IBookingService
                 showtimeSeat.SeatStatus = DomainConstants.EntityStatus.Available;
                 showtimeSeat.LockedUntil = null;
                 showtimeSeat.LockedByUserId = null;
+                showtimeSeat.BookingSeat = null;
 
                 await _seatLockStore.ReleaseAsync(
                     BuildSeatLockKey(showtimeSeat.ShowtimeId, showtimeSeat.SeatId),
@@ -1184,8 +1199,15 @@ public sealed class BookingService : IBookingService
 
             if (bookingSeat.Ticket != null)
             {
-                _dbContext.Tickets.Remove(bookingSeat.Ticket);
+                ticketsToRemove.Add(bookingSeat.Ticket);
+                bookingSeat.Ticket = null;
             }
+            bookingSeat.ShowtimeSeat = null!;
+        }
+
+        if (ticketsToRemove.Count > 0)
+        {
+            _dbContext.Tickets.RemoveRange(ticketsToRemove);
         }
 
         _dbContext.BookingSeats.RemoveRange(bookingSeats);
@@ -1232,7 +1254,7 @@ public sealed class BookingService : IBookingService
 
     private static string BuildSeatLockKey(string showtimeId, string seatId)
     {
-        return $"seat-lock:{showtimeId}:{seatId}";
+        return DomainConstants.SeatLock.BuildKey(showtimeId, seatId);
     }
 
     private static string NewId(string prefix) => CinemaSystem.Domain.Utilities.IdGenerator.NewId(prefix);
@@ -1321,6 +1343,7 @@ public sealed class BookingService : IBookingService
 
             // Gửi email thông báo chuyển ghế thủ công cho khách hàng qua AI
             var customerEmail = booking.CustomerProfile?.User?.Email ?? booking.GuestEmail;
+            var customerName = booking.CustomerProfile?.User?.FullName ?? booking.GuestName;
             if (!string.IsNullOrEmpty(customerEmail) && _backgroundJobClient != null)
             {
                 string subject = "Thông báo thay đổi ghế ngồi / Showtime Seat Change Notice";
@@ -1330,7 +1353,8 @@ public sealed class BookingService : IBookingService
                         subject,
                         "Thay đổi ghế ngồi do yêu cầu kỹ thuật rạp",
                         $"Ghế ngồi của bạn cho mã đặt vé {booking.BookingId} đã được điều chỉnh đổi từ ghế {oldShowtimeSeat.Seat.SeatCode} sang ghế {newShowtimeSeat.Seat.SeatCode} do yêu cầu vận hành kỹ thuật phòng chiếu.",
-                        CancellationToken.None));
+                        CancellationToken.None,
+                        customerName));
             }
 
             return ServiceResult<bool>.Ok(true, "Seat reassigned successfully.");

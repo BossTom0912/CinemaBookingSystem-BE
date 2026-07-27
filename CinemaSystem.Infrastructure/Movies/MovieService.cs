@@ -78,6 +78,7 @@ public sealed class MovieService : IMovieService
         {
             // Lọc bỏ các bộ phim có trạng thái Inactive và các bộ phim có nhãn độ tuổi C
             query = query.Where(movie => movie.MovieStatus != DomainConstants.EntityStatus.Inactive && movie.AgeRating != DomainConstants.AgeRating.C);
+
         }
 
         // Nếu tham số trạng thái được truyền vào hợp lệ
@@ -90,6 +91,7 @@ public sealed class MovieService : IMovieService
         }
 
         // Thực thi đếm tổng số lượng bản ghi thỏa mãn điều kiện (Dùng cho phân trang)
+        var now = DateTime.UtcNow;
         var totalCount = await query.CountAsync(cancellationToken);
 
         // Thực thi truy vấn lấy dữ liệu
@@ -125,6 +127,9 @@ public sealed class MovieService : IMovieService
                 AgeRating = movie.AgeRating,
                 // Gán trạng thái hiện tại của bộ phim
                 MovieStatus = movie.MovieStatus,
+                HasUpcomingOpenShowtime = movie.Showtimes.Any(showtime =>
+                    showtime.Status == DomainConstants.ShowtimeStatus.Open
+                    && showtime.StartTime >= now),
                 // Gán tên đạo diễn
                 Director = movie.Director
             })

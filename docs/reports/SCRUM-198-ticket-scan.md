@@ -78,7 +78,7 @@ approved by PM/BA.
 
 See:
 
-- `docs/database/SCRUM-198-ticket-scan-db-changes.md`
+- `docs/reports/SCRUM-198-ticket-scan-db-changes.md`
 - `docs/database/cinema-booking-schema.sql` (canonical reset schema)
 
 The change adds `CHECKIN_LOG.scannedByUserId`, makes `staffProfileId` nullable,

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Contracts.Common;
 using CinemaSystem.Contracts.Notifications;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Tests.Infrastructure;
@@ -169,36 +170,6 @@ public sealed class NotificationApiIntegrationTests
     }
 
     [Fact]
-    public async Task GetSignageFeed_AllowAnonymous_ReturnsRecentRoomStatus()
-    {
-        await using var factory = new CinemaWebApplicationFactory();
-        var userId = "USR_STAFF_SIGNAGE";
-        await SeedStaffUserAsync(factory, userId, "signage@test.com");
-
-        await using var scope = factory.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-        db.Notifications.Add(new Notification
-        {
-            NotificationId = "NOT_SIGN_TEST",
-            UserId = userId,
-            Title = "Lệnh soát vé đón khách",
-            Message = "Phòng chiếu 1 sẵn sàng đón khách.",
-            IsRead = false,
-            CreatedAt = DateTime.UtcNow
-        });
-        await db.SaveChangesAsync();
-
-        using var client = factory.CreateClient();
-        var response = await client.GetAsync("/api/notifications/signage");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<NotificationResponse>>>(JsonOptions);
-        Assert.True(body!.Success);
-        Assert.NotEmpty(body.Data!);
-        Assert.Equal("Lệnh soát vé đón khách", body.Data![0].Title);
-    }
-
-    [Fact]
     public async Task SendNotification_WithTargetGroup_DispatchesToAllGroupUsers()
     {
         await using var factory = new CinemaWebApplicationFactory();
@@ -229,6 +200,185 @@ public sealed class NotificationApiIntegrationTests
         var notifs = await db.Notifications.Where(n => n.Title == "Thông báo họp giao ban").ToListAsync();
         Assert.Contains(notifs, n => n.UserId == staff1);
         Assert.Contains(notifs, n => n.UserId == staff2);
+    }
+
+    [Fact]
+    public async Task GetNotifications_WithStaffToken_ReturnsOnlyStaffNotifications()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var staffId = "USR_STAFF_FILTER_TEST";
+        var custId = "USR_CUST_OTHER_TEST";
+
+        await SeedStaffUserAsync(factory, staffId, "staff_filter@test.com");
+        await SeedUserAsync(factory, custId, "cust_other@test.com");
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_STAFF_1",
+                UserId = staffId,
+                Title = "Lệnh chuẩn bị phòng chiếu",
+                Message = "Suất chiếu dọn dẹp phòng.",
+                CreatedAt = DateTime.UtcNow
+            });
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_CUST_1",
+                UserId = custId,
+                Title = "Xác nhận đặt vé",
+                Message = "Vé xem phim của bạn đã đặt thành công.",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Staff(staffId));
+
+        var response = await client.GetAsync("/api/notifications?pageIndex=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<PagedList<NotificationResponse>>>(JsonOptions);
+        Assert.True(body!.Success);
+        Assert.NotNull(body.Data);
+        Assert.Single(body.Data.Items);
+        Assert.Equal("Lệnh chuẩn bị phòng chiếu", body.Data.Items[0].Title);
+    }
+
+    [Fact]
+    public async Task GetInternalFeed_WithStaffToken_ExcludesManagerOnlyAlerts()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var staffId = "USR_STAFF_FEED_TEST";
+        var managerId = "USR_MGR_FEED_TEST";
+
+        await SeedStaffUserAsync(factory, staffId, "staff_feed@test.com");
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_STAFF_FEED_1",
+                UserId = staffId,
+                Title = "Lệnh chuẩn bị phòng chiếu",
+                Message = "Dọn phòng chiếu 1.",
+                CreatedAt = DateTime.UtcNow
+            });
+            db.Notifications.Add(new Notification
+            {
+                NotificationId = "NOT_MGR_FEED_1",
+                UserId = managerId,
+                Title = "Cảnh báo tồn kho thấp",
+                Message = "Nguyên liệu quầy bắp nước chạm ngưỡng.",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Staff(staffId));
+
+        var response = await client.GetAsync("/api/notifications/internal-feed");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<List<NotificationResponse>>>(JsonOptions);
+        Assert.True(body!.Success);
+        Assert.NotNull(body.Data);
+        Assert.DoesNotContain(body.Data, n => n.Title.Contains("tồn kho"));
+    }
+
+    [Fact]
+    public async Task Manager_SendNotification_ToStaff_Succeeds()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var managerId = "USR_MGR_SEND_TEST";
+        var staffId = "USR_STAFF_TARGET_TEST";
+        await SeedManagerUserAsync(factory, managerId, "mgr_send@test.com");
+        await SeedStaffUserAsync(factory, staffId, "staff_target@test.com");
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager(managerId));
+
+        var response = await client.PostAsJsonAsync("/api/notifications/send", new SendNotificationRequest
+        {
+            TargetGroup = "STAFF",
+            Title = "Nhắc ca trực",
+            Message = "Vui lòng có mặt đúng giờ ca làm chiều.",
+            Type = "Internal"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<NotificationResponse>>(JsonOptions);
+        Assert.True(body!.Success);
+    }
+
+    [Fact]
+    public async Task Manager_SendNotification_ToCustomer_FailsWithForbidden()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var managerId = "USR_MGR_SEND_FAIL";
+        await SeedManagerUserAsync(factory, managerId, "mgr_fail@test.com");
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager(managerId));
+
+        var response = await client.PostAsJsonAsync("/api/notifications/send", new SendNotificationRequest
+        {
+            TargetGroup = "CUSTOMERS",
+            Title = "Thông báo ưu đãi",
+            Message = "Không được phép gửi từ Manager."
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Staff_SendNotification_FailsWithForbidden()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        var staffId = "USR_STAFF_SEND_FAIL";
+        await SeedStaffUserAsync(factory, staffId, "staff_send_fail@test.com");
+
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Staff(staffId));
+
+        var response = await client.PostAsJsonAsync("/api/notifications/send", new SendNotificationRequest
+        {
+            TargetGroup = "STAFF",
+            Title = "Thử gửi thông báo",
+            Message = "Staff không được phép gửi."
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    private static async Task SeedManagerUserAsync(CinemaWebApplicationFactory factory, string userId, string email)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+
+        var managerRole = await db.Roles.FirstOrDefaultAsync(r => r.RoleId == AuthConstants.RoleIds.Manager);
+        if (managerRole == null)
+        {
+            managerRole = new Role { RoleId = AuthConstants.RoleIds.Manager, RoleName = AuthConstants.Roles.Manager, Description = "Manager" };
+            db.Roles.Add(managerRole);
+        }
+
+        db.Users.Add(new User
+        {
+            UserId = userId,
+            RoleId = managerRole.RoleId,
+            Email = email,
+            PasswordHash = "hash",
+            FullName = "Test Manager",
+            Status = AuthConstants.UserStatus.Active,
+            EmailVerified = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedUserAsync(CinemaWebApplicationFactory factory, string userId, string email)
@@ -343,4 +493,102 @@ public sealed class NotificationApiIntegrationTests
         await db.SaveChangesAsync();
         return showtime.ShowtimeId;
     }
+
+    [Fact]
+    public async Task GetFilteredUsers_WithStatusFlaggedBookedRoomShowtimeMovie_FiltersCorrectlyAndExcludesInactive()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+
+        var cinema = new Cinema { CinemaId = "CIN_FLT_01", CinemaName = "Cinema Filter 1", Address = "Addr", City = "HCM", CinemaStatus = "ACTIVE" };
+        var room1 = new Room { RoomId = "room-01", CinemaId = cinema.CinemaId, RoomName = "Room 01", Capacity = 50, RoomStatus = "ACTIVE" };
+        var room2 = new Room { RoomId = "room-02", CinemaId = cinema.CinemaId, RoomName = "Room 02", Capacity = 50, RoomStatus = "ACTIVE" };
+        var movie1 = new Movie { MovieId = "mov-501", Title = "Movie 501", DurationMinutes = 120, MovieStatus = "ACTIVE" };
+        db.Cinemas.Add(cinema);
+        db.Rooms.AddRange(room1, room2);
+        db.Movies.Add(movie1);
+
+        var st1002 = new Showtime
+        {
+            ShowtimeId = "st-1002",
+            MovieId = movie1.MovieId,
+            RoomId = room1.RoomId,
+            StartTime = DateTime.UtcNow.AddDays(1),
+            EndTime = DateTime.UtcNow.AddDays(1).AddHours(2),
+            BasePrice = 90000,
+            Status = "ACTIVE",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Showtimes.Add(st1002);
+
+        // User A: Active, Flagged (SpamViolationCount > 0), Booked st-1002 (PAID)
+        var userA = new User { UserId = "USR_FLT_A", Email = "usera@test.com", FullName = "User A", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = AuthConstants.UserStatus.Active, SpamViolationCount = 2, IsBlocked = false };
+        var profileA = new CustomerProfile { CustomerProfileId = "CP_A", UserId = userA.UserId, MemberLevel = "STANDARD" };
+        var bookingA = new Booking { BookingId = "BK_A", CustomerProfileId = profileA.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Paid, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
+
+        // User B: Active, Not Flagged, Booked st-1002 but booking is CANCELLED
+        var userB = new User { UserId = "USR_FLT_B", Email = "userb@test.com", FullName = "User B", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = AuthConstants.UserStatus.Active, SpamViolationCount = 0, IsBlocked = false };
+        var profileB = new CustomerProfile { CustomerProfileId = "CP_B", UserId = userB.UserId, MemberLevel = "STANDARD" };
+        var bookingB = new Booking { BookingId = "BK_B", CustomerProfileId = profileB.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Cancelled, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
+
+        // User C: inactive account with a paid booking should not be a notification target.
+        var userC = new User { UserId = "USR_FLT_C", Email = "userc@test.com", FullName = "User C", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Customer, Status = AuthConstants.UserStatus.Inactive, SpamViolationCount = 0, IsBlocked = false };
+        var profileC = new CustomerProfile { CustomerProfileId = "CP_C", UserId = userC.UserId, MemberLevel = "STANDARD" };
+        var bookingC = new Booking { BookingId = "BK_C", CustomerProfileId = profileC.CustomerProfileId, ShowtimeId = st1002.ShowtimeId, BookingStatus = DomainConstants.BookingStatus.Paid, BookingChannel = "ONLINE", CreatedAt = DateTime.UtcNow };
+
+        db.Users.AddRange(userA, userB, userC);
+        db.CustomerProfiles.AddRange(profileA, profileB, profileC);
+        db.Bookings.AddRange(bookingA, bookingB, bookingC);
+        await db.SaveChangesAsync();
+
+        using var client = factory.CreateClient();
+        var adminId = "USR_ADMIN_FILTER_TEST";
+        db.Users.Add(new User { UserId = adminId, Email = "admin_filter@test.com", FullName = "Admin Filter", PasswordHash = "hash", RoleId = AuthConstants.RoleIds.Admin, Status = AuthConstants.UserStatus.Active });
+        await db.SaveChangesAsync();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TestAuthTokens.Admin(adminId));
+
+        // 1. Filter by roomId=room-01 (userB has a cancelled booking and userC is inactive).
+        var responseRoom = await client.GetAsync("/api/notifications/filter-users?roomId=room-01");
+        Assert.Equal(HttpStatusCode.OK, responseRoom.StatusCode);
+        var bodyRoom = await responseRoom.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyRoom!.Success);
+        Assert.Single(bodyRoom.Data!);
+        Assert.Equal(userA.UserId, bodyRoom.Data![0].UserId);
+
+        // 2. Filter by showtimeId=st-1002
+        var responseShowtime = await client.GetAsync("/api/notifications/filter-users?showtimeId=st-1002");
+        Assert.Equal(HttpStatusCode.OK, responseShowtime.StatusCode);
+        var bodyShowtime = await responseShowtime.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyShowtime!.Success);
+        Assert.Single(bodyShowtime.Data!);
+        Assert.Equal(userA.UserId, bodyShowtime.Data![0].UserId);
+
+        // 3. Filter by movieId=mov-501
+        var responseMovie = await client.GetAsync("/api/notifications/filter-users?movieId=mov-501");
+        Assert.Equal(HttpStatusCode.OK, responseMovie.StatusCode);
+        var bodyMovie = await responseMovie.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyMovie!.Success);
+        Assert.Single(bodyMovie.Data!);
+        Assert.Equal(userA.UserId, bodyMovie.Data![0].UserId);
+
+        // 4. Filter by isFlagged=true
+        var responseFlagged = await client.GetAsync("/api/notifications/filter-users?isFlagged=true");
+        Assert.Equal(HttpStatusCode.OK, responseFlagged.StatusCode);
+        var bodyFlagged = await responseFlagged.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyFlagged!.Success);
+        Assert.Contains(bodyFlagged.Data!, u => u.UserId == userA.UserId);
+        Assert.DoesNotContain(bodyFlagged.Data!, u => u.UserId == userC.UserId);
+
+        // 5. Filter by hasBooked=true
+        var responseBooked = await client.GetAsync("/api/notifications/filter-users?hasBooked=true");
+        Assert.Equal(HttpStatusCode.OK, responseBooked.StatusCode);
+        var bodyBooked = await responseBooked.Content.ReadFromJsonAsync<ApiResponse<List<UserFilterItemResponse>>>(JsonOptions);
+        Assert.True(bodyBooked!.Success);
+        Assert.Contains(bodyBooked.Data!, u => u.UserId == userA.UserId);
+        Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userB.UserId); // userB booking was CANCELLED
+        Assert.DoesNotContain(bodyBooked.Data!, u => u.UserId == userC.UserId); // userC account is inactive
+    }
 }
+

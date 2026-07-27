@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CinemaSystem.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class InitialPostgresBaseline : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -23,7 +23,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     isActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
                     supportsAccountInquiry = table.Column<bool>(type: "boolean", nullable: false),
                     supportsPayout = table.Column<bool>(type: "boolean", nullable: false),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     updatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -42,7 +42,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     bannerType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     displayOrder = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     isActive = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(getdate())")
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -309,7 +309,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     phoneNumber = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: true),
                     status = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "PENDING_VERIFICATION"),
                     emailVerified = table.Column<bool>(type: "boolean", nullable: false),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     updatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     spamViolationCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     isBlocked = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
@@ -401,7 +401,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     movieViewLogId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     movieId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     userId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
-                    viewedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "SYSUTCDATETIME()"),
+                    viewedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     ipAddress = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true)
                 },
                 constraints: table =>
@@ -425,7 +425,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     endTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     basePrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
                     status = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "OPEN"),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())")
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -453,7 +453,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     entityId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     oldValue = table.Column<string>(type: "text", nullable: true),
                     newValue = table.Column<string>(type: "text", nullable: true),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     ipAddress = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     userAgent = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     correlationId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true)
@@ -476,7 +476,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     userId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     userMessage = table.Column<string>(type: "text", nullable: false),
                     aiReplyMessage = table.Column<string>(type: "text", nullable: false),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "SYSUTCDATETIME()")
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -522,7 +522,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     expiredAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     verifiedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     isUsed = table.Column<bool>(type: "boolean", nullable: false),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     purpose = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "EMAIL_VERIFICATION"),
                     attemptCount = table.Column<int>(type: "integer", nullable: false)
                 },
@@ -543,7 +543,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     refreshTokenId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     userId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     tokenHash = table.Column<string>(type: "text", nullable: false),
-                    issuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    issuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     expiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     revokedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     isRevoked = table.Column<bool>(type: "boolean", nullable: false)
@@ -660,7 +660,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     bookingStatus = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "CREATED"),
                     totalAmount = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
                     compensationDiscountAmount = table.Column<decimal>(type: "numeric(18,2)", nullable: false, defaultValue: 0m),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     expiredAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     clientRequestId = table.Column<Guid>(type: "uuid", nullable: true),
                     requestFingerprint = table.Column<string>(type: "character varying(64)", unicode: false, maxLength: 64, nullable: true),
@@ -704,7 +704,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     showtimeId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     cancelledByStaffId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     cancelReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false),
-                    cancelledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    cancelledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     cancelledByUserId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false)
                 },
                 constraints: table =>
@@ -787,7 +787,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     title = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
                     message = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false),
                     isRead = table.Column<bool>(type: "boolean", nullable: false),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())")
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -814,7 +814,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     amount = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
                     transactionCode = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
                     paymentStatus = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "PENDING"),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     paidAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     paymentMethod = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     providerTransactionCode = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
@@ -847,7 +847,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     bookingId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     rating = table.Column<int>(type: "integer", nullable: false),
                     comment = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false, defaultValueSql: "('Pending')"),
                     editCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     rejectedReason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
@@ -882,7 +882,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     bookingId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     transactionType = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     points = table.Column<int>(type: "integer", nullable: false),
-                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())")
+                    createdAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -947,7 +947,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     customerProfileId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     status = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "ISSUED"),
                     policyVersion = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    issuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    issuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     expiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -981,7 +981,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     bookingSeatId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     qrCode = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: false),
                     ticketStatus = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false, defaultValue: "UNUSED"),
-                    generatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())")
+                    generatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -1007,7 +1007,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     refundReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
                     providerRefundCode = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
                     failureReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
-                    requestedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    requestedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     refundedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -1045,7 +1045,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     newRating = table.Column<int>(type: "integer", nullable: false),
                     oldComment = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
                     newComment = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
-                    editedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "SYSUTCDATETIME()")
+                    editedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -1067,7 +1067,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     newStatus = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     moderatorId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     rejectedReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
-                    moderatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "SYSUTCDATETIME()")
+                    moderatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -1161,7 +1161,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                     ticketId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     staffProfileId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     scannedByUserId = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
-                    scanTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "(sysutcdatetime())"),
+                    scanTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     result = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     failureReason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     rawQrCode = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true)
@@ -1405,7 +1405,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "BOOKING",
                 columns: new[] { "customerProfileId", "clientRequestId" },
                 unique: true,
-                filter: "[clientRequestId] IS NOT NULL");
+                filter: "\"clientRequestId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_BOOKING_FB_ITEM_bookingId",
@@ -1453,7 +1453,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 name: "IX_CHECKIN_LOG_RAW_QR_CODE",
                 table: "CHECKIN_LOG",
                 column: "rawQrCode",
-                filter: "([rawQrCode] IS NOT NULL)");
+                filter: "(\"rawQrCode\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CHECKIN_LOG_SCANNED_BY_USER_TIME",
@@ -1524,7 +1524,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "COMPENSATION_TICKET",
                 column: "reservedBookingSeatId",
                 unique: true,
-                filter: "[reservedBookingSeatId] IS NOT NULL");
+                filter: "\"reservedBookingSeatId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "UQ_CUSTOMER_PROFILE_USER",
@@ -1537,7 +1537,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "CUSTOMER_PROFILE",
                 column: "identityCard",
                 unique: true,
-                filter: "([identityCard] IS NOT NULL)");
+                filter: "(\"identityCard\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS",
@@ -1607,7 +1607,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "MANUAL_REFUND_PROCESS",
                 column: "bankTransactionCode",
                 unique: true,
-                filter: "([bankTransactionCode] IS NOT NULL)");
+                filter: "(\"bankTransactionCode\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "IX_MOVIE_languageId",
@@ -1654,21 +1654,21 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "PAYMENT",
                 column: "bookingId",
                 unique: true,
-                filter: "([paymentStatus]='SUCCESS')");
+                filter: "(\"paymentStatus\" = 'SUCCESS')");
 
             migrationBuilder.CreateIndex(
                 name: "UX_PAYMENT_PROVIDER_TRANSACTION_CODE",
                 table: "PAYMENT",
                 column: "providerTransactionCode",
                 unique: true,
-                filter: "([providerTransactionCode] IS NOT NULL)");
+                filter: "(\"providerTransactionCode\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "UX_PAYMENT_TRANSACTION_CODE",
                 table: "PAYMENT",
                 column: "transactionCode",
                 unique: true,
-                filter: "([transactionCode] IS NOT NULL)");
+                filter: "(\"transactionCode\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "UQ_PAYMENT_PROVIDER_NAME",
@@ -1712,7 +1712,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "REFUND",
                 column: "providerRefundCode",
                 unique: true,
-                filter: "([providerRefundCode] IS NOT NULL)");
+                filter: "(\"providerRefundCode\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "IX_REFUND_CLAIM_bankCode",
@@ -1778,7 +1778,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "REVIEW",
                 column: "bookingId",
                 unique: true,
-                filter: "([bookingId] IS NOT NULL)");
+                filter: "(\"bookingId\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "IX_REVIEW_EDIT_HISTORY_REVIEW_ID",
@@ -1934,7 +1934,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "STAFF_PROFILE",
                 column: "identityCard",
                 unique: true,
-                filter: "([identityCard] IS NOT NULL)");
+                filter: "(\"identityCard\" IS NOT NULL)");
 
             migrationBuilder.CreateIndex(
                 name: "UQ_TICKET_BOOKING_SEAT",
@@ -1986,7 +1986,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                 table: "VOUCHER_USAGE",
                 column: "customerVoucherId",
                 unique: true,
-                filter: "[customerVoucherId] IS NOT NULL AND [usageStatus] <> 'CANCELLED'");
+                filter: "\"customerVoucherId\" IS NOT NULL AND \"usageStatus\" <> 'CANCELLED'");
         }
 
         /// <inheritdoc />

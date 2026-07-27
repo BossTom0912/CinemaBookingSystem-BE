@@ -44,7 +44,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("EntityId")
                         .HasMaxLength(50)
@@ -105,7 +105,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("FullName")
                         .IsRequired()
@@ -162,7 +162,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(getdate())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<int>("DisplayOrder")
                         .ValueGeneratedOnAdd()
@@ -235,7 +235,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CreatedByStaffProfileId")
                         .HasMaxLength(50)
@@ -317,9 +317,22 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "CustomerProfileId", "ClientRequestId" }, "UX_BOOKING_CUSTOMER_CLIENT_REQUEST")
                         .IsUnique()
-                        .HasFilter("[clientRequestId] IS NOT NULL");
+                        .HasFilter("\"clientRequestId\" IS NOT NULL");
 
-                    b.ToTable("BOOKING", (string)null);
+                    b.ToTable("BOOKING", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BOOKING_CHANNEL", "\"bookingChannel\" IN ('ONLINE', 'COUNTER')");
+
+                            t.HasCheckConstraint("CK_BOOKING_COMPENSATION_DISCOUNT_AMOUNT", "\"compensationDiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_BOOKING_FB_FULFILLMENT_STATUS", "\"fbFulfillmentStatus\" IN ('NOT_REQUIRED', 'PENDING', 'PREPARING', 'FULFILLED', 'CANCELLED')");
+
+                            t.HasCheckConstraint("CK_BOOKING_ONLINE_CUSTOMER_REQUIRED", "\"bookingChannel\" <> 'ONLINE' OR \"customerProfileId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_BOOKING_STATUS", "\"bookingStatus\" IN ('CREATED', 'PENDING_PAYMENT', 'PAID', 'CANCELLED', 'REFUND_PENDING', 'REFUNDED', 'COMPLETED', 'PROCESSING_UNSTABLE')");
+
+                            t.HasCheckConstraint("CK_BOOKING_TOTAL_AMOUNT", "\"totalAmount\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.BookingFbItem", b =>
@@ -360,7 +373,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex("FbItemId");
 
-                    b.ToTable("BOOKING_FB_ITEM", (string)null);
+                    b.ToTable("BOOKING_FB_ITEM", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BOOKING_FB_ITEM_QUANTITY", "quantity > 0");
+
+                            t.HasCheckConstraint("CK_BOOKING_FB_ITEM_SUBTOTAL", "subtotal >= 0");
+
+                            t.HasCheckConstraint("CK_BOOKING_FB_ITEM_UNIT_PRICE", "\"unitPrice\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.BookingSeat", b =>
@@ -394,7 +414,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "ShowtimeSeatId" }, "UQ_BOOKING_SEAT_SHOWTIME_SEAT")
                         .IsUnique();
 
-                    b.ToTable("BOOKING_SEAT", (string)null);
+                    b.ToTable("BOOKING_SEAT", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BOOKING_SEAT_PRICE", "\"seatPrice\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CancellationCompensation", b =>
@@ -417,7 +440,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("issuedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("PolicyVersion")
                         .IsRequired()
@@ -454,7 +477,12 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "SourceBookingId" }, "UQ_CANCELLATION_COMPENSATION_BOOKING")
                         .IsUnique();
 
-                    b.ToTable("CANCELLATION_COMPENSATION", (string)null);
+                    b.ToTable("CANCELLATION_COMPENSATION", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CANCELLATION_COMPENSATION_EXPIRY", "\"expiresAt\" > \"issuedAt\"");
+
+                            t.HasCheckConstraint("CK_CANCELLATION_COMPENSATION_STATUS", "status IN ('ISSUED', 'PARTIALLY_USED', 'USED', 'EXPIRED', 'VOIDED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.ChatHistory", b =>
@@ -473,7 +501,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("UserId")
                         .HasMaxLength(50)
@@ -519,7 +547,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("scanTime")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("ScannedByUserId")
                         .IsRequired()
@@ -543,13 +571,16 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex("StaffProfileId");
 
                     b.HasIndex(new[] { "RawQrCode" }, "IX_CHECKIN_LOG_RAW_QR_CODE")
-                        .HasFilter("([rawQrCode] IS NOT NULL)");
+                        .HasFilter("(\"rawQrCode\" IS NOT NULL)");
 
                     b.HasIndex(new[] { "ScannedByUserId", "ScanTime" }, "IX_CHECKIN_LOG_SCANNED_BY_USER_TIME");
 
                     b.HasIndex(new[] { "TicketId" }, "IX_CHECKIN_LOG_TICKET_ID");
 
-                    b.ToTable("CHECKIN_LOG", (string)null);
+                    b.ToTable("CHECKIN_LOG", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CHECKIN_LOG_RESULT", "result IN ('SUCCESS', 'FAILED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Cinema", b =>
@@ -593,7 +624,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasKey("CinemaId")
                         .HasName("PK__CINEMA__4E679F684FB25BEB");
 
-                    b.ToTable("CINEMA", (string)null);
+                    b.ToTable("CINEMA", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CINEMA_STATUS", "\"cinemaStatus\" IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CinemaFbInventory", b =>
@@ -627,7 +661,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "CinemaId", "FbItemId" }, "UQ_CINEMA_FB_INVENTORY")
                         .IsUnique();
 
-                    b.ToTable("CINEMA_FB_INVENTORY", (string)null);
+                    b.ToTable("CINEMA_FB_INVENTORY", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CINEMA_FB_INVENTORY_QUANTITY", "quantity >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CompensationCombo", b =>
@@ -695,7 +732,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "CancellationCompensationId" }, "UQ_COMPENSATION_COMBO_COMPENSATION")
                         .IsUnique();
 
-                    b.ToTable("COMPENSATION_COMBO", (string)null);
+                    b.ToTable("COMPENSATION_COMBO", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_COMPENSATION_COMBO_STATUS", "status IN ('ISSUED', 'REDEEMED', 'EXPIRED', 'VOIDED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CompensationTicket", b =>
@@ -760,9 +800,12 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "ReservedBookingSeatId" }, "UQ_COMPENSATION_TICKET_RESERVED_BOOKING_SEAT")
                         .IsUnique()
-                        .HasFilter("[reservedBookingSeatId] IS NOT NULL");
+                        .HasFilter("\"reservedBookingSeatId\" IS NOT NULL");
 
-                    b.ToTable("COMPENSATION_TICKET", (string)null);
+                    b.ToTable("COMPENSATION_TICKET", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_COMPENSATION_TICKET_STATUS", "status IN ('ISSUED', 'RESERVED', 'REDEEMED', 'EXPIRED', 'VOIDED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CustomerProfile", b =>
@@ -822,9 +865,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "IdentityCard" }, "UX_CUSTOMER_PROFILE_IDENTITY_CARD")
                         .IsUnique()
-                        .HasFilter("([identityCard] IS NOT NULL)");
+                        .HasFilter("(\"identityCard\" IS NOT NULL)");
 
-                    b.ToTable("CUSTOMER_PROFILE", (string)null);
+                    b.ToTable("CUSTOMER_PROFILE", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CUSTOMER_PROFILE_MEMBER_LEVEL", "\"memberLevel\" IN ('STANDARD', 'SILVER', 'GOLD', 'PLATINUM')");
+
+                            t.HasCheckConstraint("CK_CUSTOMER_PROFILE_REWARD_POINTS", "\"rewardPoints\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CustomerRefundRequest", b =>
@@ -886,7 +934,10 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "CustomerProfileId", "RequestStatus", "CreatedAt" }, "IX_CUSTOMER_REFUND_REQUEST_CUSTOMER_STATUS");
 
-                    b.ToTable("CUSTOMER_REFUND_REQUEST", (string)null);
+                    b.ToTable("CUSTOMER_REFUND_REQUEST", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CUSTOMER_REFUND_REQUEST_STATUS", "\"requestStatus\" IN ('PENDING', 'FULFILLED', 'REJECTED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.CustomerVoucher", b =>
@@ -926,7 +977,10 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex("VoucherId");
 
-                    b.ToTable("CUSTOMER_VOUCHER", (string)null);
+                    b.ToTable("CUSTOMER_VOUCHER", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CUSTOMER_VOUCHER_USAGE_STATE", "(\"isUsed\" = FALSE AND \"usedAt\" IS NULL) OR (\"isUsed\" = TRUE AND \"usedAt\" IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.EmailVerificationToken", b =>
@@ -944,7 +998,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateTime>("ExpiredAt")
                         .HasColumnType("timestamp with time zone")
@@ -986,7 +1040,14 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "Token" }, "UQ_EMAIL_VERIFICATION_TOKEN")
                         .IsUnique();
 
-                    b.ToTable("EMAIL_VERIFICATION_TOKEN", (string)null);
+                    b.ToTable("EMAIL_VERIFICATION_TOKEN", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_EMAIL_VERIFICATION_EXPIRED_AT", "\"expiredAt\" > \"createdAt\"");
+
+                            t.HasCheckConstraint("CK_EMAIL_VERIFICATION_TOKEN_ATTEMPT_COUNT", "\"attemptCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_EMAIL_VERIFICATION_TOKEN_PURPOSE", "purpose IN ('EMAIL_VERIFICATION', 'PASSWORD_RESET', 'EMAIL_UPDATE', 'PHONE_UPDATE', 'REGISTER', 'FORGOT_PASSWORD', 'CHANGE_EMAIL', 'UPDATE_EMAIL')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.FbItem", b =>
@@ -1017,7 +1078,12 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasKey("FbItemId")
                         .HasName("PK__FB_ITEM__B91DF1DD80E826D9");
 
-                    b.ToTable("FB_ITEM", (string)null);
+                    b.ToTable("FB_ITEM", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_FB_ITEM_PRICE", "price >= 0");
+
+                            t.HasCheckConstraint("CK_FB_ITEM_STATUS", "\"itemStatus\" IN ('AVAILABLE', 'UNAVAILABLE', 'INACTIVE')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Genre", b =>
@@ -1140,9 +1206,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "BankTransactionCode" }, "UX_MANUAL_REFUND_BANK_TRANSACTION_CODE")
                         .IsUnique()
-                        .HasFilter("([bankTransactionCode] IS NOT NULL)");
+                        .HasFilter("(\"bankTransactionCode\" IS NOT NULL)");
 
-                    b.ToTable("MANUAL_REFUND_PROCESS", (string)null);
+                    b.ToTable("MANUAL_REFUND_PROCESS", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MANUAL_REFUND_PROCESS_STATUS", "\"processStatus\" IN ('OPEN', 'IN_PROGRESS', 'CONFIRMED', 'REJECTED')");
+
+                            t.HasCheckConstraint("CK_MANUAL_REFUND_TRANSFERRED_AMOUNT", "\"transferredAmount\" IS NULL OR \"transferredAmount\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Movie", b =>
@@ -1246,7 +1317,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex("LanguageId");
 
-                    b.ToTable("MOVIE", (string)null);
+                    b.ToTable("MOVIE", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MOVIE_DURATION", "\"durationMinutes\" > 0");
+
+                            t.HasCheckConstraint("CK_MOVIE_HIGHLIGHT", "highlight IS NULL OR highlight IN ('POPULAR', 'COMING_SOON', 'NEW', 'HOT', 'TRENDING')");
+
+                            t.HasCheckConstraint("CK_MOVIE_STATUS", "\"movieStatus\" IN ('COMING_SOON', 'NOW_SHOWING', 'ENDED', 'INACTIVE', 'ARCHIVED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.MovieDailyView", b =>
@@ -1318,7 +1396,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("viewedAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.HasKey("MovieViewLogId");
 
@@ -1343,7 +1421,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean")
@@ -1398,7 +1476,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("FailureReason")
                         .HasMaxLength(1000)
@@ -1455,17 +1533,22 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "BookingId" }, "UX_PAYMENT_ONE_SUCCESS_PER_BOOKING")
                         .IsUnique()
-                        .HasFilter("([paymentStatus]='SUCCESS')");
+                        .HasFilter("(\"paymentStatus\" = 'SUCCESS')");
 
                     b.HasIndex(new[] { "ProviderTransactionCode" }, "UX_PAYMENT_PROVIDER_TRANSACTION_CODE")
                         .IsUnique()
-                        .HasFilter("([providerTransactionCode] IS NOT NULL)");
+                        .HasFilter("(\"providerTransactionCode\" IS NOT NULL)");
 
                     b.HasIndex(new[] { "TransactionCode" }, "UX_PAYMENT_TRANSACTION_CODE")
                         .IsUnique()
-                        .HasFilter("([transactionCode] IS NOT NULL)");
+                        .HasFilter("(\"transactionCode\" IS NOT NULL)");
 
-                    b.ToTable("PAYMENT", (string)null);
+                    b.ToTable("PAYMENT", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PAYMENT_AMOUNT", "amount >= 0");
+
+                            t.HasCheckConstraint("CK_PAYMENT_STATUS", "\"paymentStatus\" IN ('PENDING', 'SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.PaymentProvider", b =>
@@ -1500,7 +1583,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "ProviderName" }, "UQ_PAYMENT_PROVIDER_NAME")
                         .IsUnique();
 
-                    b.ToTable("PAYMENT_PROVIDER", (string)null);
+                    b.ToTable("PAYMENT_PROVIDER", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PAYMENT_PROVIDER_STATUS", "\"providerStatus\" IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.RefreshToken", b =>
@@ -1522,7 +1608,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("issuedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1547,7 +1633,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "TokenHash" }, "UQ_REFRESH_TOKEN_HASH")
                         .IsUnique();
 
-                    b.ToTable("REFRESH_TOKEN", (string)null);
+                    b.ToTable("REFRESH_TOKEN", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_REFRESH_TOKEN_EXPIRES_AT", "\"expiresAt\" > \"issuedAt\"");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Refund", b =>
@@ -1610,7 +1699,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("requestedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("ShowtimeCancellationId")
                         .HasMaxLength(50)
@@ -1630,9 +1719,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "ProviderRefundCode" }, "UX_REFUND_PROVIDER_REFUND_CODE")
                         .IsUnique()
-                        .HasFilter("([providerRefundCode] IS NOT NULL)");
+                        .HasFilter("(\"providerRefundCode\" IS NOT NULL)");
 
-                    b.ToTable("REFUND", (string)null);
+                    b.ToTable("REFUND", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_REFUND_AMOUNT", "\"refundAmount\" > 0");
+
+                            t.HasCheckConstraint("CK_REFUND_STATUS", "\"refundStatus\" IN ('PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'REQUESTED', 'MANUAL_REQUIRED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.RefundClaim", b =>
@@ -1745,7 +1839,12 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "RefundId" }, "UQ_REFUND_CLAIM_REFUND")
                         .IsUnique();
 
-                    b.ToTable("REFUND_CLAIM", (string)null);
+                    b.ToTable("REFUND_CLAIM", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_REFUND_CLAIM_ACCOUNT_VALIDATION_STATUS", "\"accountValidationStatus\" IN ('NOT_STARTED', 'VERIFIED', 'FAILED', 'UNAVAILABLE')");
+
+                            t.HasCheckConstraint("CK_REFUND_CLAIM_STATUS", "\"claimStatus\" IN ('PENDING_INFO', 'VERIFIED', 'SUBMITTED', 'PROCESSING', 'COMPLETED', 'EXPIRED', 'MANUAL_REQUIRED', 'REVOKED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.RefundClaimToken", b =>
@@ -1846,7 +1945,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "TokenHash" }, "UQ_REFUND_CUSTOMER_CONFIRMATION_TOKEN")
                         .IsUnique();
 
-                    b.ToTable("REFUND_CUSTOMER_CONFIRMATION", (string)null);
+                    b.ToTable("REFUND_CUSTOMER_CONFIRMATION", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_REFUND_CUSTOMER_CONFIRMATION_STATUS", "status IN ('AWAITING_CUSTOMER', 'CONFIRMED_BY_CUSTOMER', 'EXPIRED', 'REVOKED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Review", b =>
@@ -1870,7 +1972,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CustomerProfileId")
                         .IsRequired()
@@ -1921,9 +2023,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "BookingId" }, "UX_REVIEW_BOOKING")
                         .IsUnique()
-                        .HasFilter("([bookingId] IS NOT NULL)");
+                        .HasFilter("(\"bookingId\" IS NOT NULL)");
 
-                    b.ToTable("REVIEW", (string)null);
+                    b.ToTable("REVIEW", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_REVIEW_RATING", "rating BETWEEN 0 AND 5");
+
+                            t.HasCheckConstraint("CK_REVIEW_STATUS", "status IN ('PENDING', 'APPROVED', 'REJECTED', 'FLAGGED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.ReviewEditHistory", b =>
@@ -1937,7 +2044,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("editedAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("NewComment")
                         .HasMaxLength(1000)
@@ -1981,7 +2088,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("moderatedAt")
-                        .HasDefaultValueSql("SYSUTCDATETIME()");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("ModeratorId")
                         .HasMaxLength(50)
@@ -2033,7 +2140,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CustomerProfileId")
                         .IsRequired()
@@ -2058,7 +2165,12 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex("CustomerProfileId");
 
-                    b.ToTable("REWARD_POINT_TRANSACTION", (string)null);
+                    b.ToTable("REWARD_POINT_TRANSACTION", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_REWARD_POINT_TRANSACTION_POINTS", "points <> 0");
+
+                            t.HasCheckConstraint("CK_REWARD_POINT_TRANSACTION_TYPE", "\"transactionType\" IN ('EARN', 'REDEEM', 'REVERT', 'ADJUST')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Role", b =>
@@ -2111,7 +2223,10 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "GranteeRoleId" }, "IX_ROLE_ASSIGNMENT_RULE_GRANTEE");
 
-                    b.ToTable("ROLE_ASSIGNMENT_RULE", (string)null);
+                    b.ToTable("ROLE_ASSIGNMENT_RULE", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ROLE_ASSIGNMENT_RULE_DIFFERENT_ROLES", "\"grantorRoleId\" <> \"granteeRoleId\"");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.RoleProvisioningPolicy", b =>
@@ -2155,7 +2270,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "IsActive", "IsPublicRegistrationAllowed" }, "IX_ROLE_PROVISIONING_POLICY_PUBLIC");
 
-                    b.ToTable("ROLE_PROVISIONING_POLICY", (string)null);
+                    b.ToTable("ROLE_PROVISIONING_POLICY", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ROLE_PROVISIONING_POLICY_PROFILE", "\"profileKind\" IN ('CUSTOMER', 'STAFF', 'NONE')");
+
+                            t.HasCheckConstraint("CK_ROLE_PROVISIONING_POLICY_PROFILE_RULE", "(\"profileKind\" = 'STAFF' AND \"requiresCinema\" = TRUE AND \"defaultStaffPosition\" IS NOT NULL) OR (\"profileKind\" = 'CUSTOMER' AND \"requiresCinema\" = FALSE AND \"defaultStaffPosition\" IS NULL) OR (\"profileKind\" = 'NONE' AND \"requiresCinema\" = FALSE AND \"defaultStaffPosition\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_ROLE_PROVISIONING_POLICY_PUBLIC_REGISTER", "\"isPublicRegistrationAllowed\" = FALSE OR \"profileKind\" = 'CUSTOMER'");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Room", b =>
@@ -2197,7 +2319,12 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "CinemaId", "RoomName" }, "UQ_ROOM_CINEMA_ROOM_NAME")
                         .IsUnique();
 
-                    b.ToTable("ROOM", (string)null);
+                    b.ToTable("ROOM", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ROOM_CAPACITY", "capacity > 0");
+
+                            t.HasCheckConstraint("CK_ROOM_STATUS", "\"roomStatus\" IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Seat", b =>
@@ -2254,7 +2381,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "RoomId", "SeatCode" }, "UQ_SEAT_ROOM_SEAT_CODE")
                         .IsUnique();
 
-                    b.ToTable("SEAT", (string)null);
+                    b.ToTable("SEAT", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SEAT_NUMBER", "\"seatNumber\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.SeatType", b =>
@@ -2280,7 +2410,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "TypeName" }, "UQ_SEAT_TYPE_NAME")
                         .IsUnique();
 
-                    b.ToTable("SEAT_TYPE", (string)null);
+                    b.ToTable("SEAT_TYPE", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SEAT_TYPE_EXTRA_FEE", "\"extraFee\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Showtime", b =>
@@ -2298,7 +2431,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<DateTime>("EndTime")
                         .HasColumnType("timestamp with time zone")
@@ -2338,7 +2471,14 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "RoomId", "StartTime" }, "UQ_SHOWTIME_ROOM_STARTTIME")
                         .IsUnique();
 
-                    b.ToTable("SHOWTIME", (string)null);
+                    b.ToTable("SHOWTIME", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SHOWTIME_BASE_PRICE", "\"basePrice\" >= 0");
+
+                            t.HasCheckConstraint("CK_SHOWTIME_STATUS", "status IN ('OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED', 'SUSPENDED', 'PROCESSING_UNSTABLE')");
+
+                            t.HasCheckConstraint("CK_SHOWTIME_TIME_RANGE", "\"endTime\" > \"startTime\"");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.ShowtimeCancellation", b =>
@@ -2358,7 +2498,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("cancelledAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("CancelledByStaffId")
                         .HasMaxLength(50)
@@ -2449,7 +2589,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "ShowtimeId", "SeatId" }, "UQ_SHOWTIME_SEAT_SHOWTIME_SEAT")
                         .IsUnique();
 
-                    b.ToTable("SHOWTIME_SEAT", (string)null);
+                    b.ToTable("SHOWTIME_SEAT", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SHOWTIME_SEAT_STATUS", "\"seatStatus\" IN ('AVAILABLE', 'LOCKED', 'BOOKED', 'RELEASED', 'UNAVAILABLE')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.StaffProfile", b =>
@@ -2523,9 +2666,12 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "IdentityCard" }, "UX_STAFF_PROFILE_IDENTITY_CARD")
                         .IsUnique()
-                        .HasFilter("([identityCard] IS NOT NULL)");
+                        .HasFilter("(\"identityCard\" IS NOT NULL)");
 
-                    b.ToTable("STAFF_PROFILE", (string)null);
+                    b.ToTable("STAFF_PROFILE", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_STAFF_PROFILE_EMPLOYMENT_STATUS", "\"employmentStatus\" IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Ticket", b =>
@@ -2545,7 +2691,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("generatedAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("QrCode")
                         .IsRequired()
@@ -2570,7 +2716,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "QrCode" }, "UQ_TICKET_QR_CODE")
                         .IsUnique();
 
-                    b.ToTable("TICKET", (string)null);
+                    b.ToTable("TICKET", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TICKET_STATUS", "\"ticketStatus\" IN ('GENERATED', 'UNUSED', 'CHECKED_IN', 'CANCELLED', 'REFUNDED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.User", b =>
@@ -2588,7 +2737,7 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("createdAt")
-                        .HasDefaultValueSql("(sysutcdatetime())");
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -2655,7 +2804,10 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "Email" }, "UQ_USER_EMAIL")
                         .IsUnique();
 
-                    b.ToTable("USER", (string)null);
+                    b.ToTable("USER", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_USER_STATUS", "status IN ('PENDING_VERIFICATION', 'ACTIVE', 'INACTIVE', 'BANNED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.Voucher", b =>
@@ -2725,6 +2877,16 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("requiredTicketCount");
 
+                    b.Property<string>("RoomId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("roomId");
+
+                    b.Property<string>("ShowtimeId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("showtimeId");
+
                     b.Property<string>("SpecificFbItemIds")
                         .HasColumnType("text")
                         .HasColumnName("specificFbItemIds");
@@ -2777,7 +2939,26 @@ namespace CinemaSystem.Infrastructure.Migrations
                     b.HasIndex(new[] { "VoucherCode" }, "UQ_VOUCHER_CODE")
                         .IsUnique();
 
-                    b.ToTable("VOUCHER", (string)null);
+                    b.ToTable("VOUCHER", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VOUCHER_DATE_RANGE", "\"endDate\" > \"startDate\"");
+
+                            t.HasCheckConstraint("CK_VOUCHER_DISCOUNT_TYPE", "\"discountType\" IN ('AMOUNT', 'PERCENT')");
+
+                            t.HasCheckConstraint("CK_VOUCHER_DISCOUNT_VALUE", "\"discountValue\" > 0");
+
+                            t.HasCheckConstraint("CK_VOUCHER_MAX_DISCOUNT_AMOUNT", "\"maxDiscountAmount\" IS NULL OR \"maxDiscountAmount\" > 0");
+
+                            t.HasCheckConstraint("CK_VOUCHER_MIN_ORDER_AMOUNT", "\"minOrderAmount\" IS NULL OR \"minOrderAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_VOUCHER_PER_CUSTOMER_LIMIT", "\"perCustomerLimit\" IS NULL OR \"perCustomerLimit\" > 0");
+
+                            t.HasCheckConstraint("CK_VOUCHER_STATUS", "\"voucherStatus\" IN ('ACTIVE', 'INACTIVE', 'EXPIRED')");
+
+                            t.HasCheckConstraint("CK_VOUCHER_USAGE_LIMIT", "\"usageLimit\" >= 0");
+
+                            t.HasCheckConstraint("CK_VOUCHER_USED_COUNT", "\"usedCount\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.VoucherUsage", b =>
@@ -2838,9 +3019,14 @@ namespace CinemaSystem.Infrastructure.Migrations
 
                     b.HasIndex(new[] { "CustomerVoucherId" }, "UX_VOUCHER_USAGE_ACTIVE_CUSTOMER_VOUCHER")
                         .IsUnique()
-                        .HasFilter("[customerVoucherId] IS NOT NULL AND [usageStatus] <> 'CANCELLED'");
+                        .HasFilter("\"customerVoucherId\" IS NOT NULL AND \"usageStatus\" <> 'CANCELLED'");
 
-                    b.ToTable("VOUCHER_USAGE", (string)null);
+                    b.ToTable("VOUCHER_USAGE", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VOUCHER_USAGE_DISCOUNT_AMOUNT", "\"discountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_VOUCHER_USAGE_STATUS", "\"usageStatus\" IN ('APPLIED', 'CONFIRMED', 'CANCELLED')");
+                        });
                 });
 
             modelBuilder.Entity("CinemaSystem.Domain.Entities.AuditLog", b =>

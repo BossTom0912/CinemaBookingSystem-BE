@@ -1,0 +1,49 @@
+name: PostgreSQL integration
+
+on:
+  push:
+    branches:
+      - Tom/postgresql-mainlocal
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cinema_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cinema_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=cinema_test;Username=postgres;Password=postgres;Pooling=false
+      RUN_REAL_EMAIL_TESTS: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore CinemaSystem.sln
+
+      - name: Build
+        run: dotnet build CinemaSystem.sln --configuration Release --no-restore -m:1
+
+      - name: Test application and PostgreSQL migrations
+        run: dotnet test CinemaSystem.sln --configuration Release --no-build --no-restore -m:1

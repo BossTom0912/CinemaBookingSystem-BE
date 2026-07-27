@@ -40,12 +40,14 @@ agents discover them there automatically.
 
 ## Database
 
+- [`database/postgresql-staging-test-guide.md`](database/postgresql-staging-test-guide.md):
+  required clone, migration, and smoke-test procedure before deploying this
+  PostgreSQL branch. It explicitly protects the production database.
 - [`database/cinema-booking-schema.sql`](database/cinema-booking-schema.sql):
-  **single canonical schema script**. It drops and recreates the database,
-  then creates the complete schema and standard seed data. Use only for a
-  new/local database whose existing data may be deleted.
-- Do not apply standalone feature schema patches. Their supported contents are
-  consolidated into the single canonical schema script above.
+  legacy SQL Server reset script. Do not run it against PostgreSQL, staging,
+  or production.
+- For PostgreSQL deployments, apply the reviewed EF migrations to a staging
+  clone first; do not use the legacy reset script as a deployment mechanism.
 - Development fixtures are kept as rerunnable `.txt` scripts rather than schema
   files: `dev-seed-admin-manager-staff.txt`,
   `dev-seed-paid-ticket-ready-to-scan.txt`, and
@@ -53,9 +55,9 @@ agents discover them there automatically.
 - [`database/dev-seed-voucher-compensation-flow.txt`](database/dev-seed-voucher-compensation-flow.txt):
   three rerunnable future showtimes (2D, IMAX and VIP) for the complete
   Customer booking/payment -> Admin cancellation -> compensation voucher test.
-- [`database/SCRUM-198-ticket-scan-db-changes.md`](database/SCRUM-198-ticket-scan-db-changes.md):
+- [`reports/SCRUM-198-ticket-scan-db-changes.md`](reports/SCRUM-198-ticket-scan-db-changes.md):
   team handoff and deployment notes for ticket-scan actor auditing.
-- [`database/SCRUM-193-customer-assisted-refund-db-changes.md`](database/SCRUM-193-customer-assisted-refund-db-changes.md):
+- [`reports/SCRUM-193-customer-assisted-refund-db-changes.md`](reports/SCRUM-193-customer-assisted-refund-db-changes.md):
   team handoff for the customer-assisted/manual refund schema.
 
 ## Testing
@@ -65,22 +67,9 @@ agents discover them there automatically.
 - [`testing/sepay-webhook-test-notes.md`](testing/sepay-webhook-test-notes.md)
 - [`testing/manual-refund-api-test-guide.md`](testing/manual-refund-api-test-guide.md)
 
-## Historical Reports
+## Consolidated Reports and SQL Handoff
 
-Files under [`reports`](reports) describe completed implementation work. They
-are retained for traceability but are not authoritative specifications.
-
-- [`reports/customer-flow-movie-view-booking.md`](reports/customer-flow-movie-view-booking.md)
-- [`reports/forgot-password-implementation.md`](reports/forgot-password-implementation.md)
-- [`reports/scrum-157-checkout-implementation-plan.md`](reports/scrum-157-checkout-implementation-plan.md)
-- [`reports/sprint-1-auth-implementation.md`](reports/sprint-1-auth-implementation.md)
-- [`reports/main-manager-admin-integration-test-2026-06-28.md`](reports/main-manager-admin-integration-test-2026-06-28.md):
-  merge-conflict decisions, integrated feature/database scope, and build/test
-  evidence for `main` + `MangerAndAdmin_1`.
-- [`reports/SCRUM-193-customer-assisted-refund.md`](reports/SCRUM-193-customer-assisted-refund.md)
-- [`reports/showtime-cancellation-compensation-voucher.md`](reports/showtime-cancellation-compensation-voucher.md):
-  chính sách hiện hành, API, trạng thái và hướng triển khai voucher bồi thường
-  thay cho refund khi rạp hủy suất chiếu; các báo cáo SCRUM-192/193 vẫn được giữ
-  làm lịch sử.
-- [`reports/SCRUM-198-ticket-scan.md`](reports/SCRUM-198-ticket-scan.md)
-- [`reports/MangerAndAdmin_1-admin-merge-report.md`](reports/MangerAndAdmin_1-admin-merge-report.md)
+Use [`reports/README.md`](reports/README.md) as the single entry point for the
+current `main_local` status, historical reports, database handoff notes,
+development fixtures, and the canonical SQL link. Detailed reports remain
+under `reports` for traceability and are not authoritative specifications.
