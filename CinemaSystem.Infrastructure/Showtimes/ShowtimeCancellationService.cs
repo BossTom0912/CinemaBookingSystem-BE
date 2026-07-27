@@ -519,14 +519,17 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
 
         var claimLink = claimIssue is not null
             ? $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(claimIssue.RawToken)}"
-            : null;
-        var claimExpiresFormatted = claimIssue?.Token.ExpiresAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+            : $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}";
+        var claimExpiresFormatted = claimIssue?.Token.ExpiresAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
+            ?? showtime.StartTime.AddDays(7).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
 
         var ticketCodesStr = issue is not null && issue.TicketVoucherCodes.Any()
             ? string.Join(", ", issue.TicketVoucherCodes)
             : null;
         var comboCodeStr = issue?.ComboVoucherCode;
         var voucherExpiresFormatted = issue?.ExpiresAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
+
+        var isRefundable = booking.TotalAmount > 0m;
 
         var voucherSectionHtml = issue is not null ? $"""
             <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 18px; border-radius: 10px; margin: 20px 0;'>
@@ -542,7 +545,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             </div>
             """ : "";
 
-        var refundSectionHtml = claimLink != null ? $"""
+        var refundSectionHtml = isRefundable ? $"""
             <div style='background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 10px; margin: 20px 0;'>
                 <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>KHAI BÁO THÔNG TIN NHẬN LẠI TIỀN HOÀN</h3>
                 <p style='font-size: 13px; color: #1e3a8a; margin: 0 0 12px 0;'>
@@ -573,7 +576,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             </div>
             """ : "";
 
-        var refundSectionHtmlEn = claimLink != null ? $"""
+        var refundSectionHtmlEn = isRefundable ? $"""
             <div style='background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 10px; margin: 20px 0;'>
                 <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>SUBMIT BANK INFORMATION FOR REFUND</h3>
                 <p style='font-size: 13px; color: #1e3a8a; margin: 0 0 12px 0;'>
