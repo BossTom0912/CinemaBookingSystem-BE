@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using System.Text.Json;
+using System.Text;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Common;
@@ -70,11 +70,15 @@ public class PaymentController : ControllerBase
     // POST /api/payment/sepay-webhook
     [HttpPost(ApiConstants.SepayWebhookRouteSegment)]
     public async Task<IActionResult> SepayWebhook(
-        [FromBody] JsonElement payload,
         [FromHeader(Name = "x-sepay-signature")] string? signatureHeader = null,
         [FromHeader(Name = "x-sepay-timestamp")] string? timestampHeader = null)
     {
-        var body = payload.GetRawText();
+        using var reader = new StreamReader(
+            Request.Body,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: false,
+            leaveOpen: true);
+        var body = await reader.ReadToEndAsync(HttpContext.RequestAborted);
 
         // Bước tiếp theo 1: IPaymentWebhookService -> PaymentWebhookService tại
         // Infrastructure/Services để kiểm header, parse payload và gọi

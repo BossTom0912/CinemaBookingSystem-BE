@@ -294,19 +294,25 @@ public sealed class ControllerMoqCoverageTests
     [Fact]
     public async Task Payment_SepayWebhook_ForwardsRawJsonAndHeaders()
     {
+        const string rawPayload = """
+            {
+              "content": "BKG_1",
+              "transferAmount": 100000
+            }
+            """;
         var payment = new Mock<IPaymentService>(MockBehavior.Strict);
         var webhook = new Mock<IPaymentWebhookService>(MockBehavior.Strict);
         webhook
             .Setup(x => x.HandleSepayWebhookAsync(
-                "{\"content\":\"BKG_1\",\"transferAmount\":100000}",
+                rawPayload,
                 "sig",
                 "ts",
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(ServiceResult<object>.Ok(new { paymentId = "PAY_1" }, "Payment confirmed."));
         var controller = WithHttpContext(new PaymentController(payment.Object, webhook.Object));
-        using var document = JsonDocument.Parse("""{"content":"BKG_1","transferAmount":100000}""");
+        controller.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(rawPayload));
 
-        var result = await controller.SepayWebhook(document.RootElement, "sig", "ts");
+        var result = await controller.SepayWebhook("sig", "ts");
 
         var response = AssertApiResponse<object>(result, StatusCodes.Status200OK, true);
         Assert.Equal("Payment confirmed.", response.Message);
@@ -321,7 +327,7 @@ public sealed class ControllerMoqCoverageTests
         var webhook = new Mock<IPaymentWebhookService>(MockBehavior.Strict);
         webhook
             .Setup(x => x.HandleSepayWebhookAsync(
-                It.IsAny<string>(),
+                "",
                 null,
                 null,
                 It.IsAny<CancellationToken>()))
@@ -330,9 +336,8 @@ public sealed class ControllerMoqCoverageTests
                 "Invalid signature.",
                 "INVALID_SIGNATURE"));
         var controller = WithHttpContext(new PaymentController(payment.Object, webhook.Object));
-        using var document = JsonDocument.Parse("""{"content":"BKG_1"}""");
 
-        var result = await controller.SepayWebhook(document.RootElement);
+        var result = await controller.SepayWebhook();
 
         var response = AssertApiResponse<object>(result, StatusCodes.Status401Unauthorized, false);
         Assert.Equal("INVALID_SIGNATURE", response.ErrorCode);
