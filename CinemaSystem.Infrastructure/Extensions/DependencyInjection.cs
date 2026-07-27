@@ -224,10 +224,17 @@ public static class DependencyInjection
                 "Missing connection string 'DefaultConnection'. Add 'ConnectionStrings: { \"DefaultConnection\": \"...\" }' to appsettings.json or appsettings.{Environment}.json in the CinemaSystem project.");
         }
 
+        var connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder(defaultConnection)
+        {
+            SslMode = Npgsql.SslMode.Require,
+            TrustServerCertificate = true
+        };
+        var enforcedConnection = connectionBuilder.ConnectionString;
+
         services.AddDbContext<CinemaDbContext>(options =>
         {
             options.UseNpgsql(
-                defaultConnection,
+                enforcedConnection,
                 postgresOptions =>
                 {
                     postgresOptions.EnableRetryOnFailure(
