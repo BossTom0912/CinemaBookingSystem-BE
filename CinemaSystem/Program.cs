@@ -212,13 +212,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             OnMessageReceived = context =>
             {
-                var accessToken = context.Request.Query["access_token"];
+                var rawToken = context.Request.Query["access_token"].ToString().Trim();
                 var path = context.HttpContext.Request.Path;
 
-                if (!string.IsNullOrEmpty(accessToken) &&
-                    path.StartsWithSegments("/hubs/ticket"))
+                if (!string.IsNullOrEmpty(rawToken) &&
+                    (path.StartsWithSegments("/hubs/ticket") || path.StartsWithSegments("/hubs")))
                 {
-                    context.Token = accessToken;
+                    if (rawToken.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rawToken = rawToken.Substring(7).Trim();
+                    }
+                    context.Token = rawToken;
                 }
 
                 return Task.CompletedTask;
