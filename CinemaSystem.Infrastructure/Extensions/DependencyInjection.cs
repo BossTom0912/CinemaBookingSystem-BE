@@ -426,7 +426,16 @@ public static class DependencyInjection
                 "Gemini API base URL must be absolute.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.Model), "Gemini model is required.")
             .Validate(options => options.ContextMovieLimit > 0, "Gemini movie-context limit must be positive.");
-        services.AddScoped<IChatbotService, GeminiChatbotService>();
+        services.AddOptions<ChatbotSettings>()
+            .Configure(options =>
+            {
+                options.ExposePublicVouchers = ReadBool(
+                    configuration[$"{ChatbotSettings.SectionName}:ExposePublicVouchers"],
+                    options.ExposePublicVouchers);
+            });
+        services.AddScoped<IVoucherAccessPolicy, VoucherAccessPolicy>();
+        services.AddScoped<IChatbotVoucherContextProvider, ChatbotVoucherContextProvider>();
+        services.AddHttpClient<IChatbotService, GeminiChatbotService>();
         services.AddScoped<IAiEmailService, GeminiAiEmailService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAiModerationService, GeminiModerationService>();

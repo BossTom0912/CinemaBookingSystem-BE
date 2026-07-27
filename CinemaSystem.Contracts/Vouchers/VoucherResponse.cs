@@ -1,4 +1,5 @@
 using System;
+using CinemaSystem.Domain.Constants;
 
 namespace CinemaSystem.Contracts.Vouchers;
 
@@ -34,11 +35,11 @@ public sealed class VoucherResponse
 
     public string VoucherStatus { get; init; } = string.Empty;
 
-    public string Category { get; init; } = "EVENT";
+    public string Category { get; init; } = DomainConstants.VoucherCategory.Event;
 
-    public string ApplicableScope { get; init; } = "TOTAL_ORDER";
+    public string ApplicableScope { get; init; } = DomainConstants.VoucherScope.TotalOrder;
 
-    public string TargetType { get; init; } = "ALL_CUSTOMERS";
+    public string TargetType { get; init; } = DomainConstants.VoucherTargetType.AllCustomers;
 
     public string? TargetCustomerIds { get; init; }
 
