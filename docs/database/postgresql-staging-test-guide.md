@@ -81,17 +81,24 @@ psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT event_object_table, trigger_name, e
 psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT COUNT(*) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = current_schema() AND c.contype = ''c'' AND c.convalidated;'
 ```
 
-The migration history must include all five:
+The migration history must include all six:
 
 - `20260726135020_InitialPostgresBaseline`
 - `20260726135102_ConfigurePostgresRowVersionConcurrency`
 - `20260726140854_ReconcilePostgresData`
 - `20260726142719_ConfigurePostgresCheckConstraints`
 - `20260726144437_AddVoucherShowtimeIdAndRoomIdPostgres`
+- `20260727165408_SeedBankDirectory`
 
 An upgraded production clone may also retain older provider-migration history
-rows. Do not require exactly five total rows; require that all five PostgreSQL
+rows. Do not require exactly six total rows; require that all six PostgreSQL
 migrations above are present in order.
+
+The active bank directory must include the five supported refund bank codes:
+
+```powershell
+psql $env:CINEMA_STAGING_POSTGRES -c 'SELECT "bankCode", "bankBin", "shortName", "isActive" FROM "BANK_DIRECTORY" WHERE "bankCode" IN (''VCB'', ''MB'', ''TCB'', ''BIDV'', ''CTG'') ORDER BY "bankCode";'
+```
 
 The final query must show `bytea` for each existing `rowVersion` column. There
 must also be five `TR_*_ROW_VERSION` triggers covering INSERT and UPDATE on

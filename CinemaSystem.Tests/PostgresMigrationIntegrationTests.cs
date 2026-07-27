@@ -23,8 +23,24 @@ public sealed class PostgresMigrationIntegrationTests
               AND table_type = 'BASE TABLE'
               AND table_name <> '__EFMigrationsHistory';
             """));
-        Assert.Equal(5, await database.ScalarAsync<int>(
+        Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
+        Assert.Equal(5, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM "BANK_DIRECTORY"
+            WHERE "isActive"
+              AND "bankCode" IN ('VCB', 'MB', 'TCB', 'BIDV', 'CTG');
+            """));
+        Assert.Equal(1, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM "BANK_DIRECTORY"
+            WHERE "bankCode" = 'MB'
+              AND "bankBin" = '970422'
+              AND "shortName" = 'MB Bank'
+              AND "isActive";
+            """));
         Assert.Equal(70, await database.ScalarAsync<int>(
             """
             SELECT count(*)::integer
@@ -70,7 +86,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(5, await database.ScalarAsync<int>(
+        Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(1, await database.ScalarAsync<int>(
             """
@@ -100,7 +116,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(5, await database.ScalarAsync<int>(
+        Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(2, await database.ScalarAsync<int>(
             """
@@ -130,6 +146,44 @@ public sealed class PostgresMigrationIntegrationTests
             FROM information_schema.triggers
             WHERE trigger_schema = current_schema()
               AND trigger_name LIKE 'TR_%_ROW_VERSION';
+            """));
+    }
+
+    [PostgresFact]
+    public async Task SeedBankDirectory_RerunRestoresMissingAndInactiveBanks()
+    {
+        await using var database = await PostgresTestSchema.CreateAsync();
+        await database.MigrateAsync();
+        await database.ExecuteAsync(
+            """
+            DELETE FROM "BANK_DIRECTORY"
+            WHERE "bankCode" = 'MB';
+
+            UPDATE "BANK_DIRECTORY"
+            SET "isActive" = false,
+                "shortName" = 'Stale name'
+            WHERE "bankCode" = 'VCB';
+
+            DELETE FROM "__EFMigrationsHistory"
+            WHERE "MigrationId" = '20260727165408_SeedBankDirectory';
+            """);
+
+        await database.MigrateAsync();
+
+        Assert.Equal(5, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM "BANK_DIRECTORY"
+            WHERE "isActive"
+              AND "bankCode" IN ('VCB', 'MB', 'TCB', 'BIDV', 'CTG');
+            """));
+        Assert.Equal(1, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM "BANK_DIRECTORY"
+            WHERE "bankCode" = 'VCB'
+              AND "shortName" = 'Vietcombank'
+              AND "isActive";
             """));
     }
 
