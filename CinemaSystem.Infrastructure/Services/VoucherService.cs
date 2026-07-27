@@ -15,8 +15,11 @@ namespace CinemaSystem.Infrastructure.Services;
 
 public sealed class VoucherService : IVoucherService
 {
+    private static readonly char[] TargetSeparators = [',', ';', ' ', '\n', '\r', '\t'];
+
     private readonly CinemaDbContext _dbContext;
     private readonly IClock _clock;
+    private readonly IVoucherAccessPolicy _voucherAccessPolicy;
     private readonly IEmailService? _emailService;
     private readonly IAiEmailService? _aiEmailService;
 
@@ -25,9 +28,25 @@ public sealed class VoucherService : IVoucherService
         IClock clock,
         IEmailService? emailService = null,
         IAiEmailService? aiEmailService = null)
+        : this(
+            dbContext,
+            clock,
+            new VoucherAccessPolicy(dbContext, clock),
+            emailService,
+            aiEmailService)
+    {
+    }
+
+    public VoucherService(
+        CinemaDbContext dbContext,
+        IClock clock,
+        IVoucherAccessPolicy voucherAccessPolicy,
+        IEmailService? emailService = null,
+        IAiEmailService? aiEmailService = null)
     {
         _dbContext = dbContext;
         _clock = clock;
+        _voucherAccessPolicy = voucherAccessPolicy;
         _emailService = emailService;
         _aiEmailService = aiEmailService;
     }
@@ -77,6 +96,7 @@ public sealed class VoucherService : IVoucherService
             RequiredTicketCount = request.RequiredTicketCount
         };
 
+        var audienceDerivedFromScope = false;
         if (string.IsNullOrWhiteSpace(voucher.TargetCustomerIds)
             && (!string.IsNullOrWhiteSpace(voucher.ShowtimeId) || !string.IsNullOrWhiteSpace(voucher.RoomId)))
         {
@@ -84,7 +104,46 @@ public sealed class VoucherService : IVoucherService
             if (userIdsResult.Success && userIdsResult.Data != null && userIdsResult.Data.Count > 0)
             {
                 voucher.TargetCustomerIds = string.Join(",", userIdsResult.Data);
+                audienceDerivedFromScope = true;
             }
+        }
+
+        if (audienceDerivedFromScope)
+        {
+            voucher.TargetType = DomainConstants.VoucherTargetType.SpecificCustomers;
+            voucher.IsPrivate = true;
+        }
+
+        voucher.TargetCustomerIds = NormalizeOptionalValue(voucher.TargetCustomerIds);
+        if (string.Equals(
+                voucher.TargetType,
+                DomainConstants.VoucherTargetType.SpecificCustomers,
+                StringComparison.OrdinalIgnoreCase)
+            || voucher.TargetCustomerIds != null)
+        {
+            var targetProfiles = await ResolveTargetCustomerProfilesAsync(
+                voucher.TargetCustomerIds,
+                cancellationToken);
+            if (targetProfiles.Count == 0)
+            {
+                return ServiceResult<VoucherResponse>.Fail(
+                    400,
+                    "A specific-customer voucher must have at least one valid customer.",
+                    "VOUCHER_TARGET_REQUIRED");
+            }
+
+            voucher.TargetCustomerIds = string.Join(
+                ",",
+                targetProfiles.Select(profile => profile.CustomerProfileId));
+        }
+
+        var configurationValidation = _voucherAccessPolicy.ValidateConfiguration(voucher);
+        if (!configurationValidation.IsValid)
+        {
+            return ServiceResult<VoucherResponse>.Fail(
+                400,
+                configurationValidation.Message!,
+                configurationValidation.ErrorCode!);
         }
 
         _dbContext.Vouchers.Add(voucher);
@@ -187,6 +246,11 @@ public sealed class VoucherService : IVoucherService
         voucher.IsPrivate = request.IsPrivate;
         voucher.RequiredTicketCount = request.RequiredTicketCount;
 
+        voucher.TargetType = string.IsNullOrWhiteSpace(voucher.TargetType)
+            ? DomainConstants.VoucherTargetType.AllCustomers
+            : voucher.TargetType.Trim().ToUpperInvariant();
+
+        var audienceDerivedFromScope = false;
         if (string.IsNullOrWhiteSpace(voucher.TargetCustomerIds)
             && (!string.IsNullOrWhiteSpace(voucher.ShowtimeId) || !string.IsNullOrWhiteSpace(voucher.RoomId)))
         {
@@ -194,10 +258,54 @@ public sealed class VoucherService : IVoucherService
             if (userIdsResult.Success && userIdsResult.Data != null && userIdsResult.Data.Count > 0)
             {
                 voucher.TargetCustomerIds = string.Join(",", userIdsResult.Data);
+                audienceDerivedFromScope = true;
             }
         }
 
-        if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase)
+        if (audienceDerivedFromScope)
+        {
+            voucher.TargetType = DomainConstants.VoucherTargetType.SpecificCustomers;
+            voucher.IsPrivate = true;
+        }
+
+        voucher.TargetCustomerIds = NormalizeOptionalValue(voucher.TargetCustomerIds);
+        if (string.Equals(
+                voucher.TargetType,
+                DomainConstants.VoucherTargetType.SpecificCustomers,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(voucher.TargetCustomerIds))
+        {
+            var targetProfiles = await ResolveTargetCustomerProfilesAsync(
+                voucher.TargetCustomerIds,
+                cancellationToken);
+            if (targetProfiles.Count == 0)
+            {
+                RestoreOriginalValues(voucher);
+                return ServiceResult<VoucherResponse>.Fail(
+                    400,
+                    "A specific-customer voucher must have at least one valid customer.",
+                    "VOUCHER_TARGET_REQUIRED");
+            }
+
+            voucher.TargetCustomerIds = string.Join(
+                ",",
+                targetProfiles.Select(profile => profile.CustomerProfileId));
+        }
+
+        var configurationValidation = _voucherAccessPolicy.ValidateConfiguration(voucher);
+        if (!configurationValidation.IsValid)
+        {
+            RestoreOriginalValues(voucher);
+            return ServiceResult<VoucherResponse>.Fail(
+                400,
+                configurationValidation.Message!,
+                configurationValidation.ErrorCode!);
+        }
+
+        if (string.Equals(
+                voucher.TargetType,
+                DomainConstants.VoucherTargetType.SpecificCustomers,
+                StringComparison.OrdinalIgnoreCase)
             || !string.IsNullOrWhiteSpace(voucher.TargetCustomerIds))
         {
             await AssignAndNotifyTargetCustomersAsync(voucher, voucher.TargetCustomerIds, cancellationToken);
@@ -332,21 +440,21 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<VoucherValidationResult>.Fail(400, "Voucher global usage limit has been reached.", BookingConstants.ErrorCodes.VoucherUsageLimitReached);
         }
 
-        // 5. Check Customer Limit & Target Type
+        // 5. Enforce the same ownership policy used by claim and booking.
+        if (!await _voucherAccessPolicy.CanCustomerUseAsync(
+                voucher,
+                customerProfileId,
+                cancellationToken))
+        {
+            return ServiceResult<VoucherValidationResult>.Fail(
+                403,
+                "Voucher này không dành cho tài khoản của bạn.",
+                "VOUCHER_NOT_TARGETED");
+        }
+
+        // 6. Check Customer Limit
         if (!string.IsNullOrEmpty(customerProfileId))
         {
-            if (string.Equals(voucher.TargetType, "SPECIFIC_CUSTOMERS", StringComparison.OrdinalIgnoreCase))
-            {
-                var isClaimed = await _dbContext.CustomerVouchers
-                    .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == customerProfileId, cancellationToken);
-                var isExplicitlyTargeted = !string.IsNullOrEmpty(voucher.TargetCustomerIds) && voucher.TargetCustomerIds.Contains(customerProfileId, StringComparison.OrdinalIgnoreCase);
-
-                if (!isClaimed && !isExplicitlyTargeted)
-                {
-                    return ServiceResult<VoucherValidationResult>.Fail(403, "Voucher này không dành cho tài khoản của bạn.", "VOUCHER_NOT_TARGETED");
-                }
-            }
-
             var customerUsagesCount = await _dbContext.VoucherUsages
                 .CountAsync(vu => vu.VoucherId == voucher.VoucherId 
                     && vu.CustomerProfileId == customerProfileId 
@@ -381,13 +489,10 @@ public sealed class VoucherService : IVoucherService
     public async Task<ServiceResult<IReadOnlyList<VoucherResponse>>> GetActiveVouchersForCustomerAsync(
         CancellationToken cancellationToken)
     {
-        var now = _clock.UtcNow;
+        var publicDisclosurePredicate =
+            _voucherAccessPolicy.GetPublicDisclosurePredicate(_clock.UtcNow);
         var activeVouchers = await _dbContext.Vouchers.AsNoTracking()
-            .Where(v => v.VoucherStatus == DomainConstants.VoucherStatus.Active
-                && !v.IsPrivate
-                && v.StartDate <= now
-                && v.EndDate >= now
-                && v.UsedCount < v.UsageLimit)
+            .Where(publicDisclosurePredicate)
             .ToListAsync(cancellationToken);
 
         var responseList = activeVouchers.Select(MapToResponse).ToList();
@@ -430,8 +535,29 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<bool>.Fail(400, "Voucher global usage limit has been reached.", "VOUCHER_USAGE_LIMIT_REACHED");
         }
 
+        if (!await _voucherAccessPolicy.CanCustomerClaimAsync(
+                voucher,
+                customerProfile.CustomerProfileId,
+                cancellationToken))
+        {
+            return ServiceResult<bool>.Fail(
+                403,
+                "Voucher này không dành cho tài khoản của bạn.",
+                "VOUCHER_NOT_TARGETED");
+        }
+
         var claimCount = await _dbContext.CustomerVouchers
             .CountAsync(cv => cv.VoucherId == voucherId && cv.CustomerProfileId == customerProfile.CustomerProfileId, cancellationToken);
+
+        if (claimCount > 0
+            && (voucher.IsPrivate
+                || string.Equals(
+                    voucher.TargetType,
+                    DomainConstants.VoucherTargetType.SpecificCustomers,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return ServiceResult<bool>.Ok(true, "Voucher is already available in your wallet.");
+        }
 
         if (voucher.PerCustomerLimit.HasValue && claimCount >= voucher.PerCustomerLimit.Value)
         {
@@ -568,6 +694,35 @@ public sealed class VoucherService : IVoucherService
             return ServiceResult<int>.Fail(404, "Voucher not found.", "VOUCHER_NOT_FOUND");
         }
 
+        if (!voucher.IsPrivate
+            || !string.Equals(
+                voucher.Category,
+                DomainConstants.VoucherCategory.Compensation,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<int>.Fail(
+                400,
+                "Compensation vouchers must use the COMPENSATION category and be private.",
+                "INVALID_COMPENSATION_VOUCHER");
+        }
+
+        var targetProfiles = await ResolveTargetCustomerProfilesAsync(
+            string.Join(",", request.CustomerProfileIds),
+            cancellationToken);
+        if (targetProfiles.Count == 0)
+        {
+            return ServiceResult<int>.Fail(
+                400,
+                "At least one valid compensation customer is required.",
+                "VOUCHER_TARGET_REQUIRED");
+        }
+
+        voucher.TargetType = DomainConstants.VoucherTargetType.SpecificCustomers;
+        var configuredTargets = ParseTargetIdentifiers(voucher.TargetCustomerIds);
+        configuredTargets.UnionWith(
+            targetProfiles.Select(profile => profile.CustomerProfileId));
+        voucher.TargetCustomerIds = string.Join(",", configuredTargets);
+
         var now = _clock.UtcNow;
 
         string discountText;
@@ -590,14 +745,8 @@ public sealed class VoucherService : IVoucherService
         var notifMessage = $"Bạn vừa được nhận voucher đền bù '{voucherTitle}': Mã [{voucher.VoucherCode}] - {discountText}. Hạn dùng {dateRangeText}. {(string.IsNullOrWhiteSpace(voucher.Description) ? "" : voucher.Description)}";
 
         int count = 0;
-        foreach (var customerId in request.CustomerProfileIds.Distinct())
+        foreach (var profile in targetProfiles)
         {
-            var profile = await _dbContext.CustomerProfiles
-                .Include(cp => cp.User)
-                .FirstOrDefaultAsync(cp => cp.CustomerProfileId == customerId || cp.UserId == customerId, cancellationToken);
-
-            if (profile == null) continue;
-
             var exists = await _dbContext.CustomerVouchers
                 .AnyAsync(cv => cv.VoucherId == voucher.VoucherId && cv.CustomerProfileId == profile.CustomerProfileId, cancellationToken);
             if (!exists)
@@ -645,34 +794,57 @@ public sealed class VoucherService : IVoucherService
         return ServiceResult<int>.Ok(count, $"Successfully issued compensation voucher to {count} customers.");
     }
 
+    private async Task<List<CustomerProfile>> ResolveTargetCustomerProfilesAsync(
+        string? targetCustomerIds,
+        CancellationToken cancellationToken)
+    {
+        var rawIds = ParseTargetIdentifiers(targetCustomerIds);
+        if (rawIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.CustomerProfiles
+            .Include(profile => profile.User)
+            .Where(profile =>
+                rawIds.Contains(profile.CustomerProfileId)
+                || rawIds.Contains(profile.UserId)
+                || (profile.User != null && rawIds.Contains(profile.User.Email)))
+            .ToListAsync(cancellationToken);
+    }
+
+    private static HashSet<string> ParseTargetIdentifiers(string? targetCustomerIds)
+    {
+        if (string.IsNullOrWhiteSpace(targetCustomerIds))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return targetCustomerIds
+            .Split(TargetSeparators, StringSplitOptions.RemoveEmptyEntries)
+            .Select(identifier => identifier.Trim())
+            .Where(identifier => identifier.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeOptionalValue(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private void RestoreOriginalValues(Voucher voucher)
+    {
+        var entry = _dbContext.Entry(voucher);
+        entry.CurrentValues.SetValues(entry.OriginalValues);
+        entry.State = EntityState.Unchanged;
+    }
+
     private async Task AssignAndNotifyTargetCustomersAsync(
         Voucher voucher,
         string? targetCustomerIds,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(targetCustomerIds))
-        {
-            return;
-        }
-
-        var rawIds = targetCustomerIds
-            .Split(new[] { ',', ';', ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(id => id.Trim())
-            .Where(id => !string.IsNullOrEmpty(id))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (rawIds.Count == 0)
-        {
-            return;
-        }
-
-        var customerProfiles = await _dbContext.CustomerProfiles
-            .Include(cp => cp.User)
-            .Where(cp => rawIds.Contains(cp.CustomerProfileId)
-                || rawIds.Contains(cp.UserId)
-                || (cp.User != null && rawIds.Contains(cp.User.Email)))
-            .ToListAsync(cancellationToken);
+        var customerProfiles = await ResolveTargetCustomerProfilesAsync(
+            targetCustomerIds,
+            cancellationToken);
 
         if (customerProfiles.Count == 0)
         {
@@ -904,9 +1076,9 @@ public sealed class VoucherService : IVoucherService
             StartDate = voucher.StartDate,
             EndDate = voucher.EndDate,
             VoucherStatus = voucher.VoucherStatus,
-            Category = voucher.Category ?? "EVENT",
-            ApplicableScope = voucher.ApplicableScope ?? "TOTAL_ORDER",
-            TargetType = voucher.TargetType ?? "ALL_CUSTOMERS",
+            Category = voucher.Category ?? DomainConstants.VoucherCategory.Event,
+            ApplicableScope = voucher.ApplicableScope ?? DomainConstants.VoucherScope.TotalOrder,
+            TargetType = voucher.TargetType ?? DomainConstants.VoucherTargetType.AllCustomers,
             TargetCustomerIds = voucher.TargetCustomerIds,
             SpecificFbItemIds = voucher.SpecificFbItemIds,
             ShowtimeId = voucher.ShowtimeId,

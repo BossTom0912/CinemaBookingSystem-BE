@@ -134,7 +134,8 @@ public sealed class VoucherServiceTests
             MaxDiscountAmount = 20000m,
             StartDate = now.AddDays(-1),
             EndDate = now.AddDays(1),
-            VoucherStatus = DomainConstants.VoucherStatus.Active
+            VoucherStatus = DomainConstants.VoucherStatus.Active,
+            TargetType = DomainConstants.VoucherTargetType.AllCustomers
         });
         await db.SaveChangesAsync();
 
@@ -346,7 +347,8 @@ public sealed class VoucherServiceTests
                 StartDate = now.AddDays(-1),
                 EndDate = now.AddDays(2),
                 VoucherStatus = DomainConstants.VoucherStatus.Active,
-                IsPrivate = false
+                IsPrivate = false,
+                TargetType = DomainConstants.VoucherTargetType.AllCustomers
             },
             new Voucher
             {
@@ -524,7 +526,11 @@ public sealed class VoucherServiceTests
             UsageLimit = 100,
             StartDate = DateTime.UtcNow.AddDays(-1),
             EndDate = DateTime.UtcNow.AddDays(5),
-            VoucherStatus = DomainConstants.VoucherStatus.Active
+            VoucherStatus = DomainConstants.VoucherStatus.Active,
+            Category = DomainConstants.VoucherCategory.Compensation,
+            TargetType = DomainConstants.VoucherTargetType.SpecificCustomers,
+            TargetCustomerIds = "CUS_11",
+            IsPrivate = true
         };
         db.Vouchers.Add(voucher);
         await db.SaveChangesAsync();
@@ -688,6 +694,6 @@ public sealed class VoucherServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal("SHOWTIME_100", result.Data.ShowtimeId);
         Assert.Equal("ROOM_5", result.Data.RoomId);
-        Assert.Contains("USR_SHOWTIME_1", result.Data.TargetCustomerIds);
+        Assert.Contains("CUS_SHOWTIME_1", result.Data.TargetCustomerIds);
     }
 }

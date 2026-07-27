@@ -276,6 +276,7 @@ public sealed class ShowtimeCancellationCompensationE2ETests
             PerCustomerLimit = 1,
             StartDate = clock.UtcNow.AddDays(-1),
             EndDate = clock.UtcNow.AddDays(30),
+            Category = DomainConstants.VoucherCategory.Compensation,
             IsPrivate = true,
             TargetType = "SPECIFIC_CUSTOMERS",
             TargetCustomerIds = TargetCustomerProfileId
@@ -374,6 +375,7 @@ public sealed class ShowtimeCancellationCompensationE2ETests
             PerCustomerLimit = 1,
             StartDate = clock.UtcNow.AddDays(-1),
             EndDate = clock.UtcNow.AddDays(30),
+            Category = DomainConstants.VoucherCategory.Compensation,
             IsPrivate = true,
             TargetType = "SPECIFIC_CUSTOMERS",
             TargetCustomerIds = TargetCustomerProfileId
