@@ -37,6 +37,19 @@ public sealed class FbItemService : IFbItemService
         };
 
         _dbContext.FbItems.Add(fbItem);
+
+        var cinemaIds = await _dbContext.Cinemas.AsNoTracking().Select(c => c.CinemaId).ToListAsync(cancellationToken);
+        foreach (var cId in cinemaIds)
+        {
+            _dbContext.CinemaFbInventories.Add(new CinemaFbInventory
+            {
+                CinemaInventoryId = $"CFI_{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+                CinemaId = cId,
+                FbItemId = itemId,
+                Quantity = 0
+            });
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         var response = MapToResponse(fbItem);
@@ -257,39 +270,19 @@ public sealed class FbItemService : IFbItemService
                             return ServiceResult<FbFulfillmentResponse>.Fail(404, $"F&B item '{itemId}' is unavailable.", FbConstants.ErrorCodes.ItemUnavailable);
                         }
 
-                        if (_dbContext.Database.IsRelational())
+                        var inventory = await _dbContext.CinemaFbInventories
+                            .FirstOrDefaultAsync(x => x.CinemaId == cinemaId && x.FbItemId == itemId, cancellationToken);
+
+                        if (inventory == null || inventory.Quantity < itemReq.Quantity)
                         {
-                            // Pure SQL Atomic Update to prevent concurrency overselling
-                            int rowsAffected = await _dbContext.Database.ExecuteSqlRawAsync(
-                                "UPDATE CINEMA_FB_INVENTORY SET quantity = quantity - {0} WHERE cinemaId = {1} AND fbItemId = {2} AND quantity >= {3}",
-                                new object[] { itemReq.Quantity, cinemaId, itemId, itemReq.Quantity },
-                                cancellationToken);
-
-                            if (rowsAffected == 0)
-                            {
-                                if (transaction != null) await transaction.RollbackAsync(cancellationToken);
-                                return ServiceResult<FbFulfillmentResponse>.Fail(
-                                    409,
-                                    $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
-                                    FbConstants.ErrorCodes.InsufficientStock);
-                            }
+                            if (transaction != null) await transaction.RollbackAsync(cancellationToken);
+                            return ServiceResult<FbFulfillmentResponse>.Fail(
+                                409,
+                                $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
+                                FbConstants.ErrorCodes.InsufficientStock);
                         }
-                        else
-                        {
-                            var inventory = await _dbContext.CinemaFbInventories
-                                .FirstOrDefaultAsync(x => x.CinemaId == cinemaId && x.FbItemId == itemId, cancellationToken);
 
-                            if (inventory == null || inventory.Quantity < itemReq.Quantity)
-                            {
-                                if (transaction != null) await transaction.RollbackAsync(cancellationToken);
-                                return ServiceResult<FbFulfillmentResponse>.Fail(
-                                    409,
-                                    $"Insufficient stock for item '{fbItem.ItemName}' at this cinema branch.",
-                                    FbConstants.ErrorCodes.InsufficientStock);
-                            }
-
-                            inventory.Quantity -= itemReq.Quantity;
-                        }
+                        inventory.Quantity -= itemReq.Quantity;
 
                         // Support Modifiers/Toppings/Flavors extra fees
                         decimal optionsExtraFee = itemReq.Options?.Sum(opt => opt.ExtraFee) ?? 0;
@@ -376,7 +369,7 @@ public sealed class FbItemService : IFbItemService
                                 showtimeIdToUse = await _dbContext.Showtimes
                                     .AsNoTracking()
                                     .Select(s => s.ShowtimeId)
-                                    .FirstOrDefaultAsync(cancellationToken) ?? "ST_DEFAULT";
+                                    .FirstOrDefaultAsync(cancellationToken);
                             }
                         }
 
