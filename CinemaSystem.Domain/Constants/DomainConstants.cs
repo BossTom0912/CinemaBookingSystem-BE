@@ -403,6 +403,8 @@ public static class DomainConstants
         public const string RefundClaimNotReissuable = "REFUND_CLAIM_NOT_REISSUABLE";
         public const string RefundRequestTicketForbidden = "REFUND_REQUEST_TICKET_FORBIDDEN";
         public const string BankNotSupported = "BANK_NOT_SUPPORTED";
+        public const string InvalidBankDirectoryEntry = "INVALID_BANK_DIRECTORY_ENTRY";
+        public const string BankBinDuplicate = "BANK_BIN_DUPLICATE";
         public const string BankAccountRequired = "BANK_ACCOUNT_REQUIRED";
         public const string ShowtimeIdRequired = "SHOWTIME_ID_REQUIRED";
         public const string ShowtimeNotFound = "SHOWTIME_NOT_FOUND";

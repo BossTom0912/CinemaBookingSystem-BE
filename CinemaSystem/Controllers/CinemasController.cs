@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Application.Interfaces;
 using CinemaSystem.Contracts.Cinemas;
@@ -9,13 +13,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace CinemaSystem.Controllers;
 
 /// <summary>
-/// Public cinema catalogue HTTP entry point.
+/// Cinema management & public catalogue API endpoints.
 /// </summary>
-/// <remarks>
-/// Processing continues through <see cref="ICinemaService"/> to
-/// <c>CinemaSystem.Infrastructure.Cinemas.CinemaService</c>, which reads CINEMA
-/// with <c>CinemaDbContext</c>. This controller only maps the contract response.
-/// </remarks>
 [ApiController]
 [Route("api/cinemas")]
 public sealed class CinemasController : ControllerBase
@@ -27,17 +26,59 @@ public sealed class CinemasController : ControllerBase
         _cinemaService = cinemaService ?? throw new ArgumentNullException(nameof(cinemaService));
     }
 
+    /// <summary>
+    /// Danh sách tất cả rạp chiếu (Public).
+    /// </summary>
     [HttpGet]
     [AllowAnonymous]
     public async Task<IActionResult> GetCinemas(CancellationToken cancellationToken)
     {
-        // Bước tiếp theo: ICinemaService được DI map sang CinemaService tại
-        // CinemaSystem.Infrastructure/Cinemas/CinemaService.cs để query CINEMA
-        // và project sang Contracts DTO; Controller không phụ thuộc EF Core.
         var result = await _cinemaService.GetCinemasAsync(cancellationToken);
+        return ToActionResult(result.MapDataTo<IReadOnlyList<CinemaResponse>, IReadOnlyList<CinemaResponse>>());
+    }
 
-        // Contracts DTO quay lại API layer, được map sang response DTO rồi trả client.
-        return ToActionResult(result.MapDataTo<IReadOnlyList<Contracts.Cinemas.CinemaResponse>, IReadOnlyList<CinemaResponse>>());
+    /// <summary>
+    /// Lấy thông tin chi tiết một rạp chiếu theo ID (Public).
+    /// </summary>
+    [HttpGet("{id}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetCinemaById(string id, CancellationToken cancellationToken)
+    {
+        var result = await _cinemaService.GetCinemaByIdAsync(id, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    /// <summary>
+    /// Tạo rạp chiếu mới (Dành cho Admin).
+    /// </summary>
+    [HttpPost]
+    [Authorize(Roles = AuthConstants.Roles.Admin + ",admin,ROLE_ADMIN")]
+    public async Task<IActionResult> CreateCinema([FromBody] CreateCinemaRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _cinemaService.CreateCinemaAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    /// <summary>
+    /// Cập nhật thông tin rạp chiếu (Dành cho Admin).
+    /// </summary>
+    [HttpPut("{id}")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + ",admin,ROLE_ADMIN")]
+    public async Task<IActionResult> UpdateCinema(string id, [FromBody] UpdateCinemaRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _cinemaService.UpdateCinemaAsync(id, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    /// <summary>
+    /// Xóa hoặc Tạm dừng rạp chiếu (Dành cho Admin).
+    /// </summary>
+    [HttpDelete("{id}")]
+    [Authorize(Roles = AuthConstants.Roles.Admin + ",admin,ROLE_ADMIN")]
+    public async Task<IActionResult> DeleteCinema(string id, CancellationToken cancellationToken)
+    {
+        var result = await _cinemaService.DeleteCinemaAsync(id, cancellationToken);
+        return ToActionResult(result);
     }
 
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)

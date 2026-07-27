@@ -20,6 +20,9 @@ public static class RefundContractConstants
     public const int ClaimTokenMaxLength = 500;
 
     public const int BankCodeMaxLength = 20;
+    public const int BankBinMaxLength = 20;
+    public const int BankShortNameMaxLength = 100;
+    public const int BankFullNameMaxLength = 255;
     public const int AccountNumberMinLength = 6;
     public const int AccountNumberMaxLength = 20;
     public const string AccountNumberPattern = @"^[0-9]{6,20}$";

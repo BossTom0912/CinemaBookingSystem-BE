@@ -23,8 +23,10 @@ public sealed class PostgresMigrationIntegrationTests
               AND table_type = 'BASE TABLE'
               AND table_name <> '__EFMigrationsHistory';
             """));
-        Assert.Equal(5, await database.ScalarAsync<int>(
+        Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
+        Assert.Equal(0, await database.ScalarAsync<int>(
+            "SELECT count(*)::integer FROM \"BANK_DIRECTORY\";"));
         Assert.Equal(70, await database.ScalarAsync<int>(
             """
             SELECT count(*)::integer
@@ -70,7 +72,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(5, await database.ScalarAsync<int>(
+        Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(1, await database.ScalarAsync<int>(
             """
@@ -100,7 +102,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(5, await database.ScalarAsync<int>(
+        Assert.Equal(6, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(2, await database.ScalarAsync<int>(
             """
@@ -130,6 +132,48 @@ public sealed class PostgresMigrationIntegrationTests
             FROM information_schema.triggers
             WHERE trigger_schema = current_schema()
               AND trigger_name LIKE 'TR_%_ROW_VERSION';
+            """));
+    }
+
+    [PostgresFact]
+    public async Task SeedBankDirectory_MigrationDoesNotInjectReferenceData()
+    {
+        await using var database = await PostgresTestSchema.CreateAsync();
+        await database.MigrateAsync();
+        await database.ExecuteAsync(
+            """
+            INSERT INTO "BANK_DIRECTORY" (
+                "bankCode",
+                "bankBin",
+                "shortName",
+                "fullName",
+                "isActive",
+                "supportsAccountInquiry",
+                "supportsPayout",
+                "createdAt")
+            VALUES (
+                'CONFIGURED_BANK',
+                'CONFIGURED_BIN',
+                'Configured bank',
+                'Configured bank from database',
+                true,
+                false,
+                false,
+                CURRENT_TIMESTAMP);
+
+            DELETE FROM "__EFMigrationsHistory"
+            WHERE "MigrationId" = '20260727165408_SeedBankDirectory';
+            """);
+
+        await database.MigrateAsync();
+
+        Assert.Equal(1, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM "BANK_DIRECTORY"
+            WHERE "bankCode" = 'CONFIGURED_BANK'
+              AND "shortName" = 'Configured bank'
+              AND "isActive";
             """));
     }
 

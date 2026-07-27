@@ -72,17 +72,28 @@ public static class DependencyInjection
         services.AddOptions<EmailSettings>()
             .Configure(options =>
             {
+                options.Provider = ReadString(
+                    configuration[$"{EmailSettings.SectionName}:Provider"],
+                    options.Provider);
                 options.SmtpHost = ReadString(
                     configuration[$"{EmailSettings.SectionName}:SmtpHost"],
                     options.SmtpHost);
                 options.SmtpPort = ReadInt(
                     configuration[$"{EmailSettings.SectionName}:SmtpPort"],
                     options.SmtpPort);
+                options.SendTimeoutSeconds = ReadInt(
+                    configuration[$"{EmailSettings.SectionName}:SendTimeoutSeconds"],
+                    options.SendTimeoutSeconds);
                 options.SenderEmail = configuration[$"{EmailSettings.SectionName}:SenderEmail"] ?? string.Empty;
                 options.SenderName = ReadString(
                     configuration[$"{EmailSettings.SectionName}:SenderName"],
                     options.SenderName);
                 options.Password = configuration[$"{EmailSettings.SectionName}:Password"] ?? string.Empty;
+                options.ResendApiKey =
+                    configuration[$"{EmailSettings.SectionName}:ResendApiKey"] ?? string.Empty;
+                options.ResendApiBaseUrl = ReadString(
+                    configuration[$"{EmailSettings.SectionName}:ResendApiBaseUrl"],
+                    options.ResendApiBaseUrl);
                 options.UseMock = ReadBool(
                     configuration[$"{EmailSettings.SectionName}:UseMock"],
                     options.UseMock);
@@ -90,7 +101,29 @@ public static class DependencyInjection
                     configuration[$"{EmailSettings.SectionName}:AutoConfirmEmail"],
                     options.AutoConfirmEmail);
             })
-            .Validate(options => options.SmtpPort is > 0 and <= 65535, "SMTP port is invalid.");
+            .Validate(options => options.SmtpPort is > 0 and <= 65535, "SMTP port is invalid.")
+            .Validate(
+                options => options.SendTimeoutSeconds is > 0 and <= 300,
+                "Email send timeout must be between 1 and 300 seconds.")
+            .Validate(
+                options => options.UseMock || options.UsesSmtp || options.UsesResend,
+                "EmailSettings:Provider must be either Smtp or Resend.")
+            .Validate(
+                options => options.UseMock || !string.IsNullOrWhiteSpace(options.SenderEmail),
+                "EmailSettings:SenderEmail must be configured when mock email is disabled.")
+            .Validate(
+                options => options.UseMock || !options.UsesSmtp || !string.IsNullOrWhiteSpace(options.Password),
+                "EmailSettings:Password must be configured when SMTP email is enabled.")
+            .Validate(
+                options => options.UseMock || !options.UsesResend ||
+                    !string.IsNullOrWhiteSpace(options.ResendApiKey),
+                "EmailSettings:ResendApiKey must be configured when Resend email is enabled.")
+            .Validate(
+                options => options.UseMock || !options.UsesResend ||
+                    Uri.TryCreate(options.ResendApiBaseUrl, UriKind.Absolute, out var uri) &&
+                    uri.Scheme == Uri.UriSchemeHttps,
+                "EmailSettings:ResendApiBaseUrl must be an absolute HTTPS URL.")
+            .ValidateOnStart();
 
         services.AddOptions<BookingSettings>()
             .Configure(options =>
@@ -210,24 +243,12 @@ public static class DependencyInjection
 
         services.AddDataProtection();
 
-        // Read connection string and fail fast with clear error if missing
-        var defaultConnection = configuration.GetConnectionString("DefaultConnection");
-        if (string.IsNullOrWhiteSpace(defaultConnection))
-        {
-            // fallback: attempt to read raw configuration key
-            defaultConnection = configuration["ConnectionStrings:DefaultConnection"];
-        }
-
-        if (string.IsNullOrWhiteSpace(defaultConnection))
-        {
-            throw new InvalidOperationException(
-                "Missing connection string 'DefaultConnection'. Add 'ConnectionStrings: { \"DefaultConnection\": \"...\" }' to appsettings.json or appsettings.{Environment}.json in the CinemaSystem project.");
-        }
+        var enforcedConnection = BuildPostgresConnectionString(configuration);
 
         services.AddDbContext<CinemaDbContext>(options =>
         {
             options.UseNpgsql(
-                defaultConnection,
+                enforcedConnection,
                 postgresOptions =>
                 {
                     postgresOptions.EnableRetryOnFailure(
@@ -266,6 +287,7 @@ public static class DependencyInjection
         services.AddScoped<IShowtimeCancellationService, ShowtimeCancellationService>();
         services.AddScoped<IRefundService, RefundService>();
         services.AddScoped<IRefundClaimService, RefundClaimService>();
+        services.AddScoped<IBankDirectoryAdminService, BankDirectoryAdminService>();
         services.AddScoped<IManualRefundService, ManualRefundService>();
         services.AddScoped<IRefundCustomerConfirmationService, RefundCustomerConfirmationService>();
         services.AddScoped<IRefundProcessor, RefundProcessor>();
@@ -275,7 +297,29 @@ public static class DependencyInjection
         services.AddSingleton<IRefundClaimIssuer, RefundClaimIssuer>();
         services.AddSingleton<ISensitiveDataProtector, SensitiveDataProtector>();
         services.AddSingleton<IPaymentRefundGateway, UnsupportedPaymentRefundGateway>();
-        services.AddScoped<IEmailSender, SmtpEmailSender>();
+        var configuredEmailProvider = ReadString(
+            configuration[$"{EmailSettings.SectionName}:Provider"],
+            EmailSettings.SmtpProvider);
+        if (string.Equals(
+                configuredEmailProvider,
+                EmailSettings.ResendProvider,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient<ResendEmailSender>((serviceProvider, client) =>
+            {
+                var settings = serviceProvider
+                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<EmailSettings>>()
+                    .Value;
+                client.BaseAddress = new Uri(settings.ResendApiBaseUrl, UriKind.Absolute);
+                client.Timeout = Timeout.InfiniteTimeSpan;
+            });
+            services.AddScoped<IEmailSender>(
+                serviceProvider => serviceProvider.GetRequiredService<ResendEmailSender>());
+        }
+        else
+        {
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
+        }
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<IOtpGenerator, CryptoOtpGenerator>();
@@ -401,6 +445,68 @@ public static class DependencyInjection
         services.AddHostedService<CinemaSystem.Infrastructure.Jobs.MovieBannerAutofillJob>();
 
         return services;
+    }
+
+    private static string BuildPostgresConnectionString(IConfiguration configuration)
+    {
+        var defaultConnection = configuration.GetConnectionString("DefaultConnection")
+            ?? configuration["ConnectionStrings:DefaultConnection"];
+
+        if (string.IsNullOrWhiteSpace(defaultConnection))
+        {
+            throw new InvalidOperationException(
+                "Missing PostgreSQL connection string 'DefaultConnection'. " +
+                "Configure ConnectionStrings__DefaultConnection with the complete .NET/Npgsql " +
+                "connection string supplied by the database provider.");
+        }
+
+        Npgsql.NpgsqlConnectionStringBuilder connectionBuilder;
+        try
+        {
+            connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder(defaultConnection);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                "PostgreSQL connection string 'DefaultConnection' is invalid. " +
+                "Use .NET/Npgsql key-value format and do not paste a partial host-only value.",
+                exception);
+        }
+
+        var missingValues = new List<string>();
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Host))
+        {
+            missingValues.Add("Host");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Database))
+        {
+            missingValues.Add("Database");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Username))
+        {
+            missingValues.Add("Username");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionBuilder.Password) &&
+            string.IsNullOrWhiteSpace(connectionBuilder.Passfile))
+        {
+            missingValues.Add("Password or Passfile");
+        }
+
+        if (missingValues.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "PostgreSQL connection string 'DefaultConnection' is incomplete. " +
+                $"Missing required values: {string.Join(", ", missingValues)}. " +
+                "Copy the complete .NET/Npgsql connection string from the database provider; " +
+                "never configure only Host and Port.");
+        }
+
+        // Production providers such as Neon reject plaintext PostgreSQL sessions.
+        connectionBuilder.SslMode = Npgsql.SslMode.Require;
+        return connectionBuilder.ConnectionString;
     }
 
     private static int ReadInt(string? value, int fallback)

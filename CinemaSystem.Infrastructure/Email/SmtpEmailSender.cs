@@ -37,6 +37,9 @@ public sealed class SmtpEmailSender : IEmailSender
             Credentials = new NetworkCredential(_settings.SenderEmail, _settings.Password)
         };
 
-        await client.SendMailAsync(message, cancellationToken);
+        using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCancellation.CancelAfter(TimeSpan.FromSeconds(_settings.SendTimeoutSeconds));
+
+        await client.SendMailAsync(message, timeoutCancellation.Token);
     }
 }

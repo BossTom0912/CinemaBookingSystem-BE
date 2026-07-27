@@ -72,18 +72,12 @@ Status values and column lengths remain SQL literals because they define
 database constraints and schema metadata. Runtime code continues to reference
 Domain-backed constants.
 
-## Seed Data
+## Operational Bank Directory
 
-The patch idempotently adds five active bank-directory records:
-
-- `VCB`
-- `MB`
-- `TCB`
-- `BIDV`
-- `CTG`
-
-Provider capability flags default to disabled. The seed does not claim that
-account inquiry or automatic payout is available.
+The schema does not seed a fixed bank list. Admin manages `BANK_DIRECTORY`
+through `GET /api/admin/banks` and `PUT /api/admin/banks/{bankCode}`.
+Deactivation is a data update (`isActive = false`) so existing refund foreign
+keys remain valid.
 
 ## Apply
 

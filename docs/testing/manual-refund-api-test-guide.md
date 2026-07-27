@@ -140,6 +140,27 @@ GET /api/customer/banks
 Authorization: Bearer <customer-token>
 ```
 
+The response is database-driven. An Admin configures or updates an entry with:
+
+```http
+PUT /api/admin/banks/{bankCode}
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "bankBin": "<provider BIN>",
+  "shortName": "<display name>",
+  "fullName": "<legal name>",
+  "isActive": true,
+  "supportsAccountInquiry": false,
+  "supportsPayout": false
+}
+```
+
+Setting `isActive` to `false` removes the bank from the Customer list without
+deleting refund references. No migration or frontend list defines supported
+banks.
+
 ```http
 PUT /api/customer/refund-claims/{claimId}/bank-account
 Authorization: Bearer <customer-token>

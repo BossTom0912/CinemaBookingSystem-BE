@@ -15,5 +15,6 @@ public interface IPaymentService
         decimal amount,
         string? providerTransactionCode = null,
         string? rawCallbackPayload = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DateTime? providerOccurredAtUtc = null);
 }

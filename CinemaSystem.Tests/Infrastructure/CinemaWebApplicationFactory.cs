@@ -190,6 +190,7 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("RefundSettings:ClaimTokenMinutes", "5");
         builder.UseSetting("TicketScanSettings:OpenBeforeStartMinutes", "30");
         builder.UseSetting("Redis:ConnectionString", string.Empty);
+        builder.UseSetting("EmailSettings:UseMock", "true");
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -210,6 +211,7 @@ public sealed class CinemaWebApplicationFactory : WebApplicationFactory<Program>
                 ["RefundSettings:ClaimTokenMinutes"] = "5",
                 ["TicketScanSettings:OpenBeforeStartMinutes"] = "30",
                 ["Redis:ConnectionString"] = string.Empty,
+                ["EmailSettings:UseMock"] = "true",
                 ["SecuritySettings:ConfirmationTokenSecret"] =
                     "test-confirmation-token-secret-32-characters",
                 ["EmailTemplates:SeatMaintenanceSubject"] = "Seat Maintenance Notification",

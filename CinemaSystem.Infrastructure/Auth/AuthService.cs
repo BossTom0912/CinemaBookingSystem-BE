@@ -11,7 +11,6 @@ using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
 using Google.Apis.Auth;
-using Hangfire;
 
 namespace CinemaSystem.Infrastructure.Auth;
 
@@ -43,7 +42,6 @@ public sealed class AuthService : IAuthService
     private readonly JwtSettings _jwtSettings;
     private readonly CinemaSystem.Application.Settings.AuthSettings _authSettings;
     private readonly EmailTemplatesSettings _emailTemplates;
-    private readonly Hangfire.IBackgroundJobClient _backgroundJobClient;
     private readonly bool _autoConfirmEmail;
 
     // Constructor khởi tạo AuthService với các dependency
@@ -57,8 +55,7 @@ public sealed class AuthService : IAuthService
         IOptions<JwtSettings> jwtOptions,
         IOptions<CinemaSystem.Application.Settings.AuthSettings> authOptions,
         IOptions<EmailTemplatesSettings> emailTemplateOptions,
-        IOptions<EmailSettings> emailOptions,
-        Hangfire.IBackgroundJobClient backgroundJobClient)
+        IOptions<EmailSettings> emailOptions)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
@@ -69,7 +66,6 @@ public sealed class AuthService : IAuthService
         _jwtSettings = jwtOptions.Value;
         _authSettings = authOptions.Value;
         _emailTemplates = emailTemplateOptions.Value;
-        _backgroundJobClient = backgroundJobClient;
         // Đọc cấu hình AutoConfirmEmail từ appsettings để tự động xác nhận email (thường dùng cho môi trường dev)
         _autoConfirmEmail = emailOptions.Value.AutoConfirmEmail;
     }
@@ -224,7 +220,7 @@ public sealed class AuthService : IAuthService
         if (!emailResult.Success)
         {
             // Xóa bỏ các dữ liệu đăng ký lỗi để giữ tính nhất quán cho DB
-            await CleanupFailedRegistrationAsync(user.UserId, cancellationToken);
+            await CleanupFailedRegistrationAsync(user.UserId, CancellationToken.None);
             // Trả về lỗi gửi email
             return emailResult;
         }
@@ -674,7 +670,7 @@ public sealed class AuthService : IAuthService
         {
             // Hủy bỏ mã OTP vừa tạo (đánh dấu đã sử dụng) để ngăn chặn phát sinh lỗi
             verificationToken.IsUsed = true;
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
             // Trả về lỗi của quá trình gửi email
             return emailResult;
         }
@@ -786,7 +782,7 @@ public sealed class AuthService : IAuthService
         {
             // Hủy mã OTP vừa tạo
             resetToken.IsUsed = true;
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
             // Trả về lỗi
             return emailResult;
         }
@@ -999,7 +995,7 @@ public sealed class AuthService : IAuthService
         // Thực thi Update Database
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        // Bắn tín hiệu đẩy email thông qua Hangfire hoặc Queue
+        // Gửi email và chờ SMTP xác nhận trước khi trả kết quả cho client
         var emailResult = await TrySendVerificationOtpEmailAsync(
             user.Email,
             otp,
@@ -1011,7 +1007,7 @@ public sealed class AuthService : IAuthService
             // Đánh dấu mã OTP vừa tạo thành Đã sử dụng (Hủy mã OTP đó đi)
             verificationToken.IsUsed = true;
             // Lưu lại hành động hủy
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(CancellationToken.None);
             // Trả về Exception
             return emailResult;
         }
@@ -1214,17 +1210,17 @@ public sealed class AuthService : IAuthService
 
         try
         {
-            // Xếp hàng Job gửi Email chạy trên Background Worker (Hangfire)
-            _backgroundJobClient.Enqueue<IEmailSender>(emailSender => 
-                emailSender.SendEmailAsync(
-                    email,
-                    string.Format(_emailTemplates.VerificationSubject, otp),
-                    body,
-                    CancellationToken.None));
+            // Chờ SMTP xác nhận gửi thành công trước khi báo cho client rằng OTP đã được gửi.
+            // Nếu SMTP lỗi, caller sẽ hủy OTP hoặc cleanup đăng ký pending.
+            await _emailSender.SendEmailAsync(
+                email,
+                string.Format(_emailTemplates.VerificationSubject, otp),
+                body,
+                cancellationToken);
         }
         catch (Exception)
         {
-            // Xử lý bắt lỗi khi Hangfire hoặc tiến trình kết nối SMTP gặp sự cố
+            // Không để lộ chi tiết SMTP ra public response.
             return ServiceResult<object>.Fail(
                 500,
                 "Unable to send verification email. Please check Gmail SMTP configuration.",
@@ -1249,13 +1245,12 @@ public sealed class AuthService : IAuthService
 
         try
         {
-            // Sử dụng Hangfire Queue để đưa Task gửi Email ra Background (Tránh block Main Thread)
-            _backgroundJobClient.Enqueue<IEmailSender>(emailSender => 
-                emailSender.SendEmailAsync(
-                    email,
-                    _emailTemplates.PasswordResetSubject,
-                    body,
-                    CancellationToken.None));
+            // Password-reset OTP cũng phải được SMTP chấp nhận trước khi API báo thành công.
+            await _emailSender.SendEmailAsync(
+                email,
+                string.Format(_emailTemplates.PasswordResetSubject, otp),
+                body,
+                cancellationToken);
         }
         catch (Exception)
         {

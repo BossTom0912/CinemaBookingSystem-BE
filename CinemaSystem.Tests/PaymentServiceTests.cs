@@ -4,6 +4,7 @@ using CinemaSystem.Infrastructure.Configuration;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Services;
+using CinemaSystem.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
@@ -131,6 +132,138 @@ public sealed class PaymentServiceTests
         Assert.Equal("PAID", booking.BookingStatus);
     }
 
+    [Fact]
+    public async Task ConfirmPayment_TimelyProviderPaymentAfterCleanup_RestoresBookingAndCreatesTicket()
+    {
+        var fixture = Fixture.Create();
+        await fixture.SeedPendingBookingWithSeatAsync();
+        var created = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
+
+        var expiry = DateTime.UtcNow.AddMinutes(-1);
+        var providerPaidAt = expiry.AddMinutes(-5);
+        var booking = await fixture.DbContext.Bookings.SingleAsync();
+        var payment = await fixture.DbContext.Payments.SingleAsync();
+        var showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+        booking.BookingStatus = "CANCELLED";
+        booking.ExpiredAt = expiry;
+        payment.PaymentStatus = "EXPIRED";
+        showtimeSeat.SeatStatus = "AVAILABLE";
+        showtimeSeat.LockedUntil = null;
+        showtimeSeat.LockedByUserId = null;
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.Service.ConfirmPaymentAsync(
+            $"Cinema {created.TransactionCode}",
+            120000m,
+            "SEP_TIMELY",
+            """{"referenceCode":"SEP_TIMELY"}""",
+            CancellationToken.None,
+            providerPaidAt);
+
+        payment = await fixture.DbContext.Payments.SingleAsync();
+        booking = await fixture.DbContext.Bookings.SingleAsync();
+        showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+        Assert.Equal("SUCCESS", payment.PaymentStatus);
+        Assert.Equal(providerPaidAt, payment.PaidAt);
+        Assert.Equal("PAID", booking.BookingStatus);
+        Assert.Equal("BOOKED", showtimeSeat.SeatStatus);
+        Assert.Single(await fixture.DbContext.Tickets.ToListAsync());
+        Assert.Empty(await fixture.DbContext.Refunds.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ConfirmPayment_ProviderPaymentAfterExpiry_KeepsSeatAndCreatesRefund()
+    {
+        var fixture = Fixture.Create();
+        await fixture.SeedPendingBookingWithSeatAsync();
+        var created = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
+
+        var expiry = DateTime.UtcNow.AddMinutes(-5);
+        var providerPaidAt = expiry.AddMinutes(1);
+        var booking = await fixture.DbContext.Bookings.SingleAsync();
+        var payment = await fixture.DbContext.Payments.SingleAsync();
+        var showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+        booking.BookingStatus = "CANCELLED";
+        booking.ExpiredAt = expiry;
+        payment.PaymentStatus = "EXPIRED";
+        showtimeSeat.SeatStatus = "AVAILABLE";
+        showtimeSeat.LockedUntil = null;
+        showtimeSeat.LockedByUserId = null;
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.Service.ConfirmPaymentAsync(
+            $"Cinema {created.TransactionCode}",
+            120000m,
+            "SEP_LATE",
+            """{"referenceCode":"SEP_LATE"}""",
+            CancellationToken.None,
+            providerPaidAt);
+
+        payment = await fixture.DbContext.Payments.SingleAsync();
+        booking = await fixture.DbContext.Bookings.SingleAsync();
+        showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+        Assert.Equal("SUCCESS", payment.PaymentStatus);
+        Assert.Equal("REFUND_PENDING", booking.BookingStatus);
+        Assert.Equal("AVAILABLE", showtimeSeat.SeatStatus);
+        Assert.Empty(await fixture.DbContext.Tickets.ToListAsync());
+        Assert.Single(await fixture.DbContext.Refunds.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ConfirmPayment_TimelyProviderPaymentButSeatRelocked_CreatesRefund()
+    {
+        var fixture = Fixture.Create();
+        await fixture.SeedPendingBookingWithSeatAsync();
+        var created = await fixture.Service.CreatePaymentAsync(
+            new CreatePaymentRequest
+            {
+                BookingId = "BOOKING_TEST",
+                PaymentProviderId = "PAYPROV_TEST_SEPAY"
+            },
+            "USER_TEST");
+
+        var expiry = DateTime.UtcNow.AddMinutes(-1);
+        var providerPaidAt = expiry.AddMinutes(-5);
+        var booking = await fixture.DbContext.Bookings.SingleAsync();
+        var payment = await fixture.DbContext.Payments.SingleAsync();
+        var showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+        booking.BookingStatus = "CANCELLED";
+        booking.ExpiredAt = expiry;
+        payment.PaymentStatus = "EXPIRED";
+        showtimeSeat.SeatStatus = "LOCKED";
+        showtimeSeat.LockedUntil = DateTime.UtcNow.AddMinutes(5);
+        showtimeSeat.LockedByUserId = "USER_OTHER";
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.Service.ConfirmPaymentAsync(
+            $"Cinema {created.TransactionCode}",
+            120000m,
+            "SEP_RELOCKED",
+            """{"referenceCode":"SEP_RELOCKED"}""",
+            CancellationToken.None,
+            providerPaidAt);
+
+        booking = await fixture.DbContext.Bookings.SingleAsync();
+        showtimeSeat = await fixture.DbContext.ShowtimeSeats.SingleAsync();
+        Assert.Equal("REFUND_PENDING", booking.BookingStatus);
+        Assert.Equal("LOCKED", showtimeSeat.SeatStatus);
+        Assert.Equal("USER_OTHER", showtimeSeat.LockedByUserId);
+        Assert.Empty(await fixture.DbContext.Tickets.ToListAsync());
+        Assert.Single(await fixture.DbContext.Refunds.ToListAsync());
+    }
+
     private sealed class Fixture
     {
         private Fixture(CinemaDbContext dbContext, PaymentService service)
@@ -152,6 +285,11 @@ public sealed class PaymentServiceTests
                 .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
                 .Options;
             var dbContext = new CinemaDbContext(options);
+            var refundSettings = Options.Create(new RefundSettings
+            {
+                FrontendBaseUrl = "https://frontend.test",
+                ClaimTokenMinutes = 5
+            });
             var service = new PaymentService(
                 dbContext,
                 Options.Create(new SepaySettings
@@ -162,13 +300,9 @@ public sealed class PaymentServiceTests
                     DevelopmentPaymentAmountOverride = paymentAmountOverride
                 }),
                 Options.Create(new BookingSettings()),
-                Mock.Of<IRefundClaimIssuer>(),
+                new RefundClaimIssuer(refundSettings),
                 Mock.Of<IEmailSender>(),
-                Options.Create(new RefundSettings
-                {
-                    FrontendBaseUrl = "https://frontend.test",
-                    ClaimTokenMinutes = 5
-                }),
+                refundSettings,
                 new CinemaSystem.Infrastructure.Time.SystemClock(),
                 NullLogger<PaymentService>.Instance,
                 new VoucherReservationService(dbContext),
@@ -237,6 +371,27 @@ public sealed class PaymentServiceTests
                 BookingChannel = "ONLINE"
             });
 
+            await DbContext.SaveChangesAsync();
+        }
+
+        public async Task SeedPendingBookingWithSeatAsync()
+        {
+            await SeedPendingBookingAsync();
+            DbContext.ShowtimeSeats.Add(new ShowtimeSeat
+            {
+                ShowtimeSeatId = "SHOWTIME_SEAT_A5",
+                ShowtimeId = "SHOWTIME_TEST",
+                SeatId = "SEAT_A5",
+                SeatStatus = "AVAILABLE",
+                RowVersion = Array.Empty<byte>()
+            });
+            DbContext.BookingSeats.Add(new BookingSeat
+            {
+                BookingSeatId = "BOOKING_SEAT_A5",
+                BookingId = "BOOKING_TEST",
+                ShowtimeSeatId = "SHOWTIME_SEAT_A5",
+                SeatPrice = 120000m
+            });
             await DbContext.SaveChangesAsync();
         }
     }

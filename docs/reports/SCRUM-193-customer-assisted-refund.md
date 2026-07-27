@@ -28,11 +28,14 @@ Manager cannot view full bank-account data and cannot complete a refund.
 - `ShowtimeCancellationsController`: cancellation only.
 - `ManagerRefundsController`: cinema-scoped read model with masked account number.
 - `CustomerRefundClaimsController`: bank directory, resolve, draft, submit and link reissue.
+- `AdminBankDirectoryController`: creates, updates and activates/deactivates
+  database-backed bank-directory entries.
 - `AdminRefundsController`: manual queue, assignment and confirmation.
 
 ### Application
 
 - `IRefundClaimService`
+- `IBankDirectoryAdminService`
 - `IManualRefundService`
 - `IRefundClaimIssuer`
 - `ISensitiveDataProtector`
@@ -40,6 +43,7 @@ Manager cannot view full bank-account data and cannot complete a refund.
 ### Infrastructure
 
 - `RefundClaimService`
+- `BankDirectoryAdminService`
 - `ManualRefundService`
 - `RefundClaimIssuer`
 - `SensitiveDataProtector`
@@ -96,6 +100,11 @@ returns only a masked account number for review.
 
 Because the provider cannot verify account existence, the holder name is customer
 declared. Admin must verify the destination in the bank portal before transferring.
+
+Supported banks are not compiled into the backend or frontend. Admin manages
+the directory through `GET /api/admin/banks` and
+`PUT /api/admin/banks/{bankCode}`. Setting `isActive` to `false` hides an entry
+from Customers without deleting existing refund references.
 
 ### Submit
 

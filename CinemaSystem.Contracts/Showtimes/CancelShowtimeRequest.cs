@@ -8,4 +8,7 @@ public sealed class CancelShowtimeRequest
     [Required]
     [MaxLength(RefundContractConstants.CancellationReasonMaxLength)]
     public string Reason { get; init; } = string.Empty;
+
+    public string? CompensationVoucher { get; init; }
+    public string? CompensationVoucherCode { get; init; }
 }

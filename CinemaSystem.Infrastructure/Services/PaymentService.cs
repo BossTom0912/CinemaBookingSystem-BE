@@ -272,7 +272,8 @@ public class PaymentService : IPaymentService
         decimal amount,
         string? providerTransactionCode = null,
         string? rawCallbackPayload = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTime? providerOccurredAtUtc = null)
     {
         // Kiểm tra nếu nội dung giao dịch bị trống
         if (string.IsNullOrWhiteSpace(transactionContent))
@@ -353,10 +354,13 @@ public class PaymentService : IPaymentService
                 }
 
                 var now = _clock.UtcNow;
+                var paidAt = providerOccurredAtUtc.HasValue
+                    ? NormalizeUtc(providerOccurredAtUtc.Value)
+                    : now;
                 // Cập nhật trạng thái thanh toán thành "Thành công" (Success)
                 payment.PaymentStatus = DomainConstants.PaymentStatus.Success;
                 // Cập nhật thời điểm thanh toán thành công
-                payment.PaidAt = now;
+                payment.PaidAt = paidAt;
                 // Cập nhật thời gian chỉnh sửa mới nhất
                 payment.UpdatedAt = now;
                 // Ghi nhận mã giao dịch từ phía nhà cung cấp (nếu có)
@@ -367,6 +371,7 @@ public class PaymentService : IPaymentService
                 payment.RawCallbackPayload = string.IsNullOrWhiteSpace(rawCallbackPayload)
                     ? payment.RawCallbackPayload
                     : rawCallbackPayload;
+                payment.FailureReason = null;
 
                 // Lấy thông tin Booking liên kết với Payment này
                 var booking = payment.Booking ?? await _db.Bookings.SingleOrDefaultAsync(b => b.BookingId == payment.BookingId, cancellationToken);
@@ -432,6 +437,28 @@ public class PaymentService : IPaymentService
 
                 // Thanh toán bình thường mới chốt voucher giảm giá và voucher
                 // bồi hoàn. Nhánh suất chiếu bị hủy ở trên luôn trả lại chúng.
+                // The cleanup job can cancel a booking before a delayed webhook is
+                // delivered. A signed provider timestamp proves whether the customer
+                // paid before the original deadline. Restore only when the exact seats
+                // are still untouched and no released entitlement could be used twice.
+                if (string.Equals(
+                        booking.BookingStatus,
+                        DomainConstants.EntityStatus.Cancelled,
+                        StringComparison.OrdinalIgnoreCase)
+                    && CanRestoreTimelyExpiredBooking(
+                        booking,
+                        paidAt,
+                        providerOccurredAtUtc.HasValue,
+                        now))
+                {
+                    booking.BookingStatus = DomainConstants.EntityStatus.Paid;
+                    await _cancellationCompensationService
+                        .ConfirmBookingReservationsAsync(
+                            booking.BookingId,
+                            now,
+                            cancellationToken);
+                }
+
                 if (string.Equals(
                         booking.BookingStatus,
                         DomainConstants.EntityStatus.PendingPayment,
@@ -561,6 +588,41 @@ public class PaymentService : IPaymentService
     }
 
     // Phương thức tiện ích để sinh ID duy nhất có tiền tố
+    private static bool CanRestoreTimelyExpiredBooking(
+        Booking booking,
+        DateTime paidAtUtc,
+        bool hasProviderTimestamp,
+        DateTime now)
+    {
+        if (!hasProviderTimestamp
+            || !booking.ExpiredAt.HasValue
+            || paidAtUtc > NormalizeUtc(booking.ExpiredAt.Value)
+            || booking.Showtime is null
+            || NormalizeUtc(booking.Showtime.StartTime) <= now
+            || booking.VoucherUsage is not null
+            || booking.CompensationDiscountAmount != 0
+            || booking.BookingSeats.Count == 0)
+        {
+            return false;
+        }
+
+        return booking.BookingSeats.All(bookingSeat =>
+            bookingSeat.ShowtimeSeat is not null
+            && string.Equals(
+                bookingSeat.ShowtimeSeat.SeatStatus,
+                DomainConstants.ShowtimeSeatStatus.Available,
+                StringComparison.OrdinalIgnoreCase)
+            && bookingSeat.ShowtimeSeat.LockedUntil is null
+            && string.IsNullOrWhiteSpace(bookingSeat.ShowtimeSeat.LockedByUserId));
+    }
+
+    private static DateTime NormalizeUtc(DateTime value) =>
+        value.Kind == DateTimeKind.Utc
+            ? value
+            : value.Kind == DateTimeKind.Local
+                ? value.ToUniversalTime()
+                : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
     private RefundClaimIssue? CreateRefundClaim(
         Refund refund,
         Booking booking,
