@@ -163,6 +163,30 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
+    public async Task ResendVerificationEmailFailure_DoesNotLeaveUsableOtp()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.Service.RegisterCustomerAsync(RegisterRequest(), CancellationToken.None);
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddSeconds(61);
+        fixture.EmailSender.ShouldFail = true;
+
+        var result = await fixture.Service.ResendVerificationOtpAsync(
+            new ResendVerificationOtpRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(500, result.StatusCode);
+        Assert.Equal("EMAIL_SEND_FAILED", result.ErrorCode);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens
+            .Where(token => !token.IsUsed)
+            .ToListAsync());
+
+        var user = Assert.Single(await fixture.DbContext.Users.ToListAsync());
+        Assert.False(user.EmailVerified);
+        Assert.Equal(AuthConstants.UserStatus.PendingVerification, user.Status);
+    }
+
+    [Fact]
     public async Task VerifyOtpSuccess_ActivatesUser()
     {
         var fixture = TestFixture.Create();
@@ -470,9 +494,29 @@ public sealed class AuthServiceTests
         var sentEmail = fixture.EmailSender.SentEmails.Last();
         Assert.Equal("alice@example.com", sentEmail.ToEmail);
         Assert.Contains("CinemaSystem", sentEmail.Subject, StringComparison.Ordinal);
+        Assert.Contains("123456", sentEmail.Subject, StringComparison.Ordinal);
         Assert.Contains("123456", sentEmail.Body, StringComparison.Ordinal);
         var token = Assert.Single(await fixture.DbContext.EmailVerificationTokens.Where(item => !item.IsUsed).ToListAsync());
         Assert.Equal("PASSWORD_RESET", token.Purpose);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordEmailFailure_DoesNotLeaveUsableOtp()
+    {
+        var fixture = TestFixture.Create();
+        await fixture.CreateVerifiedCustomerAsync();
+        fixture.EmailSender.ShouldFail = true;
+
+        var result = await fixture.Service.ForgotPasswordAsync(
+            new ForgotPasswordRequest { Email = "alice@example.com" },
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(500, result.StatusCode);
+        Assert.Equal("EMAIL_SEND_FAILED", result.ErrorCode);
+        Assert.Empty(await fixture.DbContext.EmailVerificationTokens
+            .Where(token => token.Purpose == "PASSWORD_RESET" && !token.IsUsed)
+            .ToListAsync());
     }
 
     [Fact]
@@ -772,7 +816,6 @@ public sealed class AuthServiceTests
             var authOptions = Options.Create(new AuthSettings());
             var templateOptions = Options.Create(new EmailTemplatesSettings());
             var emailOptions = Options.Create(new EmailSettings());
-            var backgroundJobClient = new InlineBackgroundJobClient(emailSender);
             var service = new AuthService(
                 dbContext,
                 passwordHasher,
@@ -783,8 +826,7 @@ public sealed class AuthServiceTests
                 jwtOptions,
                 authOptions,
                 templateOptions,
-                emailOptions,
-                backgroundJobClient);
+                emailOptions);
 
             return new TestFixture(dbContext, emailSender, otpGenerator, clock, passwordHasher, tokenService, service);
         }
@@ -845,7 +887,7 @@ public sealed class AuthServiceTests
     {
         public List<SentEmail> SentEmails { get; } = [];
 
-        public bool ShouldFail { get; init; }
+        public bool ShouldFail { get; set; }
 
         public Task SendEmailAsync(string toEmail, string subject, string body, CancellationToken cancellationToken)
         {
@@ -856,41 +898,6 @@ public sealed class AuthServiceTests
 
             SentEmails.Add(new SentEmail(toEmail, subject, body));
             return Task.CompletedTask;
-        }
-    }
-
-    private sealed class InlineBackgroundJobClient : Hangfire.IBackgroundJobClient
-    {
-        private readonly IEmailSender _emailSender;
-
-        public InlineBackgroundJobClient(IEmailSender emailSender)
-        {
-            _emailSender = emailSender;
-        }
-
-        public string Create(Hangfire.Common.Job job, Hangfire.States.IState state)
-        {
-            if (job.Type == typeof(IEmailSender)
-                && job.Method.Name == nameof(IEmailSender.SendEmailAsync))
-            {
-                _emailSender.SendEmailAsync(
-                        (string)job.Args[0],
-                        (string)job.Args[1],
-                        (string)job.Args[2],
-                        CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult();
-            }
-
-            return Guid.NewGuid().ToString("N");
-        }
-
-        public bool ChangeState(
-            string jobId,
-            Hangfire.States.IState state,
-            string? expectedState)
-        {
-            return true;
         }
     }
 

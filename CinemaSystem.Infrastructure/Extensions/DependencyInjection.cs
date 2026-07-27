@@ -90,7 +90,14 @@ public static class DependencyInjection
                     configuration[$"{EmailSettings.SectionName}:AutoConfirmEmail"],
                     options.AutoConfirmEmail);
             })
-            .Validate(options => options.SmtpPort is > 0 and <= 65535, "SMTP port is invalid.");
+            .Validate(options => options.SmtpPort is > 0 and <= 65535, "SMTP port is invalid.")
+            .Validate(
+                options => options.UseMock || !string.IsNullOrWhiteSpace(options.SenderEmail),
+                "EmailSettings:SenderEmail must be configured when mock email is disabled.")
+            .Validate(
+                options => options.UseMock || !string.IsNullOrWhiteSpace(options.Password),
+                "EmailSettings:Password must be configured when mock email is disabled.")
+            .ValidateOnStart();
 
         services.AddOptions<BookingSettings>()
             .Configure(options =>
