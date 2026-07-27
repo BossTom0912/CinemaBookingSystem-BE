@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using CinemaSystem.Application.Common;
 using CinemaSystem.Contracts.Payments;
@@ -15,6 +16,13 @@ namespace CinemaSystem.Infrastructure.Services;
 /// </remarks>
 public sealed class PaymentWebhookService : IPaymentWebhookService
 {
+    private static readonly string[] SepayTransactionDateFormats =
+    {
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF"
+    };
+
     // Khai báo dependency để xác thực chữ ký của webhook
     private readonly IWebhookSignatureVerifier _signatureVerifier;
     // Khai báo dependency để gọi các nghiệp vụ xử lý thanh toán
@@ -80,6 +88,29 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
                 "INVALID_WEBHOOK_PAYLOAD");
         }
 
+        DateTime? providerOccurredAtUtc = null;
+        if (!string.IsNullOrWhiteSpace(webhook.TransactionDate))
+        {
+            if (!DateTime.TryParseExact(
+                    webhook.TransactionDate.Trim(),
+                    SepayTransactionDateFormats,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AllowWhiteSpaces,
+                    out var sepayLocalTime))
+            {
+                return ServiceResult<object>.Fail(
+                    400,
+                    "Invalid SePay transaction date.",
+                    "INVALID_WEBHOOK_PAYLOAD");
+            }
+
+            // SePay transactionDate is Vietnam local time (UTC+07:00).
+            providerOccurredAtUtc = new DateTimeOffset(
+                    DateTime.SpecifyKind(sepayLocalTime, DateTimeKind.Unspecified),
+                    TimeSpan.FromHours(7))
+                .UtcDateTime;
+        }
+
         // Chuyển tiếp dữ liệu thanh toán đến PaymentService để tiến hành xác nhận (Confirm)
         await _paymentService.ConfirmPaymentAsync(
             // Nội dung chuyển khoản chứa mã giao dịch
@@ -91,7 +122,8 @@ public sealed class PaymentWebhookService : IPaymentWebhookService
             // Toàn bộ chuỗi payload gốc để lưu lại log
             payload,
             // Token hỗ trợ hủy bỏ tác vụ
-            cancellationToken);
+            cancellationToken,
+            providerOccurredAtUtc);
 
         // Trả về phản hồi thành công sau khi xác nhận thanh toán xong
         return ServiceResult<object>.Ok(null, "Payment confirmed.");
