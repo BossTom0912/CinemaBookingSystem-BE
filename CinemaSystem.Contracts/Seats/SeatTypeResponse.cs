@@ -13,4 +13,6 @@ public sealed class SeatTypeResponse
     public bool IsActive { get; init; }
 
     public int SortOrder { get; init; }
+
+    public int UsageCount { get; init; }
 }

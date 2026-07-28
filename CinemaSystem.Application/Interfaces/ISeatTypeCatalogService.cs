@@ -21,4 +21,9 @@ public interface ISeatTypeCatalogService
     Task<ServiceResult<bool>> DeleteAsync(
         string seatTypeId,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<int>> MergeAsync(
+        string seatTypeId,
+        string replacementSeatTypeId,
+        CancellationToken cancellationToken);
 }
