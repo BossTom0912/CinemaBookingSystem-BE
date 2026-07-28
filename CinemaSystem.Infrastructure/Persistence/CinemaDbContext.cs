@@ -295,6 +295,10 @@ public partial class CinemaDbContext : DbContext
 
             entity.ToTable("BOOKING_FB_ITEM");
 
+            // Index on bookingId for fast JOIN when loading booking details
+            entity.HasIndex(e => e.BookingId, "IX_BOOKING_FB_ITEM_BOOKING_ID");
+            entity.HasIndex(e => e.FbItemId, "IX_BOOKING_FB_ITEM_FB_ITEM_ID");
+
             entity.Property(e => e.BookingFbitemId)
                 .HasMaxLength(50)
                 .HasColumnName("bookingFBItemId");
@@ -762,7 +766,9 @@ public partial class CinemaDbContext : DbContext
 
             entity.ToTable("NOTIFICATION");
 
-            entity.HasIndex(e => new { e.UserId, e.IsRead }, "IX_NOTIFICATION_USER_READ");
+            // Composite index covering (userId, isRead, createdAt DESC) for paginated notification queries
+            entity.HasIndex(e => new { e.UserId, e.IsRead, e.CreatedAt }, "IX_NOTIFICATION_USER_READ_CREATED")
+                .IsDescending(false, false, true);
 
             entity.Property(e => e.NotificationId)
                 .HasMaxLength(50)

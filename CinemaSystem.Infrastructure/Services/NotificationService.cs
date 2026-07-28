@@ -55,11 +55,9 @@ public sealed class NotificationService : INotificationService
                 "USER_NOT_FOUND");
         }
 
+        // Build base query — avoid heavy Include chain; use projection instead
         var query = _dbContext.Notifications
             .AsNoTracking()
-            .Include(n => n.User)
-            .ThenInclude(u => u.StaffProfile)
-            .ThenInclude(sp => sp.Cinema)
             .AsQueryable();
 
         // For Customers, Staff, and Managers, filter by their own UserId.
@@ -83,6 +81,27 @@ public sealed class NotificationService : INotificationService
             .Skip((pageIndex - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
+
+        // For Staff/Manager notifications, load cinema info in a single extra query if needed
+        if (user.RoleId == AuthConstants.RoleIds.Staff || user.RoleId == AuthConstants.RoleIds.Manager)
+        {
+            var userIds = notifications.Select(n => n.UserId).Distinct().ToList();
+            var staffCinemaMap = await _dbContext.StaffProfiles
+                .AsNoTracking()
+                .Where(sp => userIds.Contains(sp.UserId))
+                .Include(sp => sp.Cinema)
+                .ToDictionaryAsync(sp => sp.UserId, cancellationToken);
+
+            var mappedWithCinema = notifications.Select(n =>
+            {
+                staffCinemaMap.TryGetValue(n.UserId, out var sp);
+                int? cinemaId = int.TryParse(sp?.CinemaId, out var parsed) ? parsed : null;
+                return MapToResponseWithCinema(n, cinemaId, sp?.Cinema?.CinemaName);
+            }).ToList();
+
+            var pagedWithCinema = new PagedList<NotificationResponse>(mappedWithCinema, totalCount, pageIndex, pageSize);
+            return ServiceResult<PagedList<NotificationResponse>>.Ok(pagedWithCinema, "Notifications retrieved successfully.");
+        }
 
         var mappedList = notifications.Select(MapToResponse).ToList();
         var pagedList = new PagedList<NotificationResponse>(mappedList, totalCount, pageIndex, pageSize);
@@ -129,16 +148,12 @@ public sealed class NotificationService : INotificationService
             return ServiceResult<bool>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
-        var notifications = await _dbContext.Notifications
+        // Use ExecuteUpdateAsync for a single SQL UPDATE instead of loading all rows into memory
+        await _dbContext.Notifications
             .Where(n => n.UserId == userId && !n.IsRead)
-            .ToListAsync(cancellationToken);
-
-        foreach (var notification in notifications)
-        {
-            notification.IsRead = true;
-        }
-
-        await _dbContext.SaveChangesAsync(cancellationToken);
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(n => n.IsRead, true),
+                cancellationToken);
 
         return ServiceResult<bool>.Ok(true, "All notifications marked as read.");
     }
@@ -300,10 +315,13 @@ public sealed class NotificationService : INotificationService
 
         var status = "Sent";
         var firstNotifId = string.Empty;
+        var now = _clock.UtcNow;
+        var notificationsToAdd = new List<Notification>(targetUsers.Count);
 
-        foreach (var user in targetUsers)
+        // Send emails in parallel to avoid sequential blocking (one slow SMTP = delays all)
+        if (request.Channel.Equals(DomainConstants.NotificationChannel.Email, StringComparison.OrdinalIgnoreCase))
         {
-            if (request.Channel.Equals(DomainConstants.NotificationChannel.Email, StringComparison.OrdinalIgnoreCase))
+            var emailTasks = targetUsers.Select(async user =>
             {
                 try
                 {
@@ -314,21 +332,29 @@ public sealed class NotificationService : INotificationService
                     _logger.LogError(ex, "Failed to send email notification to {Email}", user.Email);
                     status = "Failed";
                 }
-            }
-            else if (request.Channel.Equals(DomainConstants.NotificationChannel.SMS, StringComparison.OrdinalIgnoreCase) ||
-                     request.Channel.Equals(DomainConstants.NotificationChannel.Push, StringComparison.OrdinalIgnoreCase))
+            });
+            await Task.WhenAll(emailTasks);
+        }
+        else if (request.Channel.Equals(DomainConstants.NotificationChannel.SMS, StringComparison.OrdinalIgnoreCase) ||
+                 request.Channel.Equals(DomainConstants.NotificationChannel.Push, StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var user in targetUsers)
             {
-                _logger.LogInformation("Simulating {Channel} delivery to User {UserId}: [{Title}] {Message}", 
+                _logger.LogInformation("Simulating {Channel} delivery to User {UserId}: [{Title}] {Message}",
                     request.Channel, user.UserId, request.Title, request.Message);
             }
+        }
 
+        // Build all notification entities, then AddRange in one call
+        foreach (var user in targetUsers)
+        {
             var notifId = NewId();
             if (string.IsNullOrEmpty(firstNotifId))
             {
                 firstNotifId = notifId;
             }
 
-            var notification = new Notification
+            notificationsToAdd.Add(new Notification
             {
                 NotificationId = notifId,
                 UserId = user.UserId,
@@ -336,12 +362,12 @@ public sealed class NotificationService : INotificationService
                 Title = request.Title,
                 Message = request.Message,
                 IsRead = false,
-                CreatedAt = _clock.UtcNow
-            };
-
-            _dbContext.Notifications.Add(notification);
+                CreatedAt = now
+            });
         }
 
+        // Single AddRange + SaveChangesAsync instead of per-entity Add in loop
+        _dbContext.Notifications.AddRange(notificationsToAdd);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         var response = new NotificationResponse
@@ -352,7 +378,7 @@ public sealed class NotificationService : INotificationService
             Title = request.Title,
             Message = request.Message,
             IsRead = false,
-            CreatedAt = _clock.UtcNow,
+            CreatedAt = now,
             Channel = request.Channel,
             Type = request.Type,
             Status = status
@@ -730,6 +756,30 @@ public sealed class NotificationService : INotificationService
             Status = status,
             CinemaId = cinemaId,
             CinemaName = n.User?.StaffProfile?.Cinema?.CinemaName ?? (cinemaIdStr != null ? $"Rạp #{cinemaIdStr}" : null)
+        };
+    }
+
+    /// <summary>
+    /// Overload that accepts pre-loaded cinema data to avoid navigation property JOIN.
+    /// Used when cinema info is fetched separately for performance.
+    /// </summary>
+    private NotificationResponse MapToResponseWithCinema(Notification n, int? cinemaId, string? cinemaName)
+    {
+        var (channel, type, status) = DetermineMetadata(n.Title, n.Message);
+        return new NotificationResponse
+        {
+            NotificationId = n.NotificationId,
+            UserId = n.UserId,
+            BookingId = n.BookingId,
+            Title = n.Title,
+            Message = n.Message,
+            IsRead = n.IsRead,
+            CreatedAt = n.CreatedAt,
+            Channel = channel,
+            Type = type,
+            Status = status,
+            CinemaId = cinemaId,
+            CinemaName = cinemaName
         };
     }
 
