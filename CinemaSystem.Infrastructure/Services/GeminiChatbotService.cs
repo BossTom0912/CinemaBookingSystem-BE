@@ -72,11 +72,12 @@ public class GeminiChatbotService : IChatbotService
             .Where(c => c.CinemaStatus == DomainConstants.CinemaStatus.Active)
             .ToListAsync(cancellationToken);
 
-        // Truy vấn danh sách voucher đang hoạt động và còn thời hạn sử dụng
+        // Truy vấn danh sách voucher đang hoạt động, công khai (IsPrivate == false) và còn thời hạn sử dụng
         var now = _clock.UtcNow;
         var vouchers = await _dbContext.Vouchers
             .AsNoTracking()
             .Where(v => v.VoucherStatus == DomainConstants.VoucherStatus.Active
+                && !v.IsPrivate
                 && v.StartDate <= now
                 && v.EndDate >= now
                 && v.UsedCount < v.UsageLimit)
@@ -173,18 +174,23 @@ public class GeminiChatbotService : IChatbotService
            - Bước 6: Thanh toán trực tuyến quét mã QR qua cổng thanh toán SePay. Sau khi giao dịch thành công, mã QR vé điện tử sẽ gửi về email của bạn hoặc hiển thị trong phần lịch sử giao dịch. Bạn chỉ cần đưa mã QR này cho nhân viên soát vé để vào phòng chiếu mà không cần đổi vé giấy.
 
         2. Vouchers & Promotions (Nội dung voucher hiện có):
-           List the active vouchers from the context dynamically. Emphasize their code, description, discount value, and minimum order requirements. If no vouchers are in the context, let them know they can register a new account to get a welcome voucher or check their personal Wallet.
+           List the active public vouchers from the context dynamically. Emphasize their code, description, discount value, and minimum order requirements. If no vouchers are in the context, let them know they can register a new account to get a welcome voucher or check their personal Wallet.
 
-        3. How to Get Vouchers (Cách nhận voucher):
+        3. Voucher Security & Privacy Rules (Quy tắc bảo mật voucher cá nhân/riêng tư):
+           - ONLY disclose public vouchers explicitly provided in the active vouchers list in the context.
+           - NEVER disclose, reveal, guess, or output private vouchers, personal codes, compensation vouchers, or targeted customer vouchers.
+           - If a customer asks for private or compensation vouchers, explain politely: 'Voucher cá nhân hoặc voucher bồi thường được phát trực tiếp vào ví tài khoản/email của từng khách hàng, CinemaBot không thể truy vấn hoặc cung cấp các mã voucher riêng tư qua kênh chat.'
+
+        4. How to Get Vouchers (Cách nhận voucher):
            Guide the user with the following options:
            - Đăng ký tài khoản thành viên mới: Nhận ngay voucher chào mừng thành viên mới gửi trực tiếp vào ví voucher của họ.
            - Tích điểm thành viên (Reward Points): Mua vé thành công tích lũy điểm để đổi voucher ưu đãi tiếp theo.
            - Theo dõi các chương trình/minigame trên trang Fanpage chính thức của rạp để nhận giftcode khuyến mãi đặc biệt.
 
-        4. Showtimes & Addresses:
+        5. Showtimes & Addresses:
            Always format showtimes and addresses beautifully in bullet points or markdown tables. Use the exact addresses and hotlines provided in the context.
 
-        5. Language, Tone & Formatting Rules (Quy tắc Ngôn ngữ, Giọng điệu & Định dạng):
+        6. Language, Tone & Formatting Rules (Quy tắc Ngôn ngữ, Giọng điệu & Định dạng):
            - NEVER use markdown bold syntax (such as double asterisks '**') or stars in your responses. Keep the text clean, flat, and professional.
            - Keep answers extremely concise, clean, and to the point. Avoid fluff or wordy explanations.
            - Use simple lists with plain bullet points (like '-' or '•') or numbered lists for clean structure.
