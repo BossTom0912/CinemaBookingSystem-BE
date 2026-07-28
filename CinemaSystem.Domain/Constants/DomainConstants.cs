@@ -250,6 +250,7 @@ public static class DomainConstants
         public const string RefreshToken = "RFT";
         public const string Room = "ROOM";
         public const string Seat = "SEAT";
+        public const string SeatType = "STY";
         public const string Showtime = "SHW";
         public const string ShowtimeSeat = "STS";
         public const string ShowtimeCancellation = "STC";

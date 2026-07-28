@@ -2398,6 +2398,24 @@ namespace CinemaSystem.Infrastructure.Migrations
                         .HasColumnType("decimal(18, 2)")
                         .HasColumnName("extraFee");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("isActive");
+
+                    b.Property<int>("SeatSpan")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("seatSpan");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sortOrder");
+
                     b.Property<string>("TypeName")
                         .IsRequired()
                         .HasMaxLength(100)

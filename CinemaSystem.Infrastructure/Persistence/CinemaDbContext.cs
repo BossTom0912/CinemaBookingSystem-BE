@@ -1387,6 +1387,15 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.ExtraFee)
                 .HasColumnType("decimal(18, 2)")
                 .HasColumnName("extraFee");
+            entity.Property(e => e.IsActive)
+                .HasDefaultValue(true)
+                .HasColumnName("isActive");
+            entity.Property(e => e.SeatSpan)
+                .HasDefaultValue(1)
+                .HasColumnName("seatSpan");
+            entity.Property(e => e.SortOrder)
+                .HasDefaultValue(0)
+                .HasColumnName("sortOrder");
             entity.Property(e => e.TypeName)
                 .HasMaxLength(100)
                 .HasColumnName("typeName");

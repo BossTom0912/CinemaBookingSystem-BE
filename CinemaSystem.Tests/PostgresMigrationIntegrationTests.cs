@@ -1,6 +1,8 @@
 using CinemaSystem.Infrastructure.Data;
 using CinemaSystem.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -9,6 +11,19 @@ namespace CinemaSystem.Tests;
 
 public sealed class PostgresMigrationIntegrationTests
 {
+    [Fact]
+    public void MigrationsAssembly_IncludesSeatTypeCatalogMetadata()
+    {
+        var options = new DbContextOptionsBuilder<CinemaDbContext>()
+            .UseNpgsql("Host=localhost;Database=cinema;Username=cinema;Password=cinema")
+            .Options;
+        using var context = new CinemaDbContext(options);
+
+        var migrations = context.GetService<IMigrationsAssembly>().Migrations;
+
+        Assert.Contains("20260728110000_AddSeatTypeCatalogMetadata", migrations.Keys);
+    }
+
     [PostgresFact]
     public async Task FreshSchema_MigratesAndEnforcesPostgresContracts()
     {
@@ -23,7 +38,7 @@ public sealed class PostgresMigrationIntegrationTests
               AND table_type = 'BASE TABLE'
               AND table_name <> '__EFMigrationsHistory';
             """));
-        Assert.Equal(6, await database.ScalarAsync<int>(
+        Assert.Equal(7, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(0, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"BANK_DIRECTORY\";"));
@@ -72,7 +87,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(6, await database.ScalarAsync<int>(
+        Assert.Equal(7, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(1, await database.ScalarAsync<int>(
             """
@@ -102,7 +117,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(6, await database.ScalarAsync<int>(
+        Assert.Equal(7, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(2, await database.ScalarAsync<int>(
             """

@@ -280,6 +280,7 @@ public static class DependencyInjection
         }
 
         services.AddScoped<ISeatService, SeatService>();
+        services.AddScoped<ISeatTypeCatalogService, SeatTypeCatalogService>();
         services.AddScoped<IRoomService, RoomService>();
         services.AddScoped<IFileStorageService, LocalFileStorageService>();
         services.AddScoped<IShowtimeService, ShowtimeService>();
