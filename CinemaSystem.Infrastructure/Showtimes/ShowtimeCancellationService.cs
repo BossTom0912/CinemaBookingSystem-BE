@@ -9,7 +9,6 @@ using CinemaSystem.Contracts.Showtimes;
 using CinemaSystem.Domain.Constants;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Infrastructure.Persistence;
-using CinemaSystem.Infrastructure.Configuration;
 using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -25,8 +24,6 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     private readonly ICancellationCompensationService _compensationService;
     private readonly IVoucherReservationService _voucherReservationService;
     private readonly IEmailSender _emailSender;
-    private readonly IRefundClaimIssuer _refundClaimIssuer;
-    private readonly RefundSettings _refundSettings;
     private readonly IClock _clock;
     private readonly EmailTemplatesSettings _emailTemplates;
     private readonly ILogger<ShowtimeCancellationService> _logger;
@@ -36,9 +33,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         ICancellationCompensationService compensationService,
         IVoucherReservationService voucherReservationService,
         IEmailSender emailSender,
-        IRefundClaimIssuer refundClaimIssuer,
         IClock clock,
-        IOptions<RefundSettings> refundSettings,
         IOptions<EmailTemplatesSettings> emailTemplates,
         ILogger<ShowtimeCancellationService> logger)
     {
@@ -46,9 +41,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         _compensationService = compensationService;
         _voucherReservationService = voucherReservationService;
         _emailSender = emailSender;
-        _refundClaimIssuer = refundClaimIssuer;
         _clock = clock;
-        _refundSettings = refundSettings.Value;
         _emailTemplates = emailTemplates.Value;
         _logger = logger;
     }
@@ -164,8 +157,6 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                 var paidBookingsMoved = 0;
                 var unpaidBookingsCancelled = 0;
                 var paidBookingsCompensated = 0;
-                var refundsCreated = 0;
-                var totalRefundAmount = 0m;
                 var ticketVouchersIssued = 0;
                 var comboVouchersIssued = 0;
                 var cancellationEmails = new List<CancellationEmail>();
@@ -202,49 +193,29 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                             now,
                             cancellationToken);
 
-                        var customVoucherCode = request.CompensationVoucher?.Trim()
-                            ?? request.CompensationVoucherCode?.Trim();
-                        var shouldIssueCompensation = !string.IsNullOrWhiteSpace(customVoucherCode);
-
-                        CompensationIssueResult? issue = null;
-                        if (shouldIssueCompensation)
-                        {
-                            issue = await _compensationService
-                                .IssueForCancelledBookingAsync(
-                                    booking,
-                                    cancellationId,
-                                    now,
-                                    cancellationToken);
-                        }
-
-                        var claimIssue = CreateRefundClaimForCancelledBooking(
-                            booking,
-                            cancellationId,
-                            now);
-                        if (claimIssue is not null)
-                        {
-                            refundsCreated++;
-                            totalRefundAmount += booking.TotalAmount;
-                        }
+                        // BR-93..BR-107: cinema-initiated showtime cancellation always
+                        // compensates the customer and never creates a cash refund/claim.
+                        var issue = await _compensationService
+                            .IssueForCancelledBookingAsync(
+                                booking,
+                                cancellationId,
+                                now,
+                                cancellationToken);
 
                         paidBookingsMoved++;
-                        if (issue is not null)
-                        {
-                            paidBookingsCompensated++;
-                            ticketVouchersIssued += issue.AlreadyIssued
-                                ? 0
-                                : issue.TicketVouchersIssued;
-                            comboVouchersIssued += issue.AlreadyIssued
-                                ? 0
-                                : issue.ComboVouchersIssued;
-                        }
+                        paidBookingsCompensated++;
+                        ticketVouchersIssued += issue.AlreadyIssued
+                            ? 0
+                            : issue.TicketVouchersIssued;
+                        comboVouchersIssued += issue.AlreadyIssued
+                            ? 0
+                            : issue.ComboVouchersIssued;
 
                         AddPaidCancellationEmail(
                             cancellationEmails,
                             booking,
                             showtime,
-                            issue,
-                            claimIssue);
+                            issue);
 
                         AddCancellationNotification(booking, showtime, now);
                         continue;
@@ -303,13 +274,13 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                         ShowtimeId = showtime.ShowtimeId,
                         ShowtimeStatus = showtime.Status,
                         ShowtimeCancellationId = cancellationId,
-                        PaidBookingsMovedToRefundPending = refundsCreated,
+                        PaidBookingsMovedToRefundPending = 0,
                         UnpaidBookingsCancelled = unpaidBookingsCancelled,
-                        RefundsCreated = refundsCreated,
-                        TotalRefundAmount = totalRefundAmount,
+                        RefundsCreated = 0,
+                        TotalRefundAmount = 0m,
                         RefundsSucceeded = 0,
                         RefundsManualRequired = 0,
-                        RefundsPending = refundsCreated,
+                        RefundsPending = 0,
                         PaidBookingsCompensated = paidBookingsCompensated,
                         TicketVouchersIssued = ticketVouchersIssued,
                         ComboVouchersIssued = comboVouchersIssued
@@ -480,7 +451,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         }
 
         var subject = $"[CinemaSystem] Thông báo hủy suất chiếu - Phim {showtime.Movie?.Title ?? ""}";
-        var bodyHtml = BuildCancellationEmailHtml(booking, showtime, null, null);
+        var bodyHtml = BuildCancellationEmailHtml(booking, showtime, null);
 
         emails.Add(new CancellationEmail(email, subject, bodyHtml));
     }
@@ -489,8 +460,7 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
         ICollection<CancellationEmail> emails,
         Booking booking,
         Showtime showtime,
-        CompensationIssueResult issue,
-        RefundClaimIssue? claimIssue)
+        CompensationIssueResult issue)
     {
         var email = booking.CustomerProfile?.User.Email ?? booking.GuestEmail;
         if (string.IsNullOrWhiteSpace(email))
@@ -498,8 +468,8 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             return;
         }
 
-        var subject = $"[CinemaSystem] Thông báo hủy suất chiếu, hoàn tiền & phát hành Voucher đền bù";
-        var bodyHtml = BuildCancellationEmailHtml(booking, showtime, issue, claimIssue);
+        var subject = $"[CinemaSystem] Thông báo hủy suất chiếu & phát hành Voucher đền bù";
+        var bodyHtml = BuildCancellationEmailHtml(booking, showtime, issue);
 
         emails.Add(new CancellationEmail(email, subject, bodyHtml));
     }
@@ -507,29 +477,18 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
     private string BuildCancellationEmailHtml(
         Booking booking,
         Showtime showtime,
-        CompensationIssueResult? issue,
-        RefundClaimIssue? claimIssue)
+        CompensationIssueResult? issue)
     {
         var displayName = string.IsNullOrWhiteSpace(booking.CustomerProfile?.User?.FullName)
             ? "Quý khách"
             : booking.CustomerProfile.User.FullName.Trim();
         var movieTitle = showtime.Movie?.Title ?? "Phim đã đặt";
         var showtimeFormatted = showtime.StartTime.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
-        var totalAmountFormatted = booking.TotalAmount.ToString("N0", new CultureInfo("vi-VN")) + " VNĐ";
-
-        var claimLink = claimIssue is not null
-            ? $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}?t={Uri.EscapeDataString(claimIssue.RawToken)}"
-            : $"{_refundSettings.FrontendBaseUrl.TrimEnd('/')}{RefundSettings.ClaimRoute}";
-        var claimExpiresFormatted = claimIssue?.Token.ExpiresAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
-            ?? showtime.StartTime.AddDays(7).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
-
         var ticketCodesStr = issue is not null && issue.TicketVoucherCodes.Any()
             ? string.Join(", ", issue.TicketVoucherCodes)
             : null;
         var comboCodeStr = issue?.ComboVoucherCode;
         var voucherExpiresFormatted = issue?.ExpiresAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
-
-        var isRefundable = booking.TotalAmount > 0m;
 
         var voucherSectionHtml = issue is not null ? $"""
             <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 18px; border-radius: 10px; margin: 20px 0;'>
@@ -545,23 +504,6 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             </div>
             """ : "";
 
-        var refundSectionHtml = isRefundable ? $"""
-            <div style='background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 10px; margin: 20px 0;'>
-                <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>KHAI BÁO THÔNG TIN NHẬN LẠI TIỀN HOÀN</h3>
-                <p style='font-size: 13px; color: #1e3a8a; margin: 0 0 12px 0;'>
-                    Vui lòng bấm vào nút bên dưới để nhập thông tin tài khoản ngân hàng nhận lại <strong>{totalAmountFormatted}</strong> trước thời hạn <strong>{claimExpiresFormatted}</strong>:
-                </p>
-                <div style='text-align: center; margin: 15px 0;'>
-                    <a href='{claimLink}' style='display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: bold; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; box-shadow: 0 3px 10px rgba(37,99,235,0.3);'>
-                        Nhập Tài Khoản Ngân Hàng Nhận Tiền Hoàn
-                    </a>
-                </div>
-                <p style='font-size: 11px; color: #64748b; margin: 0; text-align: center;'>
-                    Hoặc truy cập đường dẫn: <a href='{claimLink}' style='color: #2563eb;'>{claimLink}</a>
-                </p>
-            </div>
-            """ : "";
-
         var voucherSectionHtmlEn = issue is not null ? $"""
             <div style='background-color: #fffbe6; border: 1px solid #ffe58f; padding: 18px; border-radius: 10px; margin: 20px 0;'>
                 <h3 style='margin: 0 0 10px 0; color: #b78103; font-size: 15px; font-weight: bold;'>COMPENSATION VOUCHERS FOR YOU</h3>
@@ -573,23 +515,6 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                     {(comboCodeStr != null ? $"<li style='margin-bottom: 6px;'><strong>Food & Beverage Voucher:</strong> <span style='font-family: monospace; font-size: 14px; font-weight: bold; background-color: #fef08a; padding: 2px 8px; border-radius: 4px; border: 1px solid #fde047;'>{comboCodeStr}</span></li>" : "")}
                     {(voucherExpiresFormatted != null ? $"<li><strong>Voucher Expiry Date:</strong> until <strong>{voucherExpiresFormatted}</strong></li>" : "")}
                 </ul>
-            </div>
-            """ : "";
-
-        var refundSectionHtmlEn = isRefundable ? $"""
-            <div style='background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 18px; border-radius: 10px; margin: 20px 0;'>
-                <h3 style='margin: 0 0 10px 0; color: #1d4ed8; font-size: 15px; font-weight: bold;'>SUBMIT BANK INFORMATION FOR REFUND</h3>
-                <p style='font-size: 13px; color: #1e3a8a; margin: 0 0 12px 0;'>
-                    Please click the button below to submit your bank account details to receive your <strong>{totalAmountFormatted}</strong> refund before <strong>{claimExpiresFormatted}</strong>:
-                </p>
-                <div style='text-align: center; margin: 15px 0;'>
-                    <a href='{claimLink}' style='display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: bold; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; box-shadow: 0 3px 10px rgba(37,99,235,0.3);'>
-                        Submit Bank Account Information
-                    </a>
-                </div>
-                <p style='font-size: 11px; color: #64748b; margin: 0; text-align: center;'>
-                    Or visit link: <a href='{claimLink}' style='color: #2563eb;'>{claimLink}</a>
-                </p>
             </div>
             """ : "";
 
@@ -641,16 +566,11 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                                             <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Thời gian suất chiếu</td>
                                             <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>{showtimeFormatted}</td>
                                         </tr>
-                                        <tr>
-                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Số tiền hoàn trả</td>
-                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{totalAmountFormatted}</td>
-                                        </tr>
                                     </tbody>
                                 </table>
                             </div>
 
                             {voucherSectionHtml}
-                            {refundSectionHtml}
 
                             <p style='font-size: 13px; color: #334155; margin-top: 20px;'>
                                 CinemaSystem chân thành xin lỗi vì sự bất tiện này và hy vọng tiếp tục được phục vụ Quý khách trong những suất chiếu tiếp theo.<br><br>
@@ -691,16 +611,11 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
                                             <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Showtime</td>
                                             <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>{showtimeFormatted}</td>
                                         </tr>
-                                        <tr>
-                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-weight: bold;'>Refund Amount</td>
-                                            <td style='padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #16a34a; font-weight: bold;'>{totalAmountFormatted}</td>
-                                        </tr>
                                     </tbody>
                                 </table>
                             </div>
 
                             {voucherSectionHtmlEn}
-                            {refundSectionHtmlEn}
 
                             <p style='font-size: 12px; color: #64748b; margin-top: 20px;'>
                                 CinemaSystem sincerely apologizes for any inconvenience caused and hopes to serve you again in future showtimes.<br><br>
@@ -720,41 +635,6 @@ public sealed class ShowtimeCancellationService : IShowtimeCancellationService
             </body>
             </html>
             """;
-    }
-
-    private RefundClaimIssue? CreateRefundClaimForCancelledBooking(
-        Booking booking,
-        string cancellationId,
-        DateTime now)
-    {
-        if (booking.TotalAmount == 0m || string.IsNullOrWhiteSpace(booking.CustomerProfileId))
-        {
-            return null;
-        }
-
-        var payment = booking.Payments.FirstOrDefault(item =>
-            IsStatus(item.PaymentStatus, BookingConstants.PaymentStatus.Success));
-        if (payment is null)
-        {
-            return null;
-        }
-
-        var refund = new Refund
-        {
-            RefundId = NewId(BookingConstants.EntityIdPrefix.Refund),
-            BookingId = booking.BookingId,
-            PaymentId = payment.PaymentId,
-            PaymentProviderId = payment.PaymentProviderId,
-            ShowtimeCancellationId = cancellationId,
-            RefundAmount = booking.TotalAmount,
-            RefundStatus = BookingConstants.RefundStatus.Pending,
-            RefundReason = "Showtime cancelled by cinema.",
-            RequestedAt = now
-        };
-        _dbContext.Refunds.Add(refund);
-        var issue = _refundClaimIssuer.Create(refund.RefundId, booking.CustomerProfileId, now);
-        _dbContext.RefundClaims.Add(issue.Claim);
-        return issue;
     }
 
     private async Task SendCancellationEmailsAsync(

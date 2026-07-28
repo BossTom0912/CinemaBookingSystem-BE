@@ -149,20 +149,22 @@ public sealed class AdminCrudWithAndWithoutBookingTests
     }
 
     [Fact]
-    public async Task ShowtimeCrud_WithBooking_DeletingShowtimeTriggersCancellationAndRefunds()
+    public async Task ShowtimeCrud_WithBooking_DeleteRequiresDedicatedCancellationEndpoint()
     {
         var fixture = await TestFixture.CreateAsync();
         var (roomId, showtimeId, bookingId) = await fixture.SeedRoomWithBookingAsync("Showtime Room 2");
 
-        // Delete showtime that has paid bookings
+        // A paid showtime must go through the dedicated cancellation-compensation flow.
         var deleteResult = await fixture.ShowtimeService.DeleteShowtimeAsync(showtimeId, CancellationToken.None);
-        Assert.True(deleteResult.Success);
+        Assert.False(deleteResult.Success);
+        Assert.Equal(409, deleteResult.StatusCode);
+        Assert.Equal("SHOWTIME_HAS_BOOKINGS", deleteResult.ErrorCode);
 
         var showtime = await fixture.DbContext.Showtimes.FindAsync(showtimeId);
-        Assert.Equal(DomainConstants.ShowtimeStatus.Cancelled, showtime!.Status);
+        Assert.NotEqual(DomainConstants.ShowtimeStatus.Cancelled, showtime!.Status);
 
         var booking = await fixture.DbContext.Bookings.FindAsync(bookingId);
-        Assert.Equal(DomainConstants.EntityStatus.PendingRefund, booking!.BookingStatus);
+        Assert.Equal(DomainConstants.EntityStatus.Paid, booking!.BookingStatus);
     }
 
     [Fact]

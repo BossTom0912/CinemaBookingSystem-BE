@@ -12,7 +12,7 @@ namespace CinemaSystem.Tests;
 public sealed class PostgresMigrationIntegrationTests
 {
     [Fact]
-    public void MigrationsAssembly_IncludesSeatTypeCatalogMetadata()
+    public void MigrationsAssembly_IncludesOperationalHotfixes()
     {
         var options = new DbContextOptionsBuilder<CinemaDbContext>()
             .UseNpgsql("Host=localhost;Database=cinema;Username=cinema;Password=cinema")
@@ -22,6 +22,7 @@ public sealed class PostgresMigrationIntegrationTests
         var migrations = context.GetService<IMigrationsAssembly>().Migrations;
 
         Assert.Contains("20260728110000_AddSeatTypeCatalogMetadata", migrations.Keys);
+        Assert.Contains("20260728115000_VoidInvalidShowtimeCancellationRefunds", migrations.Keys);
     }
 
     [PostgresFact]
@@ -38,7 +39,7 @@ public sealed class PostgresMigrationIntegrationTests
               AND table_type = 'BASE TABLE'
               AND table_name <> '__EFMigrationsHistory';
             """));
-        Assert.Equal(7, await database.ScalarAsync<int>(
+        Assert.Equal(10, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(0, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"BANK_DIRECTORY\";"));
@@ -103,7 +104,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(7, await database.ScalarAsync<int>(
+        Assert.Equal(10, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(1, await database.ScalarAsync<int>(
             """
@@ -141,7 +142,7 @@ public sealed class PostgresMigrationIntegrationTests
 
         await database.MigrateAsync();
 
-        Assert.Equal(7, await database.ScalarAsync<int>(
+        Assert.Equal(10, await database.ScalarAsync<int>(
             "SELECT count(*)::integer FROM \"__EFMigrationsHistory\";"));
         Assert.Equal(2, await database.ScalarAsync<int>(
             """

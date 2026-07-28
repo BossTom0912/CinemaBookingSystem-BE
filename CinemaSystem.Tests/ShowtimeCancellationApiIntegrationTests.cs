@@ -40,13 +40,13 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.True(body!.Success);
         Assert.Equal("SHW_CANCEL_A", body.Data!.ShowtimeId);
         Assert.Equal(BookingConstants.ShowtimeStatus.Cancelled, body.Data.ShowtimeStatus);
-        Assert.Equal(1, body.Data.PaidBookingsMovedToRefundPending);
+        Assert.Equal(0, body.Data.PaidBookingsMovedToRefundPending);
         Assert.Equal(1, body.Data.UnpaidBookingsCancelled);
-        Assert.Equal(1, body.Data.RefundsCreated);
-        Assert.Equal(100000m, body.Data.TotalRefundAmount);
+        Assert.Equal(0, body.Data.RefundsCreated);
+        Assert.Equal(0m, body.Data.TotalRefundAmount);
         Assert.Equal(0, body.Data.RefundsSucceeded);
         Assert.Equal(0, body.Data.RefundsManualRequired);
-        Assert.Equal(1, body.Data.RefundsPending);
+        Assert.Equal(0, body.Data.RefundsPending);
         Assert.Equal(1, body.Data.PaidBookingsCompensated);
         Assert.Equal(1, body.Data.TicketVouchersIssued);
         Assert.Equal(1, body.Data.ComboVouchersIssued);
@@ -74,8 +74,8 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         var ticket = await db.Tickets.SingleAsync(item => item.TicketId == "TCK_CANCEL_A_PAID");
         Assert.Equal(BookingConstants.TicketStatus.Cancelled, ticket.TicketStatus);
 
-        Assert.True(await db.Refunds.AnyAsync(item => item.BookingId == "BKG_CANCEL_A_PAID"));
-        Assert.Single(await db.RefundClaims.ToListAsync());
+        Assert.False(await db.Refunds.AnyAsync(item => item.BookingId == "BKG_CANCEL_A_PAID"));
+        Assert.Empty(await db.RefundClaims.ToListAsync());
 
         var compensation = await db.CancellationCompensations
             .Include(item => item.Tickets)
@@ -104,7 +104,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
             item.Action == "CANCEL_SHOWTIME"
             && item.EntityId == "SHW_CANCEL_A"));
         Assert.Equal(2, factory.EmailCapture.Emails.Count);
-        Assert.Contains(
+        Assert.DoesNotContain(
             factory.EmailCapture.Emails,
             item => item.Body.Contains("/refunds/claim", StringComparison.OrdinalIgnoreCase));
     }
@@ -115,24 +115,28 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         await using var factory = new CinemaWebApplicationFactory();
         await SeedCancellationDataAsync(factory);
 
-        using (var managerClient = factory.CreateClient())
-        {
-            managerClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
-            var cancelResponse = await managerClient.PostAsJsonAsync(
-                "/api/manager/showtimes/SHW_CANCEL_A/cancel",
-                new CancelShowtimeRequest { Reason = "Refund bank input coverage" });
-            Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
-        }
-
         string claimId;
         await using (var scope = factory.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
-            claimId = await db.RefundClaims
-                .Where(item => item.CustomerProfileId == "CUS_CANCEL_A")
-                .Select(item => item.RefundClaimId)
-                .SingleAsync();
+            var issuer = scope.ServiceProvider.GetRequiredService<IRefundClaimIssuer>();
+            var now = DateTime.UtcNow;
+            var refund = new Refund
+            {
+                RefundId = "REF_BANK_FREEFORM",
+                BookingId = "BKG_CANCEL_A_PAID",
+                PaymentId = "PAY_CANCEL_A_SUCCESS",
+                PaymentProviderId = "PAYPROV_CANCEL",
+                RefundAmount = 100000m,
+                RefundStatus = BookingConstants.RefundStatus.Pending,
+                RefundReason = "Independent refund bank input coverage",
+                RequestedAt = now
+            };
+            var claimIssue = issuer.Create(refund.RefundId, "CUS_CANCEL_A", now);
+            db.Refunds.Add(refund);
+            db.RefundClaims.Add(claimIssue.Claim);
+            await db.SaveChangesAsync();
+            claimId = claimIssue.Claim.RefundClaimId;
             Assert.Empty(await db.BankDirectories.ToListAsync());
         }
 
@@ -256,7 +260,142 @@ public sealed class ShowtimeCancellationApiIntegrationTests
     }
 
     [Fact]
-    public async Task LegacyDeleteShowtime_WithPaidBooking_TriggersRefundWorkflow()
+    public async Task CancelShowtime_FullSeatCompensationWithPaidFood_DoesNotCreateCashRefund()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedCancellationDataAsync(factory);
+
+        using var managerClient = factory.CreateClient();
+        managerClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
+
+        var firstCancellation = await managerClient.PostAsJsonAsync(
+            "/api/manager/showtimes/SHW_CANCEL_A/cancel",
+            new CancelShowtimeRequest { Reason = "Issue the original compensation ticket" });
+        Assert.Equal(HttpStatusCode.OK, firstCancellation.StatusCode);
+
+        string compensationTicketCode;
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var db = setupScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            compensationTicketCode = await db.CompensationTickets
+                .Where(item => item.CancellationCompensation.SourceBookingId == "BKG_CANCEL_A_PAID")
+                .Select(item => item.VoucherCode)
+                .SingleAsync();
+            db.FbItems.Add(new FbItem
+            {
+                FbItemId = "FB_CANCEL_75000",
+                ItemName = "Cancellation flow food",
+                Price = 75000m,
+                ItemStatus = FbConstants.ItemStatus.Available
+            });
+            await db.SaveChangesAsync();
+        }
+
+        using var customerClient = factory.CreateClient();
+        customerClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Bearer",
+                TestAuthTokens.Customer("USR_CANCEL_CUSTOMER_A"));
+        var bookingResponse = await customerClient.PostAsJsonAsync(
+            "/api/bookings",
+            new CreateBookingRequest
+            {
+                ShowtimeId = "SHW_CANCEL_EMPTY",
+                ShowtimeSeatIds = ["STS_CANCEL_EMPTY_A1"],
+                CompensationTicketCodes = [compensationTicketCode],
+                FoodAndBeverages =
+                [
+                    new BookingFbItemRequest
+                    {
+                        FbItemId = "FB_CANCEL_75000",
+                        Quantity = 1
+                    }
+                ]
+            });
+        Assert.Equal(HttpStatusCode.OK, bookingResponse.StatusCode);
+        var bookingBody = await DeserializeAsync<ApiResponse<BookingResponse>>(bookingResponse);
+        Assert.Equal(75000m, bookingBody!.Data!.TotalAmount);
+        Assert.Equal(100000m, bookingBody.Data.CompensationDiscountAmount);
+        Assert.Equal(BookingConstants.BookingStatus.PendingPayment, bookingBody.Data.Status);
+
+        var replacementBookingId = bookingBody.Data.BookingId;
+        await using (var paymentScope = factory.Services.CreateAsyncScope())
+        {
+            var db = paymentScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            var booking = await db.Bookings
+                .Include(item => item.BookingSeats)
+                    .ThenInclude(item => item.ShowtimeSeat)
+                .SingleAsync(item => item.BookingId == replacementBookingId);
+            var now = DateTime.UtcNow;
+            booking.BookingStatus = BookingConstants.BookingStatus.Paid;
+            booking.ExpiredAt = null;
+            var bookingSeat = Assert.Single(booking.BookingSeats);
+            bookingSeat.ShowtimeSeat.SeatStatus = BookingConstants.ShowtimeSeatStatus.Booked;
+            bookingSeat.ShowtimeSeat.LockedUntil = null;
+            bookingSeat.ShowtimeSeat.LockedByUserId = null;
+            db.Tickets.Add(new Ticket
+            {
+                TicketId = "TCK_CANCEL_REPLACEMENT",
+                BookingSeatId = bookingSeat.BookingSeatId,
+                QrCode = "QR_CANCEL_REPLACEMENT",
+                TicketStatus = BookingConstants.TicketStatus.Unused,
+                GeneratedAt = now
+            });
+            db.Payments.Add(new Payment
+            {
+                PaymentId = "PAY_CANCEL_REPLACEMENT",
+                BookingId = replacementBookingId,
+                PaymentProviderId = "PAYPROV_CANCEL",
+                Amount = 75000m,
+                PaymentStatus = BookingConstants.PaymentStatus.Success,
+                PaymentMethod = "SEPAY",
+                TransactionCode = "TCANCELREPLACEMENT",
+                CreatedAt = now,
+                PaidAt = now
+            });
+            var compensationService =
+                paymentScope.ServiceProvider.GetRequiredService<ICancellationCompensationService>();
+            await compensationService.ConfirmBookingReservationsAsync(
+                replacementBookingId,
+                now,
+                CancellationToken.None);
+            await db.SaveChangesAsync();
+        }
+
+        var secondCancellation = await managerClient.PostAsJsonAsync(
+            "/api/manager/showtimes/SHW_CANCEL_EMPTY/cancel",
+            new CancelShowtimeRequest { Reason = "Replacement showtime cancelled" });
+        Assert.Equal(HttpStatusCode.OK, secondCancellation.StatusCode);
+        var cancellationBody =
+            await DeserializeAsync<ApiResponse<CancelShowtimeResponse>>(secondCancellation);
+        Assert.Equal(0, cancellationBody!.Data!.RefundsCreated);
+        Assert.Equal(0m, cancellationBody.Data.TotalRefundAmount);
+        Assert.Equal(1, cancellationBody.Data.PaidBookingsCompensated);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        Assert.False(await verificationDb.Refunds.AnyAsync(item =>
+            item.BookingId == replacementBookingId));
+        Assert.Empty(await verificationDb.RefundClaims.ToListAsync());
+
+        var restoredTicket = await verificationDb.CompensationTickets.SingleAsync(item =>
+            item.VoucherCode == compensationTicketCode);
+        Assert.Equal(
+            DomainConstants.CompensationEntitlementStatus.Issued,
+            restoredTicket.Status);
+        Assert.Null(restoredTicket.ReservedBookingId);
+
+        var newCompensation = await verificationDb.CancellationCompensations
+            .Include(item => item.Tickets)
+            .Include(item => item.Combo)
+            .SingleAsync(item => item.SourceBookingId == replacementBookingId);
+        Assert.Single(newCompensation.Tickets);
+        Assert.NotNull(newCompensation.Combo);
+    }
+
+    [Fact]
+    public async Task LegacyDeleteShowtime_WithPaidBooking_RequiresDedicatedCancellationEndpoint()
     {
         await using var factory = new CinemaWebApplicationFactory();
         await SeedCancellationDataAsync(factory);
@@ -265,21 +404,20 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
 
-        // The legacy Admin UI uses DELETE /api/showtimes/{id}; main keeps its
-        // paid-booking cancellation contract on the REFUND_PENDING workflow.
         var response = await client.DeleteAsync("/api/showtimes/SHW_CANCEL_A");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var body = await DeserializeAsync<ApiResponse<JsonElement>>(response);
-        Assert.True(body!.Success);
+        Assert.False(body!.Success);
+        Assert.Equal("SHOWTIME_HAS_BOOKINGS", body.ErrorCode);
 
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
 
         var booking = await db.Bookings.SingleAsync(item =>
             item.BookingId == "BKG_CANCEL_A_PAID");
-        Assert.Equal(BookingConstants.BookingStatus.RefundPending, booking.BookingStatus);
-        Assert.True(await db.Refunds.AnyAsync(item =>
+        Assert.Equal(BookingConstants.BookingStatus.Paid, booking.BookingStatus);
+        Assert.False(await db.Refunds.AnyAsync(item =>
             item.BookingId == booking.BookingId));
         Assert.False(await db.CancellationCompensations.AnyAsync(item =>
             item.SourceBookingId == booking.BookingId));
@@ -360,7 +498,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Single(await db.CancellationCompensations
             .Where(item => item.SourceBookingId == "BKG_CANCEL_A_PAID")
             .ToListAsync());
-        Assert.Single(await db.Refunds
+        Assert.Empty(await db.Refunds
             .Where(item => item.BookingId == "BKG_CANCEL_A_PAID")
             .ToListAsync());
     }
@@ -428,7 +566,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Single(compensation.Tickets);
         Assert.NotNull(compensation.Combo);
         Assert.False(await db.Refunds.AnyAsync(item => item.PaymentId == payment.PaymentId));
-        Assert.Single(await db.RefundClaims.ToListAsync());
+        Assert.Empty(await db.RefundClaims.ToListAsync());
     }
 
     [Fact]
@@ -582,7 +720,7 @@ public sealed class ShowtimeCancellationApiIntegrationTests
         Assert.Equal(
             "CIN_CANCEL_A",
             redeemedCompensation.Combo.RedeemedAtCinemaId);
-        Assert.Single(await db.Refunds
+        Assert.Empty(await db.Refunds
             .Where(item => item.BookingId == "BKG_CANCEL_A_PAID")
             .ToListAsync());
     }
