@@ -148,12 +148,27 @@ public sealed class NotificationService : INotificationService
             return ServiceResult<bool>.Fail(404, "User not found.", "USER_NOT_FOUND");
         }
 
-        // Use ExecuteUpdateAsync for a single SQL UPDATE instead of loading all rows into memory
-        await _dbContext.Notifications
-            .Where(n => n.UserId == userId && !n.IsRead)
-            .ExecuteUpdateAsync(
+        var unreadNotifications = _dbContext.Notifications
+            .Where(n => n.UserId == userId && !n.IsRead);
+
+        if (_dbContext.Database.IsRelational())
+        {
+            // Keep the single SQL UPDATE for production relational providers.
+            await unreadNotifications.ExecuteUpdateAsync(
                 s => s.SetProperty(n => n.IsRead, true),
                 cancellationToken);
+        }
+        else
+        {
+            // EF InMemory does not translate ExecuteUpdateAsync; update tracked rows for test hosts.
+            var notifications = await unreadNotifications.ToListAsync(cancellationToken);
+            foreach (var notification in notifications)
+            {
+                notification.IsRead = true;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         return ServiceResult<bool>.Ok(true, "All notifications marked as read.");
     }
