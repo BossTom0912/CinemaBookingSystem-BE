@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using CinemaSystem.Contracts.Bookings;
 using CinemaSystem.Contracts.Common;
+using CinemaSystem.Domain.Constants;
 using CinemaSystem.Infrastructure.Persistence;
 using CinemaSystem.Domain.Entities;
 using CinemaSystem.Tests.Infrastructure;
@@ -321,7 +322,10 @@ public sealed class VoucherBookingIntegrationTests
             UsedCount = 0,
             StartDate = DateTime.UtcNow.AddDays(-1),
             EndDate = DateTime.UtcNow.AddDays(10),
-            VoucherStatus = "ACTIVE"
+            VoucherStatus = DomainConstants.VoucherStatus.Active,
+            TargetType = DomainConstants.VoucherTargetType.SpecificCustomers,
+            TargetCustomerIds = customer.CustomerProfileId,
+            IsPrivate = true
         };
         db.Vouchers.Add(voucher100);
 
@@ -336,7 +340,10 @@ public sealed class VoucherBookingIntegrationTests
             UsedCount = 0,
             StartDate = DateTime.UtcNow.AddDays(-1),
             EndDate = DateTime.UtcNow.AddDays(10),
-            VoucherStatus = "ACTIVE"
+            VoucherStatus = DomainConstants.VoucherStatus.Active,
+            TargetType = DomainConstants.VoucherTargetType.SpecificCustomers,
+            TargetCustomerIds = customer.CustomerProfileId,
+            IsPrivate = true
         };
         db.Vouchers.Add(voucher10);
 

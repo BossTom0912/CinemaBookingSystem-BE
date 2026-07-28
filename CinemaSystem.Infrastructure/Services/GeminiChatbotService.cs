@@ -23,14 +23,15 @@ namespace CinemaSystem.Infrastructure.Services;
 /// </remarks>
 public class GeminiChatbotService : IChatbotService
 {
-    // Khởi tạo HttpClient tĩnh dùng chung cho toàn bộ ứng dụng
-    private static readonly HttpClient _httpClient = new HttpClient();
+    private readonly HttpClient _httpClient;
     // Khai báo service xử lý nghiệp vụ phim
     private readonly IMovieService _movieService;
     // Khai báo service xử lý nghiệp vụ lịch chiếu
     private readonly IShowtimeService _showtimeService;
+    private readonly IChatbotVoucherContextProvider _voucherContextProvider;
     // Khai báo cấu hình dành cho Gemini API
     private readonly GeminiSettings _settings;
+    private readonly ChatbotSettings _chatbotSettings;
     // Khai báo DbContext để tương tác với cơ sở dữ liệu
     private readonly CinemaSystem.Infrastructure.Persistence.CinemaDbContext _dbContext;
     // Khai báo IClock để lấy thời gian
@@ -38,18 +39,24 @@ public class GeminiChatbotService : IChatbotService
 
     // Khởi tạo GeminiChatbotService thông qua Dependency Injection
     public GeminiChatbotService(
+        HttpClient httpClient,
         IMovieService movieService,
         IShowtimeService showtimeService,
+        IChatbotVoucherContextProvider voucherContextProvider,
         IOptions<GeminiSettings> settings,
+        IOptions<ChatbotSettings> chatbotSettings,
         CinemaSystem.Infrastructure.Persistence.CinemaDbContext dbContext,
         IClock clock)
     {
+        _httpClient = httpClient;
         // Gán service xử lý phim
         _movieService = movieService;
         // Gán service xử lý lịch chiếu
         _showtimeService = showtimeService;
+        _voucherContextProvider = voucherContextProvider;
         // Lấy giá trị cấu hình Gemini từ Options
         _settings = settings.Value;
+        _chatbotSettings = chatbotSettings.Value;
         // Gán DbContext
         _dbContext = dbContext;
         // Gán Clock
@@ -72,16 +79,9 @@ public class GeminiChatbotService : IChatbotService
             .Where(c => c.CinemaStatus == DomainConstants.CinemaStatus.Active)
             .ToListAsync(cancellationToken);
 
-        // Truy vấn danh sách voucher đang hoạt động, công khai (IsPrivate == false) và còn thời hạn sử dụng
-        var now = _clock.UtcNow;
-        var vouchers = await _dbContext.Vouchers
-            .AsNoTracking()
-            .Where(v => v.VoucherStatus == DomainConstants.VoucherStatus.Active
-                && !v.IsPrivate
-                && v.StartDate <= now
-                && v.EndDate >= now
-                && v.UsedCount < v.UsageLimit)
-            .ToListAsync(cancellationToken);
+        var vouchers = _chatbotSettings.ExposePublicVouchers
+            ? await _voucherContextProvider.GetPublicVouchersAsync(cancellationToken)
+            : Array.Empty<PublicVoucherChatContext>();
 
         // Truy vấn danh sách các bộ phim từ cơ sở dữ liệu (tối đa theo cấu hình)
         var moviesResult = await _movieService.GetMoviesAsync(
@@ -112,15 +112,17 @@ public class GeminiChatbotService : IChatbotService
             contextBuilder.AppendLine("- No active cinemas available at the moment.");
         }
 
-        // 2. Thông tin Voucher hiện có
+        // 2. Chỉ đưa voucher đã được policy xác nhận public vào context gửi Gemini.
         contextBuilder.AppendLine("\nAvailable Active Vouchers & Promotions:");
-        if (vouchers != null && vouchers.Any())
+        if (vouchers.Any())
         {
             foreach (var v in vouchers)
             {
-                var discountStr = v.DiscountType == DomainConstants.DiscountType.Percent ? $"{v.DiscountValue}%" : $"{v.DiscountValue:N0} VND";
-                var minOrderStr = v.MinOrderAmount.HasValue ? $"{v.MinOrderAmount.Value:N0} VND" : "No minimum";
-                contextBuilder.AppendLine($"- Code: {v.VoucherCode} | Title: {v.Title} | Discount: {discountStr} | Description: {v.Description} | Min Order: {minOrderStr} | Expiry Date: {v.EndDate:yyyy-MM-dd HH:mm}");
+                var minOrderStr = v.MinOrderAmount.HasValue
+                    ? $"{v.MinOrderAmount.Value:N0} VND"
+                    : "No minimum";
+                contextBuilder.AppendLine(
+                    $"- Code: {v.Code} | Title: {v.Title} | Discount: {v.Discount} | Min Order: {minOrderStr} | Expiry Date: {v.EndDate:yyyy-MM-dd HH:mm}");
             }
         }
         else
@@ -174,7 +176,7 @@ public class GeminiChatbotService : IChatbotService
            - Bước 6: Thanh toán trực tuyến quét mã QR qua cổng thanh toán SePay. Sau khi giao dịch thành công, mã QR vé điện tử sẽ gửi về email của bạn hoặc hiển thị trong phần lịch sử giao dịch. Bạn chỉ cần đưa mã QR này cho nhân viên soát vé để vào phòng chiếu mà không cần đổi vé giấy.
 
         2. Vouchers & Promotions (Nội dung voucher hiện có):
-           List the active public vouchers from the context dynamically. Emphasize their code, description, discount value, and minimum order requirements. If no vouchers are in the context, let them know they can register a new account to get a welcome voucher or check their personal Wallet.
+           List only the vouchers present in the trusted context. Never infer, reconstruct, or request private, account-bound, refund, compensation, or one-time voucher codes. If no vouchers are in the context, let users know they can check official promotions or their authenticated personal Wallet.
 
         3. Voucher Security & Privacy Rules (Quy tắc bảo mật voucher cá nhân/riêng tư):
            - ONLY disclose public vouchers explicitly provided in the active vouchers list in the context.
@@ -264,7 +266,7 @@ public class GeminiChatbotService : IChatbotService
             // Lưu giữ lại phản hồi của AI
             AiReplyMessage = replyText ?? string.Empty,
             // Ghi nhận thời điểm hiện tại chuẩn UTC
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = _clock.UtcNow
         };
         // Thêm bản ghi lịch sử vào danh sách theo dõi của Entity Framework
         _dbContext.ChatHistories.Add(history);

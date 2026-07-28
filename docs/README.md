@@ -12,6 +12,8 @@ agents discover them there automatically.
   authoritative business rules.
 - [`requirements/movie-theater-srs-v1.2.docx`](requirements/movie-theater-srs-v1.2.docx):
   legacy/reference SRS.
+- [`requirements/staff_role_scope_analysis.md`](requirements/staff_role_scope_analysis.md):
+  Staff role scope and business-rule analysis.
 
 ## Architecture
 
@@ -35,8 +37,20 @@ agents discover them there automatically.
 - [`api/admin-account-provisioning-vi.md`](api/admin-account-provisioning-vi.md):
   SQL deployment, API contract, error handling and FE flow for the
   data-driven Admin account-provisioning feature.
+- [`api/frontend-voucher-api-flow-vi.md`](api/frontend-voucher-api-flow-vi.md):
+  frontend API flow for vouchers and cancellation compensation.
 - [`api/examples/create-order.json`](api/examples/create-order.json)
 - [`api/examples/seat-map.json`](api/examples/seat-map.json)
+
+## Deployment and Integrations
+
+- [`deployment/docker-local-backend-guide-vi.md`](deployment/docker-local-backend-guide-vi.md)
+- [`integrations/frontend-ngrok-guide-vi.md`](integrations/frontend-ngrok-guide-vi.md)
+- [`integrations/vnpay-setup.md`](integrations/vnpay-setup.md)
+
+## Engineering
+
+- [`ai/code-review.md`](ai/code-review.md): project code-review checklist.
 
 ## Database
 
@@ -70,6 +84,6 @@ agents discover them there automatically.
 ## Consolidated Reports and SQL Handoff
 
 Use [`reports/README.md`](reports/README.md) as the single entry point for the
-current `main_local` status, historical reports, database handoff notes,
+current `main` status, historical reports, database handoff notes,
 development fixtures, and the canonical SQL link. Detailed reports remain
 under `reports` for traceability and are not authoritative specifications.

@@ -975,6 +975,12 @@ public sealed class BookingService : IBookingService
             _dbContext.Vouchers.Add(voucher);
         }
 
+        voucher.Category = DomainConstants.VoucherCategory.Compensation;
+        voucher.ApplicableScope = DomainConstants.VoucherScope.Ticket;
+        voucher.TargetType = DomainConstants.VoucherTargetType.SpecificCustomers;
+        voucher.TargetCustomerIds = booking.CustomerProfileId;
+        voucher.IsPrivate = true;
+
         var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
             item => item.CustomerProfileId == booking.CustomerProfileId
                 && item.VoucherId == voucher.VoucherId,
@@ -1024,6 +1030,12 @@ public sealed class BookingService : IBookingService
             };
             _dbContext.Vouchers.Add(voucher);
         }
+
+        voucher.Category = DomainConstants.VoucherCategory.Compensation;
+        voucher.ApplicableScope = DomainConstants.VoucherScope.Ticket;
+        voucher.TargetType = DomainConstants.VoucherTargetType.SpecificCustomers;
+        voucher.TargetCustomerIds = booking.CustomerProfileId;
+        voucher.IsPrivate = true;
 
         var alreadyAssigned = await _dbContext.CustomerVouchers.AnyAsync(
             item => item.CustomerProfileId == booking.CustomerProfileId

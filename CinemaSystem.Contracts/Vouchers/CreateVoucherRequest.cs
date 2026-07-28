@@ -44,11 +44,11 @@ public sealed class CreateVoucherRequest
     [Required]
     public DateTime EndDate { get; init; }
 
-    public string Category { get; init; } = "EVENT"; // EVENT, FOOD_BEVERAGE, COMPENSATION
+    public string Category { get; init; } = DomainConstants.VoucherCategory.Event;
 
-    public string ApplicableScope { get; init; } = "TOTAL_ORDER"; // TOTAL_ORDER, TICKET_ONLY, FOOD_BEVERAGE_ONLY
+    public string ApplicableScope { get; init; } = DomainConstants.VoucherScope.TotalOrder;
 
-    public string TargetType { get; init; } = "ALL_CUSTOMERS"; // ALL_CUSTOMERS, SPECIFIC_CUSTOMERS
+    public string TargetType { get; init; } = DomainConstants.VoucherTargetType.AllCustomers;
 
     public string? TargetCustomerIds { get; init; }
 

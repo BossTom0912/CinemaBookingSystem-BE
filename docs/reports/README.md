@@ -5,18 +5,24 @@ của dự án. Các báo cáo chi tiết vẫn được giữ trong thư mục 
 nhưng không được xem là nguồn thay thế yêu cầu, business rules hoặc schema
 canonical.
 
-## Trạng thái `main_local`
+## Trạng thái `main`
 
-- Mốc tích hợp gần nhất: `36b0364` - merge
-  `origin/voucher_refund_fixLogic` vào `main_local`.
-- Build Release: 0 error, 90 warning nullable.
-- Full regression: 343 passed, 0 failed, 0 skipped.
-- VNPAY và voucher/refund đã cùng tồn tại trên nhánh kiểm thử.
-- Chưa nên merge vào `main` production trước khi xử lý cinema scope của
-  notification và chốt chính sách migration DB khi startup.
+- Mốc tích hợp ngày 28/07/2026 hợp nhất lịch sử `github/main`, `gitlab/main`
+  và nhánh PostgreSQL production đang chạy trên Railway.
+- Luồng rạp hủy lịch chiếu chỉ phát voucher bồi thường, không tạo hoàn tiền
+  mặt; migration dọn các refund trùng đã được áp dụng trên production.
+- Chatbot lấy voucher công khai qua `IChatbotVoucherContextProvider` và
+  `IVoucherAccessPolicy`; mặc định không gửi mã voucher cho Gemini nếu chưa bật
+  `Chatbot:ExposePublicVouchers`.
+- Build Release sau merge: 0 lỗi.
+- Regression tập trung voucher/chatbot/showtime: 51 passed, 0 failed.
+- Full regression: 390 passed, 0 failed, 5 skipped. Năm test PostgreSQL bị skip
+  vì môi trường local không có database test riêng.
 
-Bằng chứng merge, conflict và test:
-[`main-local-voucher-refund-fix-logic-merge-test-2026-07-24.md`](main-local-voucher-refund-fix-logic-merge-test-2026-07-24.md).
+Bằng chứng mới nhất:
+
+- [`showtime-cancellation-no-refund-hotfix-deploy-2026-07-28.md`](showtime-cancellation-no-refund-hotfix-deploy-2026-07-28.md)
+- [`chatbot-voucher-security-test-report-2026-07-28.md`](chatbot-voucher-security-test-report-2026-07-28.md)
 
 ## SQL duy nhất được hỗ trợ
 
@@ -62,6 +68,8 @@ Khi nội dung refund giữa các báo cáo cũ khác với chính sách hiện 
 
 | Phạm vi | Báo cáo |
 |---|---|
+| Hủy lịch chiếu không hoàn tiền mặt + Railway production | [`showtime-cancellation-no-refund-hotfix-deploy-2026-07-28.md`](showtime-cancellation-no-refund-hotfix-deploy-2026-07-28.md) |
+| Bảo vệ voucher private khỏi chatbot | [`chatbot-voucher-security-test-report-2026-07-28.md`](chatbot-voucher-security-test-report-2026-07-28.md) |
 | Resend production + đăng ký/OTP/login E2E | [`resend-production-deployment-e2e-2026-07-27.md`](resend-production-deployment-e2e-2026-07-27.md) |
 | Railway + Neon PostgreSQL crash | [`railway-neon-postgresql-crash-fix-2026-07-27.md`](railway-neon-postgresql-crash-fix-2026-07-27.md) |
 | PostgreSQL production clone + Render staging | [`postgresql-production-clone-staging-test-2026-07-27.md`](postgresql-production-clone-staging-test-2026-07-27.md) |
