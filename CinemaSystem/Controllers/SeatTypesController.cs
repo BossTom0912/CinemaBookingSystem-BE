@@ -41,6 +41,14 @@ public sealed class SeatTypesController : ControllerBase
             request,
             cancellationToken));
 
+    [HttpDelete("{seatTypeId}")]
+    public async Task<IActionResult> Delete(
+        string seatTypeId,
+        CancellationToken cancellationToken)
+        => ToActionResult(await _service.DeleteAsync(
+            seatTypeId,
+            cancellationToken));
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success

@@ -125,6 +125,39 @@ public sealed class SeatTypeCatalogService : ISeatTypeCatalogService
             "Seat type updated.");
     }
 
+    public async Task<ServiceResult<bool>> DeleteAsync(
+        string seatTypeId,
+        CancellationToken cancellationToken)
+    {
+        var seatType = await _dbContext.SeatTypes
+            .FirstOrDefaultAsync(item => item.SeatTypeId == seatTypeId, cancellationToken);
+        if (seatType is null)
+        {
+            return ServiceResult<bool>.Fail(
+                404,
+                "Seat type not found.",
+                "SEAT_TYPE_NOT_FOUND");
+        }
+
+        var isInUse = await _dbContext.Seats
+            .AsNoTracking()
+            .AnyAsync(item => item.SeatTypeId == seatTypeId, cancellationToken);
+        if (isInUse)
+        {
+            return ServiceResult<bool>.Fail(
+                409,
+                "Seat type is still assigned to one or more seats.",
+                "SEAT_TYPE_IN_USE");
+        }
+
+        _dbContext.SeatTypes.Remove(seatType);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<bool>.Ok(
+            true,
+            "Seat type deleted.");
+    }
+
     private async Task<bool> NameExistsAsync(
         string typeName,
         string? excludedSeatTypeId,

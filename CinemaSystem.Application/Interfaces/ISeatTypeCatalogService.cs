@@ -17,4 +17,8 @@ public interface ISeatTypeCatalogService
         string seatTypeId,
         UpsertSeatTypeRequest request,
         CancellationToken cancellationToken);
+
+    Task<ServiceResult<bool>> DeleteAsync(
+        string seatTypeId,
+        CancellationToken cancellationToken);
 }
