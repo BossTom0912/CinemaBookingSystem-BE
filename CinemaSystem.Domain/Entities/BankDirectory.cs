@@ -11,6 +11,4 @@ public sealed class BankDirectory
     public bool SupportsPayout { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
-
-    public ICollection<RefundClaim> RefundClaims { get; set; } = new List<RefundClaim>();
 }

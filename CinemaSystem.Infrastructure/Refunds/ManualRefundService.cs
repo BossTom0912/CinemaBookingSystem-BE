@@ -52,7 +52,6 @@ public sealed class ManualRefundService : IManualRefundService
             .AsNoTracking()
             .Include(item => item.CustomerConfirmation)
             .Include(item => item.RefundClaim)
-                .ThenInclude(item => item.Bank)
             .Include(item => item.Refund)
                 .ThenInclude(item => item.Booking)
                     .ThenInclude(item => item.Showtime)
@@ -350,7 +349,7 @@ public sealed class ManualRefundService : IManualRefundService
             CinemaName = process.Refund.Booking.Showtime.Room.Cinema.CinemaName,
             ShowtimeStartTime = process.Refund.Booking.Showtime.StartTime,
             BankCode = process.RefundClaim.BankCode ?? string.Empty,
-            BankName = process.RefundClaim.Bank?.ShortName ?? string.Empty,
+            BankName = process.RefundClaim.BankCode ?? string.Empty,
             AccountNumber = process.RefundClaim.BankAccountEncrypted is null
                 ? string.Empty
                 : _protector.Unprotect(process.RefundClaim.BankAccountEncrypted),

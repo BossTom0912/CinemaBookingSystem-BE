@@ -197,7 +197,6 @@ public sealed class RefundCustomerConfirmationService : IRefundCustomerConfirmat
         => await _db.ManualRefundProcesses
             .Include(item => item.CustomerConfirmation)
             .Include(item => item.RefundClaim)
-                .ThenInclude(item => item.Bank)
             .Include(item => item.Refund)
                 .ThenInclude(item => item.Booking)
                     .ThenInclude(item => item.CustomerProfile)
@@ -227,7 +226,6 @@ public sealed class RefundCustomerConfirmationService : IRefundCustomerConfirmat
                     .ThenInclude(item => item.CustomerProfile)
             .Include(item => item.ManualRefundProcess)
                 .ThenInclude(item => item.RefundClaim)
-                    .ThenInclude(item => item.Bank)
             .Include(item => item.ManualRefundProcess)
                 .ThenInclude(item => item.Refund)
                     .ThenInclude(item => item.Booking)
@@ -267,7 +265,7 @@ public sealed class RefundCustomerConfirmationService : IRefundCustomerConfirmat
                     showtime.Room.RoomName,
                     showtime.StartTime,
                     seatCodes,
-                    process.RefundClaim.Bank?.FullName ?? process.RefundClaim.BankCode,
+                    process.RefundClaim.BankCode,
                     account,
                     accountHolderName,
                     expiresAt,
@@ -301,7 +299,7 @@ public sealed class RefundCustomerConfirmationService : IRefundCustomerConfirmat
                 .OrderBy(item => item, StringComparer.Ordinal)
                 .ToList(),
             BankCode = process.RefundClaim.BankCode,
-            BankName = process.RefundClaim.Bank?.FullName,
+            BankName = process.RefundClaim.BankCode,
             BankAccountNumber = process.RefundClaim.BankAccountEncrypted is null
                 ? null
                 : _protector.Unprotect(process.RefundClaim.BankAccountEncrypted),

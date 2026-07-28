@@ -46,22 +46,13 @@ public sealed class RefundClaimService : IRefundClaimService
         _logger = logger;
     }
 
-    public async Task<ServiceResult<IReadOnlyList<BankResponse>>> GetBanksAsync(
+    public Task<ServiceResult<IReadOnlyList<BankResponse>>> GetBanksAsync(
         CancellationToken cancellationToken)
     {
-        var banks = await _db.BankDirectories
-            .AsNoTracking()
-            .Where(item => item.IsActive)
-            .OrderBy(item => item.ShortName)
-            .Select(item => new BankResponse
-            {
-                BankCode = item.BankCode,
-                BankBin = item.BankBin,
-                ShortName = item.ShortName,
-                FullName = item.FullName
-            })
-            .ToListAsync(cancellationToken);
-        return ServiceResult<IReadOnlyList<BankResponse>>.Ok(banks);
+        IReadOnlyList<BankResponse> noSuggestions = Array.Empty<BankResponse>();
+        return Task.FromResult(ServiceResult<IReadOnlyList<BankResponse>>.Ok(
+            noSuggestions,
+            "Bank suggestions are disabled. Enter the receiving bank directly."));
     }
 
     public async Task<ServiceResult<RefundClaimResponse>> ResolveAsync(
@@ -82,8 +73,6 @@ public sealed class RefundClaimService : IRefundClaimService
                         .ThenInclude(item => item.Showtime)
                             .ThenInclude(item => item.Room)
                                 .ThenInclude(item => item.Cinema)
-            .Include(item => item.RefundClaim)
-                .ThenInclude(item => item.Bank)
             .FirstOrDefaultAsync(item => item.TokenHash == tokenHash, cancellationToken);
 
         if (token is null)
@@ -156,21 +145,10 @@ public sealed class RefundClaimService : IRefundClaimService
                 BookingConstants.RefundErrorCodes.RefundClaimNotEditable);
         }
 
-        var bankCode = request.BankCode.Trim().ToUpperInvariant();
-        var bank = await _db.BankDirectories
-            .FirstOrDefaultAsync(item => item.BankCode == bankCode && item.IsActive, cancellationToken);
-        if (bank is null)
-        {
-            return FailClaim(
-                (int)HttpStatusCode.BadRequest,
-                "Bank code is not supported.",
-                BookingConstants.RefundErrorCodes.BankNotSupported);
-        }
-
+        var bankName = NormalizeBankName(request.BankCode);
         var accountNumber = request.AccountNumber.Trim();
         var holderName = NormalizeHolderName(request.AccountHolderName);
-        claim.BankCode = bank.BankCode;
-        claim.Bank = bank;
+        claim.BankCode = bankName;
         claim.BankAccountEncrypted = _protector.Protect(accountNumber);
         claim.BankAccountLast4 = accountNumber[
             ^Math.Min(RefundContractConstants.BankAccountVisibleSuffixLength, accountNumber.Length)..];
@@ -339,7 +317,6 @@ public sealed class RefundClaimService : IRefundClaimService
         CancellationToken cancellationToken)
     {
         return await _db.RefundClaims
-            .Include(item => item.Bank)
             .Include(item => item.Tokens)
             .Include(item => item.ManualRefundProcess)
             .Include(item => item.Refund)
@@ -374,7 +351,7 @@ public sealed class RefundClaimService : IRefundClaimService
             CinemaName = claim.Refund.Booking.Showtime.Room.Cinema.CinemaName,
             ShowtimeStartTime = claim.Refund.Booking.Showtime.StartTime,
             BankCode = claim.BankCode,
-            BankName = claim.Bank?.ShortName,
+            BankName = claim.BankCode,
             MaskedAccountNumber = claim.BankAccountLast4 is null
                 ? null
                 : $"{RefundContractConstants.MaskedAccountPrefix}{claim.BankAccountLast4}",
@@ -444,6 +421,12 @@ public sealed class RefundClaimService : IRefundClaimService
     private static string NormalizeHolderName(string value)
     {
         return string.Join(' ', value.Trim().ToUpperInvariant()
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string NormalizeBankName(string value)
+    {
+        return string.Join(' ', value.Trim()
             .Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 

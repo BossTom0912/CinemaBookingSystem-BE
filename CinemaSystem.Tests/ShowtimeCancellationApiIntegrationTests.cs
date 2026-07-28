@@ -110,6 +110,74 @@ public sealed class ShowtimeCancellationApiIntegrationTests
     }
 
     [Fact]
+    public async Task SaveBankAccount_CustomerEnteredBankName_DoesNotRequireDirectoryMatch()
+    {
+        await using var factory = new CinemaWebApplicationFactory();
+        await SeedCancellationDataAsync(factory);
+
+        using (var managerClient = factory.CreateClient())
+        {
+            managerClient.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", TestAuthTokens.Manager());
+            var cancelResponse = await managerClient.PostAsJsonAsync(
+                "/api/manager/showtimes/SHW_CANCEL_A/cancel",
+                new CancelShowtimeRequest { Reason = "Refund bank input coverage" });
+            Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+        }
+
+        string claimId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+            claimId = await db.RefundClaims
+                .Where(item => item.CustomerProfileId == "CUS_CANCEL_A")
+                .Select(item => item.RefundClaimId)
+                .SingleAsync();
+            Assert.Empty(await db.BankDirectories.ToListAsync());
+        }
+
+        using var customerClient = factory.CreateClient();
+        customerClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Bearer",
+                TestAuthTokens.Customer("USR_CANCEL_CUSTOMER_A"));
+
+        var lowerCaseResponse = await customerClient.PutAsJsonAsync(
+            $"/api/customer/refund-claims/{claimId}/bank-account",
+            new SaveRefundBankAccountRequest
+            {
+                BankCode = "tpbank",
+                AccountNumber = "0066094539999",
+                AccountHolderName = "TRAN DOAN THANH HA"
+            });
+        var lowerCaseBody = await DeserializeAsync<ApiResponse<RefundClaimResponse>>(lowerCaseResponse);
+
+        Assert.Equal(HttpStatusCode.OK, lowerCaseResponse.StatusCode);
+        Assert.True(lowerCaseBody!.Success);
+        Assert.Equal("tpbank", lowerCaseBody.Data!.BankCode);
+        Assert.Equal("tpbank", lowerCaseBody.Data.BankName);
+
+        var upperCaseResponse = await customerClient.PutAsJsonAsync(
+            $"/api/customer/refund-claims/{claimId}/bank-account",
+            new SaveRefundBankAccountRequest
+            {
+                BankCode = "TPBANK",
+                AccountNumber = "0066094539999",
+                AccountHolderName = "TRAN DOAN THANH HA"
+            });
+        var upperCaseBody = await DeserializeAsync<ApiResponse<RefundClaimResponse>>(upperCaseResponse);
+
+        Assert.Equal(HttpStatusCode.OK, upperCaseResponse.StatusCode);
+        Assert.Equal("TPBANK", upperCaseBody!.Data!.BankCode);
+        Assert.Equal("TPBANK", upperCaseBody.Data.BankName);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var storedClaim = await verificationDb.RefundClaims.SingleAsync(item => item.RefundClaimId == claimId);
+        Assert.Equal("TPBANK", storedClaim.BankCode);
+    }
+
+    [Fact]
     public async Task CancelShowtime_ZeroAmountPaidBookingWithoutPayment_IssuesCompensation()
     {
         await using var factory = new CinemaWebApplicationFactory();
@@ -810,16 +878,6 @@ public sealed class ShowtimeCancellationApiIntegrationTests
             ProviderName = "SEPAY_CANCEL",
             ProviderStatus = "ACTIVE"
         });
-        db.BankDirectories.Add(new BankDirectory
-        {
-            BankCode = "VCB",
-            BankBin = "970436",
-            ShortName = "Vietcombank",
-            FullName = "Joint Stock Commercial Bank for Foreign Trade of Vietnam",
-            IsActive = true,
-            CreatedAt = now
-        });
-
         db.Bookings.AddRange(
             new Booking
             {

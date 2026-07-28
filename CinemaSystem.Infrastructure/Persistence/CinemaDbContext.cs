@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CinemaSystem.Contracts.Refunds;
 using CinemaSystem.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -995,7 +996,9 @@ public partial class CinemaDbContext : DbContext
             entity.Property(e => e.RefundClaimId).HasMaxLength(50).HasColumnName("refundClaimId");
             entity.Property(e => e.RefundId).HasMaxLength(50).HasColumnName("refundId");
             entity.Property(e => e.CustomerProfileId).HasMaxLength(50).HasColumnName("customerProfileId");
-            entity.Property(e => e.BankCode).HasMaxLength(20).HasColumnName("bankCode");
+            entity.Property(e => e.BankCode)
+                .HasMaxLength(RefundContractConstants.RefundBankNameMaxLength)
+                .HasColumnName("bankCode");
             entity.Property(e => e.ClaimStatus).HasMaxLength(30).HasColumnName("claimStatus");
             entity.Property(e => e.AccountValidationStatus).HasMaxLength(30).HasColumnName("accountValidationStatus");
             entity.Property(e => e.BankAccountEncrypted).HasColumnName("bankAccountEncrypted");
@@ -1020,9 +1023,6 @@ public partial class CinemaDbContext : DbContext
                 .HasForeignKey(e => e.CustomerProfileId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_REFUND_CLAIM_CUSTOMER_PROFILE");
-            entity.HasOne(e => e.Bank).WithMany(e => e.RefundClaims)
-                .HasForeignKey(e => e.BankCode)
-                .HasConstraintName("FK_REFUND_CLAIM_BANK_DIRECTORY");
         });
 
         modelBuilder.Entity<RefundClaimToken>(entity =>

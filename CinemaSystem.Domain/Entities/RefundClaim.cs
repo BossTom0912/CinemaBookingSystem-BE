@@ -25,7 +25,6 @@ public sealed class RefundClaim
 
     public Refund Refund { get; set; } = null!;
     public CustomerProfile CustomerProfile { get; set; } = null!;
-    public BankDirectory? Bank { get; set; }
     public ICollection<RefundClaimToken> Tokens { get; set; } = new List<RefundClaimToken>();
     public ManualRefundProcess? ManualRefundProcess { get; set; }
 }

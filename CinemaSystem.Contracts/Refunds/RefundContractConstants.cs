@@ -20,6 +20,7 @@ public static class RefundContractConstants
     public const int ClaimTokenMaxLength = 500;
 
     public const int BankCodeMaxLength = 20;
+    public const int RefundBankNameMaxLength = 100;
     public const int BankBinMaxLength = 20;
     public const int BankShortNameMaxLength = 100;
     public const int BankFullNameMaxLength = 255;

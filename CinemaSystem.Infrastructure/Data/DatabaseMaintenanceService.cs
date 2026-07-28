@@ -629,6 +629,19 @@ public sealed class DatabaseMaintenanceService : IDatabaseMaintenanceService
             return false;
         }
 
+        // The first PostgreSQL baseline constrained customer-entered bank text
+        // to the old 20-character bank-code shape. Allow only that exact legacy
+        // width so the later free-form-bank migration can widen it safely.
+        if (expected.Table == "REFUND_CLAIM"
+            && expected.Column == "bankCode"
+            && NormalizeStoreType(expected.StoreType) == "charactervarying(100)"
+            && NormalizeStoreType(actual.StoreType) == "charactervarying(20)"
+            && !hasNullabilityMismatch
+            && !hasDefaultMismatch)
+        {
+            return false;
+        }
+
         // The first PostgreSQL deployment predates the trigger/default migration.
         // Accept only the exact legacy rowVersion shape so the next migration can
         // backfill values and install the sequence-backed default and trigger.

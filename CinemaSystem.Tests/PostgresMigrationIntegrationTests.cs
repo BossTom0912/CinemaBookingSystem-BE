@@ -54,6 +54,22 @@ public sealed class PostgresMigrationIntegrationTests
               AND constraint_meta.contype = 'c'
               AND constraint_meta.convalidated;
             """));
+        Assert.Equal(100, await database.ScalarAsync<int>(
+            """
+            SELECT character_maximum_length::integer
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'REFUND_CLAIM'
+              AND column_name = 'bankCode';
+            """));
+        Assert.Equal(0, await database.ScalarAsync<int>(
+            """
+            SELECT count(*)::integer
+            FROM information_schema.table_constraints
+            WHERE constraint_schema = current_schema()
+              AND table_name = 'REFUND_CLAIM'
+              AND constraint_name = 'FK_REFUND_CLAIM_BANK_DIRECTORY';
+            """));
         Assert.Equal(10, await database.ScalarAsync<int>(
             """
             SELECT count(*)::integer
@@ -113,6 +129,14 @@ public sealed class PostgresMigrationIntegrationTests
             ALTER TABLE "MANUAL_REFUND_PROCESS" ALTER COLUMN "rowVersion" DROP DEFAULT;
             ALTER TABLE "COMPENSATION_TICKET" ALTER COLUMN "rowVersion" DROP DEFAULT;
             ALTER TABLE "COMPENSATION_COMBO" ALTER COLUMN "rowVersion" DROP DEFAULT;
+
+            ALTER TABLE "REFUND_CLAIM"
+                ALTER COLUMN "bankCode" TYPE character varying(20);
+            CREATE INDEX "IX_REFUND_CLAIM_bankCode"
+                ON "REFUND_CLAIM" ("bankCode");
+            ALTER TABLE "REFUND_CLAIM"
+                ADD CONSTRAINT "FK_REFUND_CLAIM_BANK_DIRECTORY"
+                FOREIGN KEY ("bankCode") REFERENCES "BANK_DIRECTORY" ("bankCode");
             """);
 
         await database.MigrateAsync();
