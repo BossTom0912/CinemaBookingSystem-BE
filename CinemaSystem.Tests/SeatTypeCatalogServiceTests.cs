@@ -61,6 +61,84 @@ public sealed class SeatTypeCatalogServiceTests
         Assert.Equal("SEAT_TYPE_NOT_FOUND", result.ErrorCode);
     }
 
+    [Fact]
+    public async Task GetAllAsync_ReturnsGlobalUsageCount()
+    {
+        await using var dbContext = CreateDbContext();
+        dbContext.SeatTypes.Add(CreateSeatType("TYPE_USED", "USED"));
+        dbContext.Seats.Add(new Seat
+        {
+            SeatId = "SEAT_1",
+            RoomId = "ROOM_1",
+            SeatTypeId = "TYPE_USED",
+            SeatCode = "A1",
+            RowLabel = "A",
+            SeatNumber = 1,
+            IsActive = true
+        });
+        await dbContext.SaveChangesAsync();
+
+        var service = new SeatTypeCatalogService(dbContext);
+        var result = await service.GetAllAsync(true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, Assert.Single(result.Data!).UsageCount);
+    }
+
+    [Fact]
+    public async Task MergeAsync_CompatibleSeatTypes_ReassignsSeatsAndDeletesSource()
+    {
+        await using var dbContext = CreateDbContext();
+        dbContext.SeatTypes.AddRange(
+            CreateSeatType("TYPE_SOURCE", "SOURCE"),
+            CreateSeatType("TYPE_TARGET", "TARGET"));
+        dbContext.Seats.Add(new Seat
+        {
+            SeatId = "SEAT_1",
+            RoomId = "ROOM_1",
+            SeatTypeId = "TYPE_SOURCE",
+            SeatCode = "A1",
+            RowLabel = "A",
+            SeatNumber = 1,
+            IsActive = true
+        });
+        await dbContext.SaveChangesAsync();
+
+        var service = new SeatTypeCatalogService(dbContext);
+        var result = await service.MergeAsync(
+            "TYPE_SOURCE",
+            "TYPE_TARGET",
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.Data);
+        Assert.False(await dbContext.SeatTypes.AnyAsync(
+            item => item.SeatTypeId == "TYPE_SOURCE"));
+        Assert.Equal("TYPE_TARGET", (await dbContext.Seats.SingleAsync()).SeatTypeId);
+    }
+
+    [Fact]
+    public async Task MergeAsync_IncompatibleSeatTypes_ReturnsConflict()
+    {
+        await using var dbContext = CreateDbContext();
+        var source = CreateSeatType("TYPE_SOURCE", "SOURCE");
+        var target = CreateSeatType("TYPE_TARGET", "TARGET");
+        target.ExtraFee = 10000;
+        dbContext.SeatTypes.AddRange(source, target);
+        await dbContext.SaveChangesAsync();
+
+        var service = new SeatTypeCatalogService(dbContext);
+        var result = await service.MergeAsync(
+            "TYPE_SOURCE",
+            "TYPE_TARGET",
+            CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(409, result.StatusCode);
+        Assert.Equal("SEAT_TYPE_MERGE_INCOMPATIBLE", result.ErrorCode);
+        Assert.Equal(2, await dbContext.SeatTypes.CountAsync());
+    }
+
     private static SeatType CreateSeatType(string id, string name) => new()
     {
         SeatTypeId = id,

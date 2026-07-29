@@ -49,6 +49,16 @@ public sealed class SeatTypesController : ControllerBase
             seatTypeId,
             cancellationToken));
 
+    [HttpPost("{seatTypeId}/merge")]
+    public async Task<IActionResult> Merge(
+        string seatTypeId,
+        MergeSeatTypeRequest request,
+        CancellationToken cancellationToken)
+        => ToActionResult(await _service.MergeAsync(
+            seatTypeId,
+            request.ReplacementSeatTypeId,
+            cancellationToken));
+
     private ObjectResult ToActionResult<T>(ServiceResult<T> result)
     {
         var response = result.Success

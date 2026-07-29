@@ -38,7 +38,8 @@ public sealed class SeatTypeCatalogService : ISeatTypeCatalogService
                 ExtraFee = item.ExtraFee,
                 SeatSpan = item.SeatSpan,
                 IsActive = item.IsActive,
-                SortOrder = item.SortOrder
+                SortOrder = item.SortOrder,
+                UsageCount = item.Seats.Count
             })
             .ToListAsync(cancellationToken);
 
@@ -158,6 +159,69 @@ public sealed class SeatTypeCatalogService : ISeatTypeCatalogService
             "Seat type deleted.");
     }
 
+    public async Task<ServiceResult<int>> MergeAsync(
+        string seatTypeId,
+        string replacementSeatTypeId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(replacementSeatTypeId) ||
+            string.Equals(seatTypeId, replacementSeatTypeId, StringComparison.Ordinal))
+        {
+            return ServiceResult<int>.Fail(
+                400,
+                "Replacement seat type must be different from the source seat type.",
+                "INVALID_REPLACEMENT_SEAT_TYPE");
+        }
+
+        var seatTypes = await _dbContext.SeatTypes
+            .Where(item => item.SeatTypeId == seatTypeId ||
+                item.SeatTypeId == replacementSeatTypeId)
+            .ToListAsync(cancellationToken);
+        var source = seatTypes.FirstOrDefault(item => item.SeatTypeId == seatTypeId);
+        if (source is null)
+        {
+            return ServiceResult<int>.Fail(
+                404,
+                "Seat type not found.",
+                "SEAT_TYPE_NOT_FOUND");
+        }
+
+        var replacement = seatTypes.FirstOrDefault(
+            item => item.SeatTypeId == replacementSeatTypeId);
+        if (replacement is null)
+        {
+            return ServiceResult<int>.Fail(
+                404,
+                "Replacement seat type not found.",
+                "REPLACEMENT_SEAT_TYPE_NOT_FOUND");
+        }
+
+        if (!replacement.IsActive ||
+            source.SeatSpan != replacement.SeatSpan ||
+            source.ExtraFee != replacement.ExtraFee)
+        {
+            return ServiceResult<int>.Fail(
+                409,
+                "Seat types must have the same seat span and extra fee before merging.",
+                "SEAT_TYPE_MERGE_INCOMPATIBLE");
+        }
+
+        var seats = await _dbContext.Seats
+            .Where(item => item.SeatTypeId == seatTypeId)
+            .ToListAsync(cancellationToken);
+        foreach (var seat in seats)
+        {
+            seat.SeatTypeId = replacementSeatTypeId;
+        }
+
+        _dbContext.SeatTypes.Remove(source);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<int>.Ok(
+            seats.Count,
+            $"Seat type merged into {replacement.TypeName}.");
+    }
+
     private async Task<bool> NameExistsAsync(
         string typeName,
         string? excludedSeatTypeId,
@@ -201,7 +265,8 @@ public sealed class SeatTypeCatalogService : ISeatTypeCatalogService
             ExtraFee = seatType.ExtraFee,
             SeatSpan = seatType.SeatSpan,
             IsActive = seatType.IsActive,
-            SortOrder = seatType.SortOrder
+            SortOrder = seatType.SortOrder,
+            UsageCount = seatType.Seats.Count
         };
     }
 }
